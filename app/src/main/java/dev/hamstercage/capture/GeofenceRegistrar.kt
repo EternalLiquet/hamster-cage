@@ -20,6 +20,7 @@ import kotlinx.coroutines.sync.withLock
 class GeofenceRegistrar(
     context: Context,
     private val client: GeofencingClient = LocationServices.getGeofencingClient(context.applicationContext),
+    private val operations: FenceOperations = PlayServicesFenceOperations(client),
 ) {
     private val application = context.applicationContext
     private val lock = Mutex()
@@ -32,12 +33,16 @@ class GeofenceRegistrar(
         val permitted = application.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
             (Build.VERSION.SDK_INT < 29 || application.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED)
         if (!ready || !permitted) {
-            lastApplied = null
-            // Revocation usually clears platform monitoring. A best-effort removal also
-            // prevents stale boundaries when setup was disabled while the app was closed.
-            try { client.removeGeofences(pendingIntent()).await() }
+            // Revocation usually clears platform monitoring, but a failed removal
+            // leaves the platform's actual state unknown. Retry on the next sync.
+            try { operations.remove(pendingIntent()) }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { Unit }
+            catch (_: Exception) {
+                return@withLock CaptureStatus(RegistrationStatus.FAILED).also {
+                    CaptureHealth.registration(it.registration)
+                }
+            }
+            lastApplied = null
             return@withLock CaptureStatus(RegistrationStatus.NEEDS_SETUP).also {
                 CaptureHealth.registration(it.registration)
             }
@@ -46,7 +51,7 @@ class GeofenceRegistrar(
             if (sorted.isEmpty()) RegistrationStatus.NO_OFFICES else RegistrationStatus.ACTIVE, sorted.size)
         CaptureHealth.registration(RegistrationStatus.REGISTERING)
         try {
-            client.removeGeofences(pendingIntent()).await()
+            operations.remove(pendingIntent())
             // Initial trigger zero avoids treating "already inside at registration" as
             // an observed entry. The first credited entry must be a real transition.
             sorted.forEach { office ->
@@ -56,8 +61,8 @@ class GeofenceRegistrar(
                     .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
                     .setExpirationDuration(Geofence.NEVER_EXPIRE)
                     .build()
-                client.addGeofences(GeofencingRequest.Builder().setInitialTrigger(0)
-                    .addGeofence(boundary).build(), pendingIntent()).await()
+                operations.add(GeofencingRequest.Builder().setInitialTrigger(0)
+                    .addGeofence(boundary).build(), pendingIntent())
             }
             lastApplied = sorted
             CaptureStatus(if (sorted.isEmpty()) RegistrationStatus.NO_OFFICES else RegistrationStatus.ACTIVE, sorted.size).also {
@@ -67,7 +72,7 @@ class GeofenceRegistrar(
         catch (_: Exception) {
             lastApplied = null
             // A partially added set is not a healthy registration. Clear it if possible.
-            try { client.removeGeofences(pendingIntent()).await() }
+            try { operations.remove(pendingIntent()) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { Unit }
             CaptureStatus(RegistrationStatus.FAILED).also { CaptureHealth.registration(it.registration) }
@@ -86,5 +91,18 @@ class GeofenceRegistrar(
 
     companion object {
         const val ACTION = "dev.hamstercage.action.GEOFENCE_TRANSITION"
+    }
+}
+
+/** Narrow platform seam for deterministic failed-remove coverage. */
+interface FenceOperations {
+    suspend fun remove(intent: PendingIntent)
+    suspend fun add(request: GeofencingRequest, intent: PendingIntent)
+}
+
+private class PlayServicesFenceOperations(private val client: GeofencingClient) : FenceOperations {
+    override suspend fun remove(intent: PendingIntent) { client.removeGeofences(intent).await() }
+    override suspend fun add(request: GeofencingRequest, intent: PendingIntent) {
+        client.addGeofences(request, intent).await()
     }
 }
