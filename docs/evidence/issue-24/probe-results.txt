@@ -1,0 +1,5 @@
+Android API37 emulator-5554; synthetic data only.
+DashboardSecurityUiTest: OK (2 tests), 5.975 seconds.
+Captured app-private Compose screenshot and inspected it separately.
+Recent logcat lines inspected: 3104; synthetic office/raw IDs, private note and combined coordinate sentinel absent. This bounds the checked run; no general no-log claim.
+Built debug APK: binary manifest has no INTERNET permission; both compiled backup resources retain every audited domain exclusion; no database/preferences/private key or test screenshot archive entries.
