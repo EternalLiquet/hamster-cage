@@ -46,9 +46,14 @@ def main():
         check("exercise")
         adb("shell", "am", "force-stop", PACKAGE)
         check("restart")
+        check("delete")
+        adb("shell", "am", "force-stop", PACKAGE)
+        check("deleted-restart")
         receipt = json.loads(adb("exec-out", "run-as", PACKAGE, "cat", "files/synthetic-offline-journey.json"))
         if not receipt.get("freshProcessVerified") or receipt["pid"] == receipt["reopenedPid"]:
             raise RuntimeError("A different app process did not verify the saved record")
+        if not receipt.get("deletedRestartVerified") or receipt["deletedPid"] == receipt["afterDeleteReopenedPid"]:
+            raise RuntimeError("Confirmed deletion did not remain deleted in a different process")
         receipt.update(sourceSha=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                        api=adb("shell", "getprop", "ro.build.version.sdk").strip(),
                        serial=args.serial, networking="Wi-Fi and mobile data disabled during journey",
@@ -56,7 +61,7 @@ def main():
         output = ROOT / "app/build/reports/offline-journey"
         output.mkdir(parents=True, exist_ok=True)
         (output / "RESULT.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-        print("PASS: real Activity office/capture-fixture/correction/calendar flow, offline and denied-location operation, Activity recreation and fresh-process persistence")
+        print("PASS: real Activity office/capture-fixture/correction/calendar flow, offline and denied-location operation, Activity recreation, fresh-process persistence and confirmed privacy deletion/restart")
     finally:
         if wifi == "1":
             adb("shell", "svc", "wifi", "enable")
