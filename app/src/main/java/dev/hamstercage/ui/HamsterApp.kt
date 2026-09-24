@@ -40,6 +40,7 @@ import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.capture.RegistrationStatus
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.data.StorageState
+import dev.hamstercage.data.PolicySettings
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -62,10 +63,11 @@ fun HamsterApp(
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
     trackingReady: Boolean = false,
     officeActions: OfficeActions? = null,
+    savePolicy: (suspend (PolicySettings, PolicySettings) -> Unit)? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
-    val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD)
+    val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD || selected == Destination.HISTORY)
     val snapshot = (storageState as? StorageState.Ready)?.snapshot
     val displayZone = snapshot?.policy?.zoneId ?: zoneId
     val effectiveTrackingReady = if (coverage == null) trackingReady else
@@ -138,7 +140,7 @@ fun HamsterApp(
                 }
                 PageHeading(selected.label, now.atZone(displayZone).toLocalDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")))
                 Tag("LOCAL ONLY", warm = true)
-                if (selected == Destination.DASHBOARD) {
+                if (selected == Destination.DASHBOARD || selected == Destination.HISTORY) {
                     when {
                         snapshot != null -> {
                             val input = remember(snapshot, now, coverage) {
@@ -146,19 +148,24 @@ fun HamsterApp(
                                     unknownDates = coverage?.unreviewedUnknownDates.orEmpty())
                             }
                             val result = remember(input) { AttendanceEngine.derive(input) }
-                            DashboardScreen(input, result, effectiveTrackingReady,
-                                openOffices = { selectedName = Destination.OFFICES.name },
-                                openHistory = { selectedName = Destination.HISTORY.name })
-                            if (coverage?.unreviewedUnknownDates?.isNotEmpty() == true)
-                                Notice("Attendance coverage needs review",
-                                    "Detection was unavailable for one or more dates. Recorded time remains, but missing time is unknown.",
-                                    "Review history", { selectedName = Destination.HISTORY.name })
+                            if (selected == Destination.HISTORY) HistoryScreen(input, result)
+                            else {
+                                DashboardScreen(input, result, effectiveTrackingReady,
+                                    openOffices = { selectedName = Destination.OFFICES.name },
+                                    openHistory = { selectedName = Destination.HISTORY.name })
+                                if (coverage?.unreviewedUnknownDates?.isNotEmpty() == true)
+                                    Notice("Attendance coverage needs review",
+                                        "Detection was unavailable for one or more dates. Recorded time remains, but missing time is unknown.",
+                                        "Review history", { selectedName = Destination.HISTORY.name })
+                            }
                         }
                         storageState == StorageState.Loading -> Text("Opening your local record…")
                         else -> Unit // The sanitized storage failure notice above remains the only data state.
                     }
                 } else if (selected == Destination.OFFICES && officeActions != null) {
                     OfficeScreen(storageState, officeActions)
+                } else if (selected == Destination.SETTINGS && savePolicy != null) {
+                    PolicyScreen(storageState, savePolicy)
                 } else Notice("Ready for the next step", selected.description)
 
                 if (selected == Destination.OFFICES || selected == Destination.SETTINGS) {
