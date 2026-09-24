@@ -86,7 +86,14 @@ class GeofenceRegistrar(
     }
 
     private suspend fun removeCurrentAndPrevious(generation: Long) {
-        if (generation > 0) operations.remove(pendingIntent(generation - 1))
+        // A failed removal at an earlier generation must still be retried after
+        // another history delete. The journal generation is durable, while the
+        // registrar's in-memory last-applied generation is not.
+        var prior = 0L
+        while (prior < generation) {
+            operations.remove(pendingIntent(prior))
+            prior++
+        }
         operations.remove(pendingIntent(generation))
     }
 

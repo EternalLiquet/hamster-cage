@@ -46,12 +46,39 @@ class GeofenceRegistrarFailureTest {
         }
     }
 
+    @Test fun laterResetRetriesFenceLeftByEarlierFailedRemoval() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val operations = FailingRemoval().apply { fail = false }
+        val registrar = GeofenceRegistrar(context, operations = operations)
+        val stale = registrar.pendingIntent(0)
+        val firstReset = registrar.pendingIntent(1)
+        val secondReset = registrar.pendingIntent(2)
+        try {
+            operations.failedIntent = stale
+            assertEquals(RegistrationStatus.FAILED,
+                registrar.synchronize(emptyList(), ready = false, generation = 1).registration)
+            assertEquals(listOf(stale), operations.removed)
+
+            operations.failedIntent = null
+            assertEquals(RegistrationStatus.NEEDS_SETUP,
+                registrar.synchronize(emptyList(), ready = false, generation = 2).registration)
+            assertEquals(listOf(stale, stale, firstReset, secondReset), operations.removed)
+        } finally {
+            stale.cancel()
+            firstReset.cancel()
+            secondReset.cancel()
+        }
+    }
+
     private class FailingRemoval : FenceOperations {
         var fail = true
         var attempts = 0
+        var failedIntent: PendingIntent? = null
+        val removed = mutableListOf<PendingIntent>()
         override suspend fun remove(intent: PendingIntent) {
             attempts++
-            if (fail) throw IllegalStateException("synthetic platform failure")
+            removed += intent
+            if (fail || intent == failedIntent) throw IllegalStateException("synthetic platform failure")
         }
         override suspend fun add(request: GeofencingRequest, intent: PendingIntent) {
             error("No registration is expected")
