@@ -3,6 +3,8 @@ package dev.hamstercage.data
 import android.content.Context
 import android.database.sqlite.SQLiteDatabaseCorruptException
 import androidx.room.Dao
+import androidx.room.ColumnInfo
+import androidx.room.migration.Migration
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Index
@@ -40,6 +42,8 @@ internal data class EventRecord(
 internal data class CorrectionRecord(
     @PrimaryKey val id: String, val sessionId: String, val start: Long, val end: Long?,
     val createdAt: Long, val note: String,
+    @ColumnInfo(defaultValue = "0") val revertToOriginal: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val appendSequence: Long = 0,
 )
 
 @Entity(tableName = "manual_sessions")
@@ -86,13 +90,20 @@ internal interface HamsterDao {
 }
 
 @Database(entities = [OfficeRecord::class, EventRecord::class, CorrectionRecord::class,
-    ManualSessionRecord::class, ExclusionRecord::class, DayLabelRecord::class], version = 1, exportSchema = true)
+    ManualSessionRecord::class, ExclusionRecord::class, DayLabelRecord::class], version = 2, exportSchema = true)
 internal abstract class HamsterDatabase : RoomDatabase() {
     abstract fun dao(): HamsterDao
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE corrections ADD COLUMN revertToOriginal INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE corrections ADD COLUMN appendSequence INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         fun open(context: Context, name: String = "hamster-cage.db"): HamsterDatabase =
             Room.databaseBuilder(context.applicationContext, HamsterDatabase::class.java, name)
                 .openHelperFactory(PreservingOpenHelperFactory)
+                .addMigrations(MIGRATION_1_2)
                 .build()
         // No destructive fallback. Every future version requires a reviewed, tested Migration.
     }
