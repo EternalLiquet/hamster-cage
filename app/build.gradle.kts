@@ -56,6 +56,9 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.preview)
     implementation(libs.activity.compose)
+    implementation(libs.play.basement)
+    // Play services transitively requests legacy Fragment; Activity Result requires a supported version.
+    implementation(libs.fragment)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.test)

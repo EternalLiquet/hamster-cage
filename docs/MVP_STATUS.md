@@ -1,5 +1,15 @@
 # Product MVP checkpoint
 
+## Location setup #17 checkpoint
+
+This issue adds staged foreground/background permission setup and honest prerequisite health to Offices and Settings. It does not register zones or collect location. Denied, approximate, revoked, disabled-service and unavailable-Play-services states cannot claim active capture; navigation stays available.
+
+Implementation checks on 2026-09-24 UTC: six app JVM tests and eight API37 instrumentation tests pass, including the new staged-action/decline/approximate/readiness cases and existing shell/design tests. Lint, debug/test APK assembly, merged-manifest privacy audit and OSV audit (66 resolved dependencies, no known findings) pass. The existing Python audits remain enforced in exact-head CI.
+
+Actual API37 platform checks exercised foreground denial twice, retained History/Settings navigation, app-settings handoff, approximate-only access, precise/background grants with Activity resume, device-location off/recovery, and permission revocation. UI hierarchy evidence is retained under `app/build/reports/permissions`. Permission grants explicitly show that capture is not running. Device location was restored on and preview permissions revoked afterwards. API29 routing has JVM coverage; its legacy system dialog has not run on a device. Full correction editing while denied is a later integrated check once that separate feature exists.
+
+Design #11 is now merged via PR #53 at `1783e67c24f6dd14bf85bb0a80c0531477842e8e`, verified head `d44eee2c7254c4e512bc1ba393e25f92e8e8dd24`; [independent evidence](https://github.com/EternalLiquet/hamster-cage/pull/53#issuecomment-5806542809) and all hosted checks passed. Reconstruction #13 / PR #54 and storage #12 / PR #55 have their own independent gates. This issue still requires its own exact-head CI, independent verification and review. Product MVP is not complete.
+
 The extraction path delivers one issue per PR from the preserved PR #50 reference. Issue #10 merged through PR #51 at `e5b3eef41fd263996a8ca0058e552c43afb9e2d6`; its verified source was `e6deefc8621230ece676808ee4b816fe8153048c`. CI issue #14 merged through PR #52 at `1103903a8edef601d117665d1064043312d0f930`, verified source `883b1b3603977dd15bd9eaede0326f8f93b63ffd`. Both passed their independent stages and current-head hosted checks. This checkpoint adds issue #11 only. It does not claim the reference branch's wider feature set is complete.
 
 ## Merged CI and security tooling (#14)
