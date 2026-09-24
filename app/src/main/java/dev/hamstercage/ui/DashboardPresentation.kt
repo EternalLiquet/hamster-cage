@@ -2,6 +2,8 @@ package dev.hamstercage.ui
 
 import dev.hamstercage.domain.AttendanceInput
 import dev.hamstercage.domain.AttendanceResult
+import dev.hamstercage.domain.DepartureEstimate
+import dev.hamstercage.domain.DepartureStatus
 import dev.hamstercage.domain.ReviewReason
 import dev.hamstercage.domain.Transition
 import java.time.Instant
@@ -53,4 +55,33 @@ fun departureTimeText(value: Instant, now: Instant, zone: ZoneId): String {
     val rounded = if (minute < value) minute.plusSeconds(60) else minute
     val pattern = if (rounded.atZone(zone).toLocalDate() == now.atZone(zone).toLocalDate()) "h:mm a" else "EEE, MMM d, h:mm a"
     return DateTimeFormatter.ofPattern(pattern).withZone(zone).format(rounded)
+}
+
+/** A daily projection remains useful with unknown coverage, but an unsafe bound has no time. */
+fun todayLeaveText(estimate: DepartureEstimate, trackingReady: Boolean, now: Instant, zone: ZoneId): String = when (estimate.status) {
+    DepartureStatus.TARGET_SATISFIED -> "You can leave now"
+    DepartureStatus.ESTIMATED -> if (trackingReady) "You can leave at ${departureTimeText(estimate.estimatedExitAt!!, now, zone)}"
+        else "Confirm office detection to see a leave time"
+    DepartureStatus.NOT_IN_OFFICE -> "Start an eligible office session to see a leave time"
+    DepartureStatus.OVERLAPPING_SESSIONS -> "Review overlapping active sessions in History"
+    DepartureStatus.NEEDS_REVIEW -> when {
+        ReviewReason.FUTURE_EVENT in estimate.reviewReasons ->
+            "An office observation is in the future. Check the device clock, then review History"
+        ReviewReason.STALE_OPEN_SESSION in estimate.reviewReasons ->
+            "The open session exceeds its safe length. Review its bounds in History"
+        estimate.reviewReasons.any { it in setOf(ReviewReason.MISSING_ENTER, ReviewReason.REPEATED_ENTER, ReviewReason.ZERO_LENGTH_SESSION) } ->
+            "Office entry and exit boundaries conflict. Review the session in History"
+        estimate.reviewReasons.any { it in setOf(ReviewReason.INVALID_CORRECTION, ReviewReason.ORPHAN_CORRECTION) } ->
+            "An attendance correction is unresolved. Review it in History"
+        estimate.reviewReasons.any { it in setOf(ReviewReason.INVALID_MANUAL_SESSION, ReviewReason.CONFLICTING_MANUAL_SESSION_ID) } ->
+            "Manual session bounds conflict. Review them in History"
+        ReviewReason.UNKNOWN_OFFICE in estimate.reviewReasons ->
+            "An observation names an unknown office. Review office setup and History"
+        else -> "Conflicting attendance evidence blocks today's estimate. Review History"
+    }
+    DepartureStatus.UNREACHABLE_IN_WINDOW ->
+        "Not enough time remains before today's boundary or the session limit. Review the target in Settings or session in History"
+    DepartureStatus.OUTSIDE_WINDOW ->
+        "Device time is outside this target window. Check the clock and policy timezone in Settings"
+    DepartureStatus.INCOMPLETE_HISTORY -> "Review missing coverage in History"
 }

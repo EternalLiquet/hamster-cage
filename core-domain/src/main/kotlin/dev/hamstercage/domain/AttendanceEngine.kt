@@ -250,8 +250,13 @@ object AttendanceEngine {
     fun departure(input: AttendanceInput, result: AttendanceResult, target: TargetWindow): DepartureEstimate {
         val summary = summary(input, result, target)
         val remaining = max(0.0, summary.requiredMinutes - summary.creditedMinutes)
-        fun outcome(status: DepartureStatus) = DepartureEstimate(target, status, remaining)
-        if (!summary.hasCompleteHistory) return outcome(DepartureStatus.INCOMPLETE_HISTORY)
+        fun outcome(status: DepartureStatus, reasons: Set<ReviewReason> = emptySet()) =
+            DepartureEstimate(target, status, remaining, reviewReasons = reasons)
+        // Today's projection is anchored to observed credit through now and the active
+        // session. Unknown coverage makes it provisional, but prior history cannot
+        // contribute a deficit to a single-day target.
+        if (target != TargetWindow.TODAY && !summary.hasCompleteHistory)
+            return outcome(DepartureStatus.INCOMPLETE_HISTORY)
         val windowStart = summary.startDate.atStartOfDay(input.policy.zoneId).toInstant()
         val windowEnd = summary.endDate.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()
         val eligibleOffices = input.offices.filter { it.enabled && it.countsTowardAttendance }.associateBy { it.id }
@@ -266,9 +271,14 @@ object AttendanceEngine {
         val allSessionIds = result.sessions.map { it.id }.toSet()
         // Ambiguity wins even when the provisional credit exceeds the target. A bad clock,
         // unresolved boundary or competing open offices must never produce a confident exit.
-        if (current.size > 1 || relevant.any { session -> session.reviewReasons.any { it !in benign } } ||
-            result.reviews.any { it.reason !in benign && (it.sessionId !in allSessionIds || it.sessionId in relevantIds) })
-            return outcome(DepartureStatus.NEEDS_REVIEW)
+        if (current.size > 1) return outcome(DepartureStatus.OVERLAPPING_SESSIONS)
+        val blockingReasons = relevant.flatMap { it.reviewReasons }.filter { it !in benign }.toSet() +
+            result.reviews.filter { review -> review.reason !in benign &&
+                (if (target == TargetWindow.TODAY)
+                    reviewAffectsDay(input, review, allSessionIds, relevantIds, windowStart, windowEnd)
+                else review.sessionId !in allSessionIds || review.sessionId in relevantIds)
+            }.map { it.reason }
+        if (blockingReasons.isNotEmpty()) return outcome(DepartureStatus.NEEDS_REVIEW, blockingReasons)
         if (remaining == 0.0) return outcome(DepartureStatus.TARGET_SATISFIED)
         if (current.isEmpty()) return outcome(DepartureStatus.NOT_IN_OFFICE)
         if (input.now < windowStart || input.now >= windowEnd) return outcome(DepartureStatus.OUTSIDE_WINDOW)
@@ -282,6 +292,21 @@ object AttendanceEngine {
         if (targetAt > windowEnd || exitAt > session.start.plusSeconds(input.policy.maxOpenSessionHours * 3600L))
             return outcome(DepartureStatus.UNREACHABLE_IN_WINDOW)
         return DepartureEstimate(target, DepartureStatus.ESTIMATED, remaining, targetAt, exitAt)
+    }
+
+    /** A past orphan or malformed fact cannot make an otherwise bounded Today session ambiguous. */
+    private fun reviewAffectsDay(input: AttendanceInput, review: ReviewItem, allSessionIds: Set<String>,
+                                 relevantIds: Set<String>, start: Instant, end: Instant): Boolean {
+        val id = review.sessionId
+        if (id in allSessionIds) return id in relevantIds
+        val events = input.events.filter { it.id in review.sourceEventIds }
+        if (events.isNotEmpty()) return events.any { it.at >= start && it.at < end }
+        val corrections = input.corrections.filter { it.sessionId == id }
+        if (corrections.isNotEmpty()) return corrections.any { it.start < end && (it.end == null || it.end >= start) }
+        val manual = input.manualSessions.filter { "manual:${it.id}" == id }
+        if (manual.isNotEmpty()) return manual.any { it.start < end && (it.end == null || it.end >= start) }
+        // If the source is genuinely unlocatable, suppress the projection rather than guess.
+        return true
     }
 
     private fun window(input: AttendanceInput, target: TargetWindow): Pair<LocalDate, LocalDate> {

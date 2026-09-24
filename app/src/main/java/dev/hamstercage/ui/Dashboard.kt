@@ -27,6 +27,10 @@ fun DashboardScreen(
     val today = input.now.atZone(input.policy.zoneId).toLocalDate()
     val daily = AttendanceEngine.daily(input, result, today)
     val presence = dashboardPresence(input, result, trackingReady)
+    val todayDeparture = AttendanceEngine.departure(input, result, TargetWindow.TODAY)
+    val currentOffice = result.sessions.singleOrNull { session -> session.isOpen &&
+        input.offices.any { it.id == session.officeId && it.enabled && it.countsTowardAttendance }
+    }?.let { session -> input.offices.single { it.id == session.officeId } }
     Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }, verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Panel(warm = true) {
             Text("TODAY", style = MaterialTheme.typography.labelMedium, color = CageStyle.Amber)
@@ -35,6 +39,15 @@ fun DashboardScreen(
             Text(if (daily.hasCompleteHistory) "Credited office time" else "Provisional credit · coverage incomplete",
                 style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
             DashboardMetric("Target today", minutesText(daily.requiredMinutes.toDouble()), "today_target")
+            Text(todayLeaveText(todayDeparture, trackingReady, input.now, input.policy.zoneId),
+                Modifier.fillMaxWidth().testTag("today_leave"), style = MaterialTheme.typography.titleLarge)
+            Text("Today's ${minutesText(daily.requiredMinutes.toDouble())} target · provisional until today's coverage is reviewed.",
+                Modifier.testTag("today_leave_context"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+            if (todayDeparture.status == DepartureStatus.ESTIMATED && trackingReady && currentOffice != null) {
+                Text("Leave the office geofence at this time. Building exit and detected geofence EXIT may differ; " +
+                    "${currentOffice.exitGraceMinutes}m exit grace is projection only.",
+                    Modifier.testTag("today_leave_boundary"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+            }
             DashboardMetric("Balance", if (daily.hasCompleteHistory) balanceText(daily.balanceMinutes) else "Unknown", "today_balance", true)
             DashboardMetric("Device-observed time", minutesText(AttendanceEngine.observedDailyMinutes(input, today)), "today_observed")
             presence.sessionStarted?.let { DashboardMetric("Session started", instantText(it, input.policy.zoneId), "session_start") }
@@ -78,6 +91,7 @@ fun DashboardScreen(
                     DepartureStatus.INCOMPLETE_HISTORY -> "History incomplete"
                     DepartureStatus.OUTSIDE_WINDOW -> "Outside target window"
                     DepartureStatus.UNREACHABLE_IN_WINDOW -> "Beyond this window"
+                    DepartureStatus.OVERLAPPING_SESSIONS -> "Overlapping active sessions"
                 }
                 DashboardMetric(estimate.targetName, value, "${target.name}_departure")
             }

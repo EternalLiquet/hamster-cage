@@ -85,10 +85,50 @@ class DepartureTest {
         assertSuppressed(DepartureStatus.NOT_IN_OFFICE, estimate(input().copy(offices = listOf(office.copy(countsTowardAttendance = false)))))
     }
 
-    @Test fun incompleteHistorySuppressesEvenAnApparentlyMetTarget() {
+    @Test fun unknownCoverageKeepsTodayProvisionalButDoesNotSuppressItsProjection() {
         val data = input(now = at("16:00")).copy(unknownDates = setOf(day))
-        assertSuppressed(DepartureStatus.INCOMPLETE_HISTORY, estimate(data))
+        assertFalse(AttendanceEngine.daily(data, AttendanceEngine.derive(data), day).hasCompleteHistory)
+        assertSuppressed(DepartureStatus.TARGET_SATISFIED, estimate(data))
         assertSuppressed(DepartureStatus.INCOMPLETE_HISTORY, estimate(input().copy(historyStartDate = day), TargetWindow.ROLLING_90))
+    }
+
+    @Test fun freshInstallUsesOnlyTodayAndRetainsUncreditedArrivalAndProjectedExitGrace() {
+        val data = input().copy(historyStartDate = null)
+        val derived = AttendanceEngine.derive(data)
+        assertEquals(DepartureStatus.ESTIMATED, AttendanceEngine.departure(data, derived, TargetWindow.TODAY).status)
+        assertEquals(at("15:00"), AttendanceEngine.departure(data, derived, TargetWindow.TODAY).estimatedExitAt)
+        assertEquals(175.0, AttendanceEngine.daily(data, derived, day).creditedMinutes, 0.0)
+        assertSuppressed(DepartureStatus.INCOMPLETE_HISTORY, AttendanceEngine.departure(data, derived, TargetWindow.ROLLING_30))
+        val zeroGrace = data.copy(offices = listOf(office.copy(entryGraceMinutes = 0, exitGraceMinutes = 0)))
+        assertEquals(at("15:00"), estimate(zeroGrace).estimatedExitAt)
+        assertEquals(180.0, AttendanceEngine.daily(zeroGrace, AttendanceEngine.derive(zeroGrace), day).creditedMinutes, 0.0)
+        val unknownYesterday = data.copy(unknownDates = setOf(day.minusDays(1)))
+        assertEquals(at("15:00"), estimate(unknownYesterday).estimatedExitAt)
+    }
+
+    @Test fun freshInstallRecomputesAtNewNowAndAcrossPolicyMidnight() {
+        val data = input(listOf(enter("23:00")), now = at("23:30"), policy = Policy(targetMinutesPerDay = 60, maxOpenSessionHours = 24))
+            .copy(historyStartDate = null)
+        assertSuppressed(DepartureStatus.UNREACHABLE_IN_WINDOW, estimate(data))
+        val tomorrow = data.copy(now = at("00:30", day.plusDays(1)))
+        assertEquals(DepartureStatus.ESTIMATED, estimate(tomorrow).status)
+        assertEquals(at("00:55", day.plusDays(1)), estimate(tomorrow).estimatedExitAt)
+        assertEquals(DepartureStatus.ESTIMATED, estimate(tomorrow.copy(now = at("00:35", day.plusDays(1)))).status)
+    }
+
+    @Test fun unrelatedPriorDayOrphanAndInvalidEventDoNotBlockToday() {
+        val yesterday = day.minusDays(1)
+        val data = input(listOf(
+            RawEvent("old-invalid", "missing-office", Transition.EXIT, at("10:00", yesterday)),
+            enter(),
+        )).copy(corrections = listOf(Correction("old-orphan", "session:absent",
+            at("09:00", yesterday), at("10:00", yesterday), at("11:00", yesterday))))
+        assertEquals(DepartureStatus.ESTIMATED, estimate(data).status)
+        assertSuppressed(DepartureStatus.NEEDS_REVIEW, estimate(data, TargetWindow.ROLLING_30))
+        val currentInvalid = data.copy(events = data.events + RawEvent("future", "a", Transition.EXIT, at("17:00")))
+        val blocked = estimate(currentInvalid)
+        assertSuppressed(DepartureStatus.NEEDS_REVIEW, blocked)
+        assertTrue(ReviewReason.FUTURE_EVENT in blocked.reviewReasons)
     }
 
     @Test fun repeatedEnterAmbiguityPrecedesTargetMet() {
@@ -100,7 +140,7 @@ class DepartureTest {
     @Test fun simultaneousOpenOfficesSuppressPredictionEvenAfterTargetMet() {
         val data = input(listOf(enter(), enter("10:00", "other", "b")), now = at("16:00"))
             .copy(offices = listOf(office, office.copy(id = "b")))
-        assertSuppressed(DepartureStatus.NEEDS_REVIEW, estimate(data))
+        assertSuppressed(DepartureStatus.OVERLAPPING_SESSIONS, estimate(data))
     }
 
     @Test fun resolvedDuplicateObservationDoesNotSuppressAValidEstimate() {
