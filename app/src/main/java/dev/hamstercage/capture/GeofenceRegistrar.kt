@@ -20,7 +20,7 @@ import kotlinx.coroutines.sync.withLock
 class GeofenceRegistrar(
     context: Context,
     private val client: GeofencingClient = LocationServices.getGeofencingClient(context.applicationContext),
-    private val operations: FenceOperations = PlayServicesFenceOperations(client),
+    private val operations: FenceOperations = PlayServicesFenceOperations(context.applicationContext, client),
 ) {
     private val application = context.applicationContext
     private val lock = Mutex()
@@ -100,9 +100,15 @@ interface FenceOperations {
     suspend fun add(request: GeofencingRequest, intent: PendingIntent)
 }
 
-private class PlayServicesFenceOperations(private val client: GeofencingClient) : FenceOperations {
+private class PlayServicesFenceOperations(private val context: Context, private val client: GeofencingClient) : FenceOperations {
     override suspend fun remove(intent: PendingIntent) { client.removeGeofences(intent).await() }
     override suspend fun add(request: GeofencingRequest, intent: PendingIntent) {
-        client.addGeofences(request, intent).await()
+        // Permission can disappear after the registrar's readiness check.
+        if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
+            (Build.VERSION.SDK_INT >= 29 && context.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED)) {
+            throw SecurityException("Location permission changed before registration")
+        }
+        try { client.addGeofences(request, intent).await() }
+        catch (denied: SecurityException) { throw denied }
     }
 }
