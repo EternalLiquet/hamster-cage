@@ -2,18 +2,32 @@ package dev.hamstercage.ui
 
 import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import dev.hamstercage.MainActivity
 import dev.hamstercage.capture.CaptureStatus
 import dev.hamstercage.capture.RegistrationStatus
+import dev.hamstercage.capture.CoverageLedger
+import dev.hamstercage.data.AppSnapshot
+import dev.hamstercage.data.RecordedEvent
+import dev.hamstercage.data.StorageState
+import dev.hamstercage.domain.Office
+import dev.hamstercage.domain.Policy
+import dev.hamstercage.domain.RawEvent
+import dev.hamstercage.domain.Transition
 import dev.hamstercage.domain.TimeSource
 import dev.hamstercage.location.LocationSetup
 import java.time.Instant
+import java.time.ZoneId
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import org.junit.Rule
 import org.junit.Test
 
@@ -45,5 +59,40 @@ class CaptureNoticeTest {
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Permissions are ready. Automatic detection is not running: office registration has not been configured.")
             .assertDoesNotExist()
+    }
+
+    @Test fun postRecoveryObservationChangesVisibleOfficeState() {
+        val now = Instant.parse("2026-09-24T14:00:10Z")
+        val boundary = now.minusSeconds(10)
+        val zone = ZoneId.of("America/New_York")
+        val office = Office("synthetic", "Synthetic office", 39.0, -86.0)
+        val oldAt = boundary.minusSeconds(1_200)
+        val old = RawEvent("old-enter", office.id, Transition.ENTER, oldAt)
+        val oldEvidence = RecordedEvent(old, oldAt, oldAt)
+        val ready = CoverageLedger(lastHealthyAt = oldAt, lastObservationAt = oldAt,
+            registration = RegistrationStatus.ACTIVE, policyZoneId = zone)
+            .outage(boundary.minusSeconds(300), zone)
+            .registrationSucceeded(boundary, zone, hasOffices = true)
+        var coverage by mutableStateOf(ready)
+        var storage by mutableStateOf<StorageState>(StorageState.Ready(
+            AppSnapshot(listOf(office), listOf(oldEvidence), emptyList(), emptyList(), Policy(zoneId = zone))))
+        compose.activity.runOnUiThread {
+            compose.activity.setContent {
+                HamsterApp(timeSource = TimeSource { now }, storageState = storage,
+                    coverage = coverage, captureStatus = CaptureStatus(RegistrationStatus.ACTIVE))
+            }
+        }
+        compose.onNodeWithTag("office_state").assertTextEquals("Office state unknown")
+        val observed = boundary.plusSeconds(2)
+        val event = RawEvent("fix", office.id, Transition.PRESENCE, observed)
+        compose.activity.runOnUiThread {
+            storage = StorageState.Ready(AppSnapshot(listOf(office),
+                listOf(oldEvidence, RecordedEvent(event, now, observed, "FOREGROUND_LOCATION_RECONCILIATION")),
+                emptyList(), emptyList(), Policy(zoneId = zone)))
+            coverage = ready.observed(observed)
+        }
+        compose.onNodeWithTag("office_state").assertTextEquals("In Synthetic office")
+        compose.onNodeWithTag("today_credit").assertTextEquals("0m")
+        compose.onNodeWithText("A session needs review").performScrollTo().assertIsDisplayed()
     }
 }

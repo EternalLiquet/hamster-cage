@@ -16,6 +16,7 @@ import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import java.io.File
@@ -114,6 +115,12 @@ class OfficeLocationServices(private val context: Context) {
     }
 
     suspend fun current(): OfficeFix {
+        val fix = captureFix()
+        return validatedOfficeFix(fix, SystemClock.elapsedRealtimeNanos())
+    }
+
+    /** One request only. The caller owns its lifecycle; no fix is cached or persisted. */
+    suspend fun captureFix(freshAfterRequest: Boolean = false): Location {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
             throw IllegalStateException("Precise foreground location is needed. Grant it below, then retry; background access is not needed to set up an office.")
         if (!LocationManagerCompat.isLocationEnabled(context.getSystemService(Context.LOCATION_SERVICE) as LocationManager))
@@ -122,8 +129,11 @@ class OfficeLocationServices(private val context: Context) {
         try {
             val fix = try {
                 withTimeout(15_000) {
-                    LocationServices.getFusedLocationProviderClient(context)
-                        .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancellation.token).await()
+                    val client = LocationServices.getFusedLocationProviderClient(context)
+                    if (freshAfterRequest) client.getCurrentLocation(CurrentLocationRequest.Builder()
+                        .setPriority(Priority.PRIORITY_HIGH_ACCURACY).setMaxUpdateAgeMillis(0).build(),
+                        cancellation.token).await()
+                    else client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancellation.token).await()
                 }
             } catch (_: TimeoutCancellationException) {
                 throw IllegalStateException("Current location timed out. Retry outdoors or search an address.")
@@ -132,7 +142,7 @@ class OfficeLocationServices(private val context: Context) {
             } catch (failure: Exception) {
                 throw currentRequestFailure(failure)
             }
-            return validatedOfficeFix(fix, SystemClock.elapsedRealtimeNanos())
+            return fix ?: throw IllegalStateException("No current fix. Retry outdoors or search an address.")
         } finally { cancellation.cancel() }
     }
 

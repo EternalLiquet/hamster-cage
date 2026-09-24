@@ -10,12 +10,14 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import dev.hamstercage.capture.CaptureController
+import dev.hamstercage.capture.ForegroundReconciliation
 import dev.hamstercage.capture.CaptureHealth
 import dev.hamstercage.capture.CaptureWriteGate
 import dev.hamstercage.capture.CoverageStore
@@ -55,6 +57,7 @@ class MainActivity : ComponentActivity() {
         )
         val repository = HamsterRepository.get(this)
         val officeLocations = OfficeLocationServices(this)
+        val foregroundReconciliation = ForegroundReconciliation(this, officeLocations)
         val privacy = PrivacyController.get(this)
         CaptureController.get(this)
         setContent {
@@ -86,6 +89,9 @@ class MainActivity : ComponentActivity() {
                 requestBackground = { requestBackground() },
                 openAppSettings = { openSettings(LocationPermissions.appSettings(this)) },
                 openDeviceSettings = { openSettings(LocationPermissions.deviceSettings()) },
+                reconcileOffice = { foregroundReconciliation.check {
+                    lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                } },
                 officeActions = OfficeActions(
                     newId = HamsterRepository::newId,
                     version = repository::officeVersion,

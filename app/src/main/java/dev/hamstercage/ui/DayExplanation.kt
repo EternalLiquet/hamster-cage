@@ -57,6 +57,7 @@ fun reviewExplanation(reason: ReviewReason): String = when (reason) {
     ReviewReason.MISSING_ENTER -> "An EXIT has no observed ENTER. No start or attendance was invented."
     ReviewReason.OPEN_SESSION -> "No EXIT has been observed. Eligible live credit stops at the evaluation time."
     ReviewReason.STALE_OPEN_SESSION -> "The open session exceeded the configured review limit and is excluded from credit until resolved."
+    ReviewReason.UNCONFIRMED_GAP -> "A later current-location check restarted presence without an observed EXIT. The earlier segment is uncredited until its uncertain bounds are reviewed."
     ReviewReason.INVALID_CORRECTION -> "An invalid or conflicting correction was ignored; the latest valid correction or original bounds remain."
     ReviewReason.ORPHAN_CORRECTION -> "This retained correction cannot currently be linked to a session."
     ReviewReason.UNKNOWN_OFFICE -> "The source refers to an unknown office and cannot establish credited attendance."

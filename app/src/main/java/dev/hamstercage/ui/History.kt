@@ -13,12 +13,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import dev.hamstercage.domain.AttendanceInput
 import dev.hamstercage.domain.AttendanceResult
+import dev.hamstercage.data.RecordedEvent
 import java.time.format.DateTimeFormatter
 import java.time.LocalDate
 import java.time.Duration
 
 @Composable
-fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionActions: CorrectionActions? = null) {
+fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionActions: CorrectionActions? = null,
+    eventEvidence: List<RecordedEvent> = emptyList()) {
     var offsetDays by rememberSaveable { mutableIntStateOf(0) }
     var selectedDay by rememberSaveable { mutableStateOf<String?>(null) }
     var editingSessionId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -32,7 +34,8 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
     }
     selectedDay?.let { day ->
         DayDetailScreen(input, result, LocalDate.parse(day), back = { selectedDay = null },
-            edit = if (correctionActions == null) null else { session -> editingSessionId = session.id })
+            edit = if (correctionActions == null) null else { session -> editingSessionId = session.id },
+            eventEvidence = eventEvidence)
         return
     }
     val days = remember(input, result, offsetDays) { historyDays(input, result, offsetDays) }

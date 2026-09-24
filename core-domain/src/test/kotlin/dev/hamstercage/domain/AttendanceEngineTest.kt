@@ -229,6 +229,19 @@ class AttendanceEngineTest {
         assertTrue(ReviewReason.REPEATED_ENTER in session.reviewReasons)
         assertEquals(setOf("1", "2", "3"), session.sourceEventIds)
     }
+    @Test fun firstGeofenceEnterAfterPresenceCorroboratesWithoutHidingLaterRepeatedEnters() {
+        val presence = RawEvent("fix", "a", Transition.PRESENCE, at("09:00"))
+        val followed = input(listOf(presence, enter("normal", "09:02"), exit("out", "10:00")))
+        val session = AttendanceEngine.derive(followed).sessions.single()
+        assertEquals(setOf("fix", "normal", "out"), session.sourceEventIds)
+        assertFalse(ReviewReason.REPEATED_ENTER in session.reviewReasons)
+        assertMinutes(55.0, followed)
+
+        val repeated = followed.copy(events = followed.events.dropLast(1) + enter("repeat", "09:03") + exit("out", "10:00"))
+        assertTrue(ReviewReason.REPEATED_ENTER in AttendanceEngine.derive(repeated).sessions.single().reviewReasons)
+        val late = input(listOf(presence, enter("late", "09:30"), exit("out", "10:00")))
+        assertTrue(ReviewReason.REPEATED_ENTER in AttendanceEngine.derive(late).sessions.single().reviewReasons)
+    }
     @Test fun repeatedExitDoesNotInventAnotherSessionStart() {
         val data = input(listOf(enter("1", "09:00"), exit("2", "15:00"), exit("3", "15:05")))
         assertMinutes(355.0, data)

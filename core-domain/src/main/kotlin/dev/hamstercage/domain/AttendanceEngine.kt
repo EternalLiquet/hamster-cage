@@ -34,6 +34,7 @@ object AttendanceEngine {
                 Observation(copies.minBy { it.id }, copies.map { it.id }.toSet(), copies.size > 1)
             }.sortedWith(compareBy<Observation> { it.event.at }.thenBy { it.event.transition }.thenBy { it.event.id })
             var open: Observation? = null
+            var enterAfterPresence = false
             val ids = linkedSetOf<String>()
             val flags = linkedSetOf<ReviewReason>()
             fun addSession(exit: Observation?) {
@@ -51,21 +52,44 @@ object AttendanceEngine {
                     }, reasons)
                 reasons.forEach { reviews += ReviewItem(it, sourceIds, sessionId) }
                 open = null
+                enterAfterPresence = false
                 ids.clear()
                 flags.clear()
             }
             observations.groupBy { it.event.at }.values.forEach { simultaneous ->
                 // Close a preceding visit before starting another at a simultaneous boundary.
                 // Without a preceding visit, ENTER+EXIT remains a zero-length observation.
-                val ordered = if (open != null) simultaneous.sortedByDescending { it.event.transition } else simultaneous
+                val ordered = if (open != null) simultaneous.sortedWith(compareBy<Observation> {
+                    when (it.event.transition) { Transition.EXIT -> 0; Transition.PRESENCE -> 1; Transition.ENTER -> 2 }
+                }.thenBy { it.event.id }) else simultaneous.sortedWith(compareBy<Observation> {
+                    when (it.event.transition) { Transition.PRESENCE -> 0; Transition.ENTER -> 1; Transition.EXIT -> 2 }
+                }.thenBy { it.event.id })
                 ordered.forEach { observation ->
                     ids += observation.ids
                     if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
                     when (observation.event.transition) {
-                        Transition.ENTER -> if (open == null) open = observation else flags += ReviewReason.REPEATED_ENTER
+                        Transition.ENTER -> when {
+                            open == null -> open = observation
+                            open?.event?.transition == Transition.PRESENCE && !enterAfterPresence &&
+                                Duration.between(open!!.event.at, observation.event.at) <= Duration.ofMinutes(5) ->
+                                enterAfterPresence = true // One prompt geofence ENTER corroborates the current fix.
+                            else -> flags += ReviewReason.REPEATED_ENTER
+                        }
                         Transition.EXIT -> {
                             if (open == null) flags += ReviewReason.MISSING_ENTER
                             addSession(observation)
+                        }
+                        Transition.PRESENCE -> {
+                            if (open != null) {
+                                // The old visit has no observed EXIT. The new fix gives a
+                                // safe split time, never proof of the intervening minutes.
+                                ids.removeAll(observation.ids)
+                                flags += ReviewReason.UNCONFIRMED_GAP
+                                addSession(observation)
+                                ids += observation.ids
+                            }
+                            open = observation
+                            enterAfterPresence = false
                         }
                     }
                 }
@@ -151,7 +175,8 @@ object AttendanceEngine {
             val office = offices.getValue(session.officeId)
             val start = session.start
             if (start == null || !office.enabled || !office.countsTowardAttendance ||
-                ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons) null
+                ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons ||
+                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons) null
             else {
                 val end = minOf(session.end ?: input.now, input.now)
                 val creditStart = start.plusSeconds(office.entryGraceMinutes * 60L)
@@ -326,13 +351,23 @@ object AttendanceEngine {
         }
         val current = relevant.filter { it.isOpen }
         val benign = setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT)
+        // A fresh same-office PRESENCE can leave an older, uncredited segment for
+        // review. It cannot contribute to today's projected credit, so that one
+        // resolved boundary does not make the new open visit unsafe to project.
+        val repairedGapIds = if (target == TargetWindow.TODAY && current.size == 1 &&
+            input.events.any { it.id in current.single().sourceEventIds && it.transition == Transition.PRESENCE }) {
+            relevant.filter { it.officeId == current.single().officeId && it.end == current.single().start &&
+                ReviewReason.UNCONFIRMED_GAP in it.reviewReasons }.map { it.id }.toSet()
+        } else emptySet()
+        fun blocks(reason: ReviewReason, sessionId: String?) = reason !in benign &&
+            !(reason == ReviewReason.UNCONFIRMED_GAP && sessionId in repairedGapIds)
         val relevantIds = relevant.map { it.id }.toSet()
         val allSessionIds = result.sessions.map { it.id }.toSet()
         // Ambiguity wins even when the provisional credit exceeds the target. A bad clock,
         // unresolved boundary or competing open offices must never produce a confident exit.
         if (current.size > 1) return outcome(DepartureStatus.OVERLAPPING_SESSIONS)
-        val blockingReasons = relevant.flatMap { it.reviewReasons }.filter { it !in benign }.toSet() +
-            result.reviews.filter { review -> review.reason !in benign &&
+        val blockingReasons = relevant.flatMap { session -> session.reviewReasons.filter { blocks(it, session.id) } }.toSet() +
+            result.reviews.filter { review -> blocks(review.reason, review.sessionId) &&
                 (if (target == TargetWindow.TODAY)
                     reviewAffectsDay(input, review, allSessionIds, relevantIds, windowStart, windowEnd)
                 else review.sessionId !in allSessionIds || review.sessionId in relevantIds)
