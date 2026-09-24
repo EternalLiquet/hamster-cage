@@ -29,4 +29,5 @@ data class ReportingCoverage(
     val unknownAfterTracking: Set<LocalDate>,
     val coveredExpectedWorkdays: Int,
     val coveredRequiredMinutes: Int,
+    val coveredCreditedMinutes: Double,
 )

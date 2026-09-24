@@ -133,7 +133,25 @@ class CalendarMetricsTest {
         val corrected = data.copy(corrections = listOf(correction), unknownDates = setOf(old))
         assertEquals(old, reporting(corrected).firstReliableDay)
         assertEquals(setOf(old, day), reporting(corrected).coveredDates)
+        assertTrue(reporting(corrected).unknownAfterTracking.isEmpty())
+        assertTrue(day.minusDays(1) in reporting(corrected).unavailableBeforeTracking)
         assertEquals(reporting(corrected), reporting(corrected.copy(events = corrected.events.toList())))
+    }
+
+    @Test fun reviewBlockedCreditCannotInflateCoveredDayProgress() {
+        val old = day.minusDays(1)
+        val conflicted = listOf(RawEvent("first", "a", Transition.ENTER, at("09:00", old)),
+            RawEvent("again", "a", Transition.ENTER, at("10:00", old)),
+            RawEvent("exit", "a", Transition.EXIT, at("15:00", old)))
+        val data = input(conflicted + visit(day)).copy(historyStartDate = null)
+        val result = AttendanceEngine.derive(data)
+        val full = AttendanceEngine.summary(data, result, TargetWindow.ROLLING_30)
+        val coverage = AttendanceEngine.reportingCoverage(data, result, full.startDate, full.endDate)
+        assertTrue(full.creditedMinutes > coverage.coveredCreditedMinutes)
+        assertEquals(355.0, coverage.coveredCreditedMinutes, 0.0)
+        assertEquals(setOf(day), coverage.coveredDates)
+        assertEquals(360, coverage.coveredRequiredMinutes)
+        assertEquals(1, coverage.unavailableBeforeTracking.count { it == old })
     }
 
     @Test fun exclusionsAndPolicyTimezoneRecomputeCoveredRequirement() {

@@ -105,14 +105,17 @@ fun DashboardScreen(
                 Text(title, style = MaterialTheme.typography.titleLarge)
                 val formatter = DateTimeFormatter.ofPattern("MMM d")
                 Text("${summary.startDate.format(formatter)} – ${summary.endDate.format(formatter)}", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-                DashboardMetric("Credited", minutesText(summary.creditedMinutes), "${target.name}_credit")
                 if (coverage.firstReliableDay == null) {
                     Text("Earlier days predate reliable tracking. Rolling trends will appear as attendance is captured; no balance can be calculated yet.",
                         Modifier.testTag("${target.name}_coverage"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
                 } else {
+                    DashboardMetric("Credited on covered days", minutesText(coverage.coveredCreditedMinutes), "${target.name}_credit")
                     DashboardMetric("Expected workdays with coverage", coverage.coveredExpectedWorkdays.toString(), "${target.name}_days")
                     DashboardMetric("Required on covered days since tracking began", minutesText(coverage.coveredRequiredMinutes.toDouble()), "${target.name}_required")
                 }
+                if (summary.creditedMinutes > coverage.coveredCreditedMinutes + 0.0001)
+                    Text("${minutesText(summary.creditedMinutes - coverage.coveredCreditedMinutes)} recorded on dates without reliable coverage; review in History. Excluded from covered-day progress.",
+                        Modifier.testTag("${target.name}_provisional_credit"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
                 DashboardMetric("Average on covered expected days", if (summary.hasCompleteHistory)
                     summary.averageMinutes?.let(::minutesText) ?: "No expected days" else "Unknown", "${target.name}_average")
                 DashboardMetric("Balance", if (summary.hasCompleteHistory) balanceText(summary.balanceMinutes) else "Unknown", "${target.name}_balance", true)
@@ -122,12 +125,13 @@ fun DashboardScreen(
                     Text("Includes ${full.projectedExpectedWorkdays} future expected workdays.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
                 }
                 if (coverage.firstReliableDay != null && coverage.unavailableBeforeTracking.isNotEmpty()) {
-                    val last = coverage.unavailableBeforeTracking.maxOrNull()!!
-                    Text("${summary.startDate.format(formatter)} – ${last.format(formatter)} predates reliable tracking; excluded from the requirement above. No rolling balance can be calculated yet.",
+                    val firstUnavailable = coverage.unavailableBeforeTracking.minOrNull()!!
+                    val lastUnavailable = coverage.unavailableBeforeTracking.maxOrNull()!!
+                    Text("${coverage.unavailableBeforeTracking.size} earlier dates outside reliable tracking (${firstUnavailable.format(formatter)} – ${lastUnavailable.format(formatter)}) are excluded; recorded days in that span count separately. No rolling balance can be calculated yet.",
                         Modifier.testTag("${target.name}_pretracking"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
                 }
                 if (coverage.unknownAfterTracking.isNotEmpty())
-                    Text("${coverage.unknownAfterTracking.size} later calendar days have unknown coverage; excluded from the requirement above. Balance and average remain Unknown.",
+                    Text("${coverage.unknownAfterTracking.size} later calendar ${if (coverage.unknownAfterTracking.size == 1) "day has" else "days have"} unknown coverage; excluded from the requirement above. Balance and average remain Unknown.",
                         Modifier.testTag("${target.name}_unknown"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
             }
         }

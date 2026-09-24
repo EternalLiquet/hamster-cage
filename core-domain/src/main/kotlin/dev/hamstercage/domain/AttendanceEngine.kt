@@ -255,11 +255,19 @@ object AttendanceEngine {
             date in correctedDates || (date !in input.unknownDates &&
                 ((input.historyStartDate != null && date >= input.historyStartDate) || date in sessionDates))
         }
-        val before = dates.filterTo(mutableSetOf()) { first == null || it < first }
+        // An isolated manual backfill is a covered island, not the start of continuous
+        // capture. Dates between it and the coverage ledger are still pretracking.
+        val before = dates.filterTo(mutableSetOf()) { date ->
+            date !in covered && (input.historyStartDate == null || date < input.historyStartDate)
+        }
         val after = dates.filterTo(mutableSetOf()) { it !in before && it !in covered }
         val expected = covered.count(input.policy::isExpected)
+        // Pair displayed credit with the same covered dates as the displayed requirement.
+        // Unknown-date intervals may still exist in the full summary for review, but cannot
+        // silently inflate progress against a covered-day target.
+        val coveredCredit = covered.sumOf { daily(input, result, it).creditedMinutes }
         return ReportingCoverage(first, covered, before, after, expected,
-            expected * input.policy.targetMinutesPerDay)
+            expected * input.policy.targetMinutesPerDay, coveredCredit)
     }
 
     fun period(input: AttendanceInput, result: AttendanceResult, startDate: LocalDate, endDate: LocalDate,
