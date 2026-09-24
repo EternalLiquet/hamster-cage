@@ -70,3 +70,7 @@ fun reviewExplanation(reason: ReviewReason): String = when (reason) {
 
 /** Display-only sanitation; stored notes and names are unchanged. No markup is interpreted. */
 internal fun evidenceText(text: String) = text.filter { it == '\n' || (!it.isISOControl() && Character.getType(it) != Character.FORMAT.toInt()) }.take(2000)
+
+/** IDs remain immutable in storage; audit labels must not inject layout or direction. */
+internal fun evidenceId(id: String): String = id.filter { !it.isISOControl() && Character.getType(it) != Character.FORMAT.toInt() }
+    .take(200).ifBlank { "[invalid source ID]" }

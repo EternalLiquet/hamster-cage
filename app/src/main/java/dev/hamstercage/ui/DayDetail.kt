@@ -32,12 +32,12 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         }
         EvidenceSection("Credited intervals", detail.intervals) { interval ->
             Text("${at(interval.start)} → ${at(interval.end)}")
-            Text("${minutesText(interval.minutes)} · sessions ${interval.sessionIds.sorted().joinToString()}")
+            Text("${minutesText(interval.minutes)} · sessions ${interval.sessionIds.sorted().joinToString(transform = ::evidenceId)}")
             if (interval.reconciledGap) Text("Includes a same-office gap reconciled by the ${input.policy.shortGapMinutes}-minute policy.")
             Text("Clipped to this policy-local day after grace, gap reconciliation and overlap union.")
         }
         EvidenceSection("Reconstructed sessions", detail.sessions) { session ->
-            Text("${office(session.officeId)} · ${session.id}", style = MaterialTheme.typography.titleMedium)
+            Text("${office(session.officeId)} · ${evidenceId(session.id)}", style = MaterialTheme.typography.titleMedium)
             val original = detail.originalSessions.find { it.id == session.id }
             Text("Original bounds: ${at(original?.start)} → ${at(original?.end)}")
             if (session.correctionId != null && !session.correctionReverted) original?.reviewReasons?.forEach {
@@ -49,23 +49,23 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                 Text("Grace: ${value.entryGraceMinutes}m before entry; ${value.exitGraceMinutes}m after a known exit, capped at now.")
                 if (!value.enabled || !value.countsTowardAttendance) Text("This office is disabled or excluded from attendance credit.")
             }
-            Text("Confidence: ${session.confidence.name}. Source events: ${session.sourceEventIds.sorted().joinToString().ifEmpty { "Manual interval" }}")
-            session.correctionId?.let { Text(if (session.correctionReverted) "Reverted to original by audit entry: $it."
-                else "Applied correction: $it. Original evidence is retained below.") }
+            Text("Confidence: ${session.confidence.name}. Source events: ${session.sourceEventIds.sorted().joinToString(transform = ::evidenceId).ifEmpty { "Manual interval" }}")
+            session.correctionId?.let { Text(if (session.correctionReverted) "Reverted to original by audit entry: ${evidenceId(it)}."
+                else "Applied correction: ${evidenceId(it)}. Original evidence is retained below.") }
             session.reviewReasons.forEach { Text(reviewExplanation(it)) }
-            edit?.let { action -> OutlinedButton(onClick = { action(session) }) { Text("Correct ${session.id}") } }
+            edit?.let { action -> OutlinedButton(onClick = { action(session) }) { Text("Correct ${evidenceId(session.id)}") } }
         }
         EvidenceSection("Raw observations", detail.rawEvents) { event ->
             Text("${event.transition.name} · ${office(event.officeId)} · ${at(event.at)}")
-            Text("Source event: ${event.id}", style = MaterialTheme.typography.bodySmall)
+            Text("Source event: ${evidenceId(event.id)}", style = MaterialTheme.typography.bodySmall)
         }
         EvidenceSection("Manual source intervals", detail.manualSessions) { manual ->
-            Text("${office(manual.officeId)} · ${manual.id}")
+            Text("${office(manual.officeId)} · ${evidenceId(manual.id)}")
             Text("${at(manual.start)} → ${at(manual.end)} · entered ${at(manual.createdAt)}")
             if (manual.note.isNotBlank()) Text(evidenceText(manual.note))
         }
         EvidenceSection("Correction audit", detail.corrections) { correction ->
-            Text("${correction.id} → ${correction.sessionId}")
+            Text("${evidenceId(correction.id)} → ${evidenceId(correction.sessionId)}")
             if (correction.revertToOriginal) Text("Revert to original reconstruction · entered ${at(correction.createdAt)}")
             else Text("${at(correction.start)} → ${at(correction.end)} · entered ${at(correction.createdAt)}")
             Text(if (detail.sessions.any { it.correctionId == correction.id })
@@ -76,7 +76,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         EvidenceSection("Review explanations", detail.reviews) { review ->
             Text(review.reason.name.replace('_', ' '), style = MaterialTheme.typography.titleMedium)
             Text(reviewExplanation(review.reason))
-            Text("Session: ${review.sessionId ?: "Unlinked"}; events: ${review.sourceEventIds.sorted().joinToString().ifEmpty { "None" }}")
+            Text("Session: ${review.sessionId?.let(::evidenceId) ?: "Unlinked"}; events: ${review.sourceEventIds.sorted().joinToString(transform = ::evidenceId).ifEmpty { "None" }}")
         }
     }
 }
