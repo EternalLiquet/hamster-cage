@@ -43,7 +43,7 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
             val edit = if (session != null) {
                 val bounds = if (revert) CorrectionBounds(session.start ?: session.end ?: baseline.now, session.end)
                     else correctionBounds(start, end, baseline.now)
-                val sequence = Math.addExact(baseline.corrections.maxOfOrNull { it.appendSequence } ?: 0, 1)
+                val sequence = nextCorrectionSequence(baseline.corrections.maxOfOrNull { it.appendSequence } ?: 0)
                 AttendanceEdit.Correct(baseline, Correction(id, session.id, bounds.start, bounds.end, baseline.now, note.trim(), revert, sequence))
             } else {
                 require(input.offices.any { it.id == officeId }) { "Choose a saved office first." }

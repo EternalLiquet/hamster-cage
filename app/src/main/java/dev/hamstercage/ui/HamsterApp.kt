@@ -19,6 +19,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,7 @@ import dev.hamstercage.capture.RegistrationStatus
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.PolicySettings
+import dev.hamstercage.privacy.PrivacyResetState
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -58,6 +60,8 @@ fun HamsterApp(
     storageState: StorageState = StorageState.Loading,
     captureStatus: CaptureStatus = CaptureStatus(),
     coverage: CoverageLedger? = null,
+    privacyState: PrivacyResetState = PrivacyResetState.Idle(0),
+    fullResetRequested: Boolean = false,
     locationSetup: LocationSetup = LocationSetup(), backgroundOptionLabel: String = "Allow all the time",
     setupError: String? = null, requestForeground: () -> Unit = {}, requestBackground: () -> Unit = {},
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
@@ -66,15 +70,19 @@ fun HamsterApp(
     correctionActions: CorrectionActions? = null,
     savePolicy: (suspend (PolicySettings, PolicySettings) -> Unit)? = null,
     calendarActions: CalendarActions? = null,
+    privacyActions: PrivacyActions? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
     val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD ||
         selected == Destination.HISTORY || selected == Destination.SETTINGS)
-    val snapshot = (storageState as? StorageState.Ready)?.snapshot
+    val usableStorage = if (privacyState is PrivacyResetState.Idle && !fullResetRequested) storageState else StorageState.Unavailable
+    val snapshot = (usableStorage as? StorageState.Ready)?.snapshot
     val displayZone = snapshot?.policy?.zoneId ?: zoneId
-    val effectiveTrackingReady = if (coverage == null) trackingReady else
-        captureStatus.registration == RegistrationStatus.ACTIVE && coverage.presenceConfirmed(now, displayZone)
+    val effectiveTrackingReady = privacyState is PrivacyResetState.Idle && !fullResetRequested &&
+        (if (coverage == null) trackingReady else
+            captureStatus.registration == RegistrationStatus.ACTIVE && !captureStatus.deliveryFailure &&
+                coverage.presenceConfirmed(now, displayZone))
     HamsterTheme {
         Scaffold(bottomBar = {
             if (LocalDensity.current.fontScale >= CageStyle.LargeFontThreshold) {
@@ -126,17 +134,29 @@ fun HamsterApp(
                 verticalArrangement = Arrangement.spacedBy(CageStyle.Gap),
             ) {
                 Text("Hamster Cage", style = MaterialTheme.typography.titleMedium, color = CageStyle.Peach)
-                if (storageState == StorageState.Unavailable) {
+                if (fullResetRequested) {
+                    Column(Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) {
+                        Notice("Full reset requested", "Android is clearing local app data. Reopen the app to check the fresh state.")
+                    }
+                } else if (privacyState is PrivacyResetState.Pending) {
+                    Column(Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) {
+                        Notice("History deletion pending", "Attendance is hidden while local deletion finishes. Open Privacy and local data to retry if needed.")
+                    }
+                } else if (privacyState == PrivacyResetState.Unavailable) {
+                    Column(Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) {
+                        Notice("Privacy state unavailable", "Attendance is hidden because local deletion state could not be read. Review Privacy and local data.")
+                    }
+                } else if (storageState == StorageState.Unavailable) {
                     Column(Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) {
                         Notice("Attendance data unavailable", "Local attendance data could not be opened. Saved data was kept for recovery.")
                     }
                 }
-                if (captureStatus.registration == RegistrationStatus.FAILED) {
+                if (privacyState is PrivacyResetState.Idle && !fullResetRequested && captureStatus.registration == RegistrationStatus.FAILED) {
                     Column(Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) {
                         Notice("Office detection unavailable", "Office boundaries could not be registered or removed on this device. Review location setup and try opening the app again.")
                     }
                 }
-                if (captureStatus.deliveryFailure) {
+                if (privacyState is PrivacyResetState.Idle && !fullResetRequested && captureStatus.deliveryFailure) {
                     Column(Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) {
                         Notice("Attendance capture needs attention", "A boundary update could not be saved locally. Saved attendance data was kept for review.")
                     }
@@ -151,7 +171,9 @@ fun HamsterApp(
                                     unknownDates = coverage?.unreviewedUnknownDates.orEmpty())
                             }
                             val result = remember(input) { AttendanceEngine.derive(input) }
-                            if (selected == Destination.HISTORY) HistoryScreen(input, result, correctionActions)
+                            if (selected == Destination.HISTORY) key(privacyState.generation) {
+                                HistoryScreen(input, result, correctionActions)
+                            }
                             else {
                                 DashboardScreen(input, result, effectiveTrackingReady,
                                     openOffices = { selectedName = Destination.OFFICES.name },
@@ -162,19 +184,25 @@ fun HamsterApp(
                                         "Review history", { selectedName = Destination.HISTORY.name })
                             }
                         }
-                        storageState == StorageState.Loading -> Text("Opening your local record…")
+                        usableStorage == StorageState.Loading -> Text("Opening your local record…")
                         else -> Unit // The sanitized storage failure notice above remains the only data state.
                     }
                 } else if (selected == Destination.OFFICES && officeActions != null) {
-                    OfficeScreen(storageState, officeActions)
+                    OfficeScreen(usableStorage, officeActions)
                 } else if (selected == Destination.SETTINGS && savePolicy != null) {
-                    PolicyScreen(storageState, savePolicy)
+                    PolicyScreen(usableStorage, savePolicy)
                 } else Notice("Ready for the next step", selected.description)
 
                 if (selected == Destination.SETTINGS && calendarActions != null) {
-                    CalendarScreen(storageState, now.atZone(displayZone).toLocalDate(), calendarActions)
+                    key(privacyState.generation) {
+                        CalendarScreen(usableStorage, now.atZone(displayZone).toLocalDate(), calendarActions)
+                    }
                 }
-                if (selected == Destination.OFFICES || selected == Destination.SETTINGS) {
+                if (selected == Destination.SETTINGS && privacyActions != null) {
+                    PrivacyScreen(usableStorage, privacyState, privacyActions)
+                }
+                if ((selected == Destination.OFFICES || selected == Destination.SETTINGS) &&
+                    privacyState is PrivacyResetState.Idle && !fullResetRequested) {
                     FormError(setupError)
                     LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground,
                         openAppSettings, openDeviceSettings, captureStatus.registration)

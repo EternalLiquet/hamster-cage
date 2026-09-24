@@ -5,6 +5,8 @@ import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.offices.registrationIntents
 import dev.hamstercage.location.LocationPermissions
+import dev.hamstercage.privacy.PrivacyResetState
+import dev.hamstercage.privacy.PrivacyResetStore
 import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
@@ -15,7 +17,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** Process-scoped reconciliation: restart and office edits both reapply desired fences. */
@@ -26,7 +27,6 @@ class CaptureController private constructor(context: Context) {
     private val readiness = MutableStateFlow<Prerequisites?>(null)
     private val repository = HamsterRepository.get(application)
     private val registrar = GeofenceRegistrar(application)
-    private val reconcileLock = Mutex()
     private var processStarted = false
 
     init {
@@ -55,7 +55,12 @@ class CaptureController private constructor(context: Context) {
         reconcile(repository.state.first(), ready, force = true)
     }
 
-    private suspend fun reconcile(state: StorageState, ready: Boolean, force: Boolean) = reconcileLock.withLock {
+    private suspend fun reconcile(state: StorageState, ready: Boolean, force: Boolean) = CaptureWriteGate.mutex.withLock {
+        val reset = PrivacyResetStore.read(application)
+        if (reset !is PrivacyResetState.Idle) {
+            CaptureHealth.registration(RegistrationStatus.FAILED)
+            return@withLock
+        }
         val now = Instant.now()
         val zone = (state as? StorageState.Ready)?.snapshot?.policy?.zoneId ?: ZoneId.systemDefault()
         if (!processStarted) {
@@ -63,9 +68,10 @@ class CaptureController private constructor(context: Context) {
             processStarted = true
         }
         val status = when (state) {
-            is StorageState.Ready -> registrar.synchronize(state.snapshot.registrationIntents(), ready, force)
+            is StorageState.Ready -> registrar.synchronize(state.snapshot.registrationIntents(), ready, force,
+                reset.generation)
             StorageState.Unavailable -> {
-                registrar.synchronize(emptyList(), false)
+                registrar.synchronize(emptyList(), false, generation = reset.generation)
                 CaptureHealth.registration(RegistrationStatus.FAILED)
                 CaptureStatus(RegistrationStatus.FAILED)
             }
