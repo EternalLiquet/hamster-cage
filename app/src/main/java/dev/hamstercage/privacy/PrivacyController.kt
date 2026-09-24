@@ -15,13 +15,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
 
 /** A pending journal hides old derived state and is retried after process restart. */
 class PrivacyController private constructor(context: Context) {
     private val application = context.applicationContext
     private val repository = HamsterRepository.get(application)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val deletion = HistoryDeletionProtocol(PrivacyResetStore.journal(application), CaptureWriteGate.mutex,
+        deleteFacts = { repository.deleteAttendanceAndCalendarHistory() },
+        resetCoverage = { CoverageStore.change(application) { CoverageLedger() } },
+        resetHealth = { CaptureHealthStore.setDeliveryFailure(application, false) })
 
     init {
         scope.launch {
@@ -42,23 +45,7 @@ class PrivacyController private constructor(context: Context) {
     }
 
     private suspend fun finishHistoryDeletion(beginIfNeeded: Boolean) {
-        var completed = false
-        CaptureWriteGate.mutex.withLock {
-            val current = PrivacyResetStore.read(application)
-            val pending = when {
-                current is PrivacyResetState.Pending -> current
-                beginIfNeeded && current is PrivacyResetState.Idle -> PrivacyResetStore.begin(application)
-                current is PrivacyResetState.Idle -> return@withLock
-                else -> throw IllegalStateException("Privacy reset unavailable")
-            }
-            CaptureHealth.registration(RegistrationStatus.REGISTERING)
-            // Repeated after interruption: an already-empty Room transaction is harmless.
-            repository.deleteAttendanceAndCalendarHistory()
-            CoverageStore.change(application) { CoverageLedger() }
-            CaptureHealthStore.setDeliveryFailure(application, false)
-            PrivacyResetStore.complete(application, pending.generation)
-            completed = true
-        }
+        val completed = deletion.run(beginIfNeeded)
         if (completed) {
             try { CaptureController.get(application).refreshFromSystem() }
             catch (cancelled: CancellationException) { throw cancelled }

@@ -58,7 +58,7 @@ internal data class ExclusionRecord(@PrimaryKey val date: String, val reason: St
 @Entity(tableName = "day_labels")
 internal data class DayLabelRecord(@PrimaryKey val date: String, val isWfh: Boolean, val updatedAt: Long)
 
-/** No raw-event, correction or manual-session update/delete operation is available. */
+/** Ordinary edits never update/delete source facts; only the explicit privacy reset deletes whole tables. */
 @Dao
 internal interface HamsterDao {
     @RawQuery(observedEntities = [OfficeRecord::class, EventRecord::class, CorrectionRecord::class,

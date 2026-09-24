@@ -62,8 +62,8 @@ fun PrivacyScreen(state: StorageState, reset: PrivacyResetState, actions: Privac
                     style = MaterialTheme.typography.bodyMedium)
                 is PrivacyResetState.Idle -> Unit
             }
-            if (choice == null && available) {
-                Button(onClick = { choice = DeleteChoice.HISTORY; message = null }, enabled = !busy,
+            if (choice == null) {
+                if (available) Button(onClick = { choice = DeleteChoice.HISTORY; message = null }, enabled = !busy,
                     modifier = Modifier.testTag("privacy_delete_history")) { Text("Delete attendance and calendar history") }
                 TextButton(onClick = { choice = DeleteChoice.ALL; message = null }, enabled = !busy,
                     modifier = Modifier.testTag("privacy_reset_all")) { Text("Reset all app data") }
@@ -78,7 +78,7 @@ fun PrivacyScreen(state: StorageState, reset: PrivacyResetState, actions: Privac
                 }
                 DeleteChoice.ALL -> {
                     Text("Reset all app data?", style = MaterialTheme.typography.titleMedium)
-                    Text("Android will clear every app-private database and preference, including attendance, calendar, offices, policy and capture health. The app will close; reopen it to start fresh. This cannot be undone.",
+                    Text("Android will clear every app-private database and preference, including attendance, calendar, offices, policy and capture health, and revoke app permissions. The app may close; reopen it to start fresh. This cannot be undone.",
                         style = MaterialTheme.typography.bodyMedium)
                 }
                 null -> Unit
@@ -97,7 +97,8 @@ fun PrivacyScreen(state: StorageState, reset: PrivacyResetState, actions: Privac
                     DeleteChoice.ALL -> {
                         busy = true; message = null
                         try {
-                            if (!actions.resetAllAppData()) message = "Android could not reset app data. Your saved data was kept."
+                            if (actions.resetAllAppData()) message = "Full reset requested. Reopen the app to check the fresh state."
+                            else message = "Android could not reset app data. Your saved data was kept."
                         } catch (_: Exception) { message = "Android could not reset app data. Your saved data was kept." }
                         finally { busy = false; choice = null }
                     }
@@ -109,12 +110,6 @@ fun PrivacyScreen(state: StorageState, reset: PrivacyResetState, actions: Privac
             }
             TextButton(onClick = { choice = null; message = null }, enabled = !busy,
                 modifier = Modifier.testTag("privacy_cancel")) { Text("Cancel; keep all data") }
-        }
-        if (reset == PrivacyResetState.Unavailable) {
-            Panel(warm = true) {
-                Text("If the reset record cannot be recovered, you may still choose a full Android app-data reset.", style = MaterialTheme.typography.bodyMedium)
-                Button(onClick = { choice = DeleteChoice.ALL }, enabled = !busy) { Text("Review full reset") }
-            }
         }
     }
 }

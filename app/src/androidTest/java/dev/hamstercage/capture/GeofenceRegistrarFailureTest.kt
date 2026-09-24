@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.location.GeofencingRequest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -25,6 +26,24 @@ class GeofenceRegistrarFailureTest {
         assertEquals(RegistrationStatus.NEEDS_SETUP,
             registrar.synchronize(emptyList(), ready = false).registration)
         assertEquals(2, operations.attempts)
+    }
+
+    @Test fun historyDeletionGenerationSeparatesOldQueuedCallbacks() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val operations = FailingRemoval().apply { fail = false }
+        val registrar = GeofenceRegistrar(context, operations = operations)
+        val old = registrar.pendingIntent(0)
+        val afterDelete = registrar.pendingIntent(1)
+        try {
+            assertNotEquals(old, afterDelete)
+            assertNotEquals(GeofenceRegistrar.action(0), GeofenceRegistrar.action(1))
+            assertEquals(RegistrationStatus.NEEDS_SETUP,
+                registrar.synchronize(emptyList(), ready = false, generation = 1).registration)
+            assertEquals(2, operations.attempts)
+        } finally {
+            old.cancel()
+            afterDelete.cancel()
+        }
     }
 
     private class FailingRemoval : FenceOperations {
