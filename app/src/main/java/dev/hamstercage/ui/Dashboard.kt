@@ -130,9 +130,14 @@ fun DashboardScreen(
                     Text("${coverage.unavailableBeforeTracking.size} earlier dates outside reliable tracking (${firstUnavailable.format(formatter)} – ${lastUnavailable.format(formatter)}) are excluded; recorded days in that span count separately. No rolling balance can be calculated yet.",
                         Modifier.testTag("${target.name}_pretracking"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
                 }
-                if (coverage.unknownAfterTracking.isNotEmpty())
-                    Text("${coverage.unknownAfterTracking.size} later calendar ${if (coverage.unknownAfterTracking.size == 1) "day has" else "days have"} unknown coverage; excluded from the requirement above. Balance and average remain Unknown.",
+                if (coverage.unknownAfterTracking.isNotEmpty()) {
+                    val firstUnknown = coverage.unknownAfterTracking.minOrNull()!!
+                    val lastUnknown = coverage.unknownAfterTracking.maxOrNull()!!
+                    val dates = if (firstUnknown == lastUnknown) firstUnknown.format(formatter) else
+                        "${firstUnknown.format(formatter)} – ${lastUnknown.format(formatter)}"
+                    Text("${coverage.unknownAfterTracking.size} later calendar ${if (coverage.unknownAfterTracking.size == 1) "day has" else "days have"} unknown coverage ($dates); excluded from the requirement above. Balance and average remain Unknown.",
                         Modifier.testTag("${target.name}_unknown"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+                }
             }
         }
         Text("Personal estimates. Geofence delivery can be delayed; arrival walking grace is an uncredited delay, not a confirmed building entry.",

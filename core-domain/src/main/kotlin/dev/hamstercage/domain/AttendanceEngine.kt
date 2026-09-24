@@ -233,6 +233,12 @@ object AttendanceEngine {
         val reliable = result.sessions.filter { it.officeId in eligible && it.start != null &&
             it.reviewReasons.all(benign::contains) && (it.end == null || it.end > it.start) }
         val sessionStart = reliable.minOfOrNull { it.start!!.atZone(input.policy.zoneId).toLocalDate() }
+        // An ordinary captured session starts the period in which later missing days
+        // are outages. A voluntary manual/corrected backfill covers its own dates but
+        // cannot make the intervening pre-capture history a mandatory review gap.
+        val observedStart = reliable.filter { it.confidence != Confidence.MANUAL }
+            .minOfOrNull { it.start!!.atZone(input.policy.zoneId).toLocalDate() }
+        val continuousStart = listOfNotNull(input.historyStartDate, observedStart).minOrNull()
         val ledgerStart = input.historyStartDate?.let { start ->
             var candidate = start
             while (candidate <= today && candidate in input.unknownDates) candidate = candidate.plusDays(1)
@@ -258,7 +264,7 @@ object AttendanceEngine {
         // An isolated manual backfill is a covered island, not the start of continuous
         // capture. Dates between it and the coverage ledger are still pretracking.
         val before = dates.filterTo(mutableSetOf()) { date ->
-            date !in covered && (input.historyStartDate == null || date < input.historyStartDate)
+            date !in covered && (continuousStart == null || date < continuousStart)
         }
         val after = dates.filterTo(mutableSetOf()) { it !in before && it !in covered }
         val expected = covered.count(input.policy::isExpected)
