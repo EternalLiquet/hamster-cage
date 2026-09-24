@@ -20,3 +20,14 @@ data class PeriodSummary(
 ) {
     val hasCompleteHistory: Boolean get() = unknownCalendarDays == 0
 }
+
+/** Dates safe to use for an actionable denominator, separate from the full policy window. */
+data class ReportingCoverage(
+    val firstReliableDay: LocalDate?,
+    val coveredDates: Set<LocalDate>,
+    val unavailableBeforeTracking: Set<LocalDate>,
+    val unknownAfterTracking: Set<LocalDate>,
+    val coveredExpectedWorkdays: Int,
+    val coveredRequiredMinutes: Int,
+    val coveredCreditedMinutes: Double,
+)

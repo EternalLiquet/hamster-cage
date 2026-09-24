@@ -83,6 +83,77 @@ class DashboardTest {
         compose.onNodeWithTag("ROLLING_90_balance").performScrollTo().assertTextContains("Unknown")
     }
 
+    @Test fun noHistoryRollingCardsExplainUnavailableDaysWithoutARequiredTotalAtLargeText() {
+        show(data().copy(historyStartDate = null), scale = 2f)
+        listOf("ROLLING_30", "ROLLING_90").forEach { target ->
+            compose.onNodeWithTag("${target}_coverage").performScrollTo()
+                .assertTextContains("Earlier days predate reliable tracking", substring = true)
+            compose.onNodeWithTag("${target}_required").assertDoesNotExist()
+            compose.onNodeWithTag("${target}_days").assertDoesNotExist()
+            compose.onNodeWithTag("${target}_balance").performScrollTo().assertTextContains("Unknown")
+        }
+    }
+
+    @Test fun firstTrackedDayRollingRequirementExcludesPriorDays() {
+        show(data(listOf(enter())).copy(historyStartDate = null))
+        listOf("ROLLING_30", "ROLLING_90").forEach { target ->
+            compose.onNodeWithTag("${target}_days").performScrollTo().assertTextContains("1")
+            compose.onNodeWithTag("${target}_required").performScrollTo().assertTextContains("6h 0m")
+            compose.onNodeWithTag("${target}_pretracking").performScrollTo().assertTextContains("earlier dates outside reliable tracking", substring = true)
+            compose.onNodeWithTag("${target}_balance").performScrollTo().assertTextContains("Unknown")
+        }
+    }
+
+    @Test fun reviewBlockedPriorCreditIsSeparateFromCoveredProgress() {
+        val prior = today.minusDays(1).atTime(9, 0).atZone(java.time.ZoneId.of("America/New_York")).toInstant()
+        val events = listOf(RawEvent("first", "a", Transition.ENTER, prior),
+            RawEvent("repeat", "a", Transition.ENTER, prior.plusSeconds(3600)),
+            RawEvent("out", "a", Transition.EXIT, prior.plusSeconds(6 * 3600))) +
+            listOf(enter(), RawEvent("today-out", "a", Transition.EXIT, now))
+        show(data(events).copy(historyStartDate = null))
+        compose.onNodeWithTag("ROLLING_30_credit").performScrollTo().assertTextContains("2h 55m")
+        compose.onNodeWithTag("ROLLING_30_required").performScrollTo().assertTextContains("6h 0m")
+        compose.onNodeWithTag("ROLLING_30_provisional_credit").performScrollTo()
+            .assertTextContains("Excluded from covered-day progress", substring = true)
+        compose.onNodeWithTag("ROLLING_30_balance").performScrollTo().assertTextContains("Unknown")
+    }
+
+    @Test fun observedMondayMakesMissingTuesdayALaterUnknownDay() {
+        val zone = java.time.ZoneId.of("America/New_York")
+        fun at(date: LocalDate, hour: Int) = date.atTime(hour, 0).atZone(zone).toInstant()
+        val monday = today.minusDays(2)
+        val events = listOf(RawEvent("mon-in", "a", Transition.ENTER, at(monday, 9)),
+            RawEvent("mon-out", "a", Transition.EXIT, at(monday, 11)),
+            RawEvent("wed-in", "a", Transition.ENTER, at(today, 9)),
+            RawEvent("wed-out", "a", Transition.EXIT, at(today, 11)))
+        show(data(events).copy(historyStartDate = null))
+        compose.onNodeWithTag("ROLLING_30_days").performScrollTo().assertTextContains("2")
+        compose.onNodeWithTag("ROLLING_30_required").performScrollTo().assertTextContains("12h 0m")
+        compose.onNodeWithTag("ROLLING_30_unknown").performScrollTo()
+            .assertTextContains("1 later calendar day has unknown coverage (Sep 22)", substring = true)
+        compose.onNodeWithTag("ROLLING_30_pretracking").performScrollTo()
+            .assertTextContains("Sep 20", substring = true)
+        compose.onNodeWithTag("ROLLING_30_balance").performScrollTo().assertTextContains("Unknown")
+    }
+
+    @Test fun correctedObservedMondayStillMakesTuesdayALaterUnknownDay() {
+        val zone = java.time.ZoneId.of("America/New_York")
+        fun at(date: LocalDate, hour: Int, minute: Int = 0) = date.atTime(hour, minute).atZone(zone).toInstant()
+        val monday = today.minusDays(2)
+        val events = listOf(RawEvent("mon-in", "a", Transition.ENTER, at(monday, 9)),
+            RawEvent("mon-out", "a", Transition.EXIT, at(monday, 11)),
+            RawEvent("wed-in", "a", Transition.ENTER, at(today, 9)),
+            RawEvent("wed-out", "a", Transition.EXIT, at(today, 11)))
+        val correction = Correction("adjust-mon", "session:mon-in", at(monday, 9, 30),
+            at(monday, 11), now)
+        show(data(events).copy(historyStartDate = null, corrections = listOf(correction)))
+        compose.onNodeWithTag("ROLLING_30_days").performScrollTo().assertTextContains("2")
+        compose.onNodeWithTag("ROLLING_30_required").performScrollTo().assertTextContains("12h 0m")
+        compose.onNodeWithTag("ROLLING_30_unknown").performScrollTo()
+            .assertTextContains("1 later calendar day has unknown coverage (Sep 22)", substring = true)
+        compose.onNodeWithTag("ROLLING_30_balance").performScrollTo().assertTextContains("Unknown")
+    }
+
     @Test fun activeArrivalWindowShowsZeroCreditAndCountdown() {
         val entry = Instant.parse("2026-09-23T13:00:00Z")
         val input = data(listOf(RawEvent("in", "a", Transition.ENTER, entry))).copy(now = entry.plusSeconds(180))
@@ -124,6 +195,6 @@ class DashboardTest {
         assertTrue(layouts.isNotEmpty())
         assertTrue(layouts.joinToString { "size=${it.size}, width=${it.didOverflowWidth}, height=${it.didOverflowHeight}, lines=${it.lineCount}" }, layouts.none { it.hasVisualOverflow })
         compose.onNodeWithTag("ROLLING_90_average").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("ROLLING_90_days").performScrollTo().assertTextContains("Expected workdays")
+        compose.onNodeWithTag("ROLLING_90_days").performScrollTo().assertTextContains("Expected workdays", substring = true)
     }
 }
