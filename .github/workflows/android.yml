@@ -1,0 +1,106 @@
+name: Android build and checks
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify Gradle bootstrap integrity
+        run: |
+          python3 scripts/verify_wrapper.py
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
+          python3 -O -m unittest discover -s scripts -p 'test_*.py' -v
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0'
+      - name: Unit tests, lint, APK and runtime dependency inventory
+        run: ./gradlew :core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:writeDependencyInventory
+      - name: Audit privacy boundary
+        run: python3 scripts/security_check.py
+      - name: Audit resolved runtime dependencies
+        run: python3 scripts/dependency_audit.py
+      - name: Record signed artifact provenance
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/hamster-cage-preview.apk
+          (cd dist && sha256sum hamster-cage-preview.apk > SHA256SUMS)
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/hamster-cage-preview.apk > dist/SIGNATURE.txt
+          python3 scripts/artifact_provenance.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hamster-cage-preview-${{ github.event.pull_request.head.sha || github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: test-lint-and-dependency-reports
+          path: |
+            core-domain/build/reports/tests/
+            app/build/reports/
+          retention-days: 14
+  instrumentation:
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify wrapper before executing Gradle
+        run: python3 scripts/verify_wrapper.py
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0 platform-tools'
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: ReactiveCircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            ./gradlew :app:connectedDebugAndroidTest
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            mkdir -p app/build/reports/screenshots
+            adb shell am start -W -n dev.hamstercage.preview/dev.hamstercage.MainActivity > app/build/reports/screenshots/launch.txt
+            grep -q 'Status: ok' app/build/reports/screenshots/launch.txt
+            sleep 3
+            adb shell pidof dev.hamstercage.preview
+            adb exec-out screencap -p > app/build/reports/screenshots/dashboard.png
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: device-test-reports
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/screenshots/
+          retention-days: 14

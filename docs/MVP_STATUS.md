@@ -1,5 +1,11 @@
 # Product MVP checkpoint
 
+## CI issue #14 extraction
+
+The expanded CI slice replaces the bootstrap workflow with source-head build, lint, unit/instrumentation tests, wrapper-integrity checks, OSV runtime dependency audit, Gitleaks, CodeQL and traceable APK/report artifacts. A post-test reinstall fixes the reference workflow's launch failure. No recurring workflows are created; dependency updates remain reviewed PRs.
+
+Implementation checks: ten wrapper/dependency-audit tests pass in ordinary and optimized Python, including known-vulnerability and unavailable/incomplete-service failures; the three shell JVM tests, lint, APK/test APK assembly, dependency inventory and privacy audit pass. OSV reports no known vulnerabilities in 57 resolved external Maven runtime dependencies. Provenance refuses dirty checkouts. Instrumentation/hosted scanners, independent verification/review and current-head CI are required in the issue PR; the preserved PR #50 results are not substituted for them. This does not complete other Phase 0 features or the Product MVP.
+
 This branch implements issue #10 only. It extracts the pinned build and privacy defaults from PR #50 commit `12a2cc8`, then supplies a focused shell. It does not carry forward the reference branch's broader feature-completion claims.
 
 ## Implemented for #10
