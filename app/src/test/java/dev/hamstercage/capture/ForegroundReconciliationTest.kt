@@ -7,6 +7,7 @@ import dev.hamstercage.domain.Policy
 import dev.hamstercage.domain.RawEvent
 import dev.hamstercage.domain.Transition
 import java.time.Instant
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -65,6 +66,24 @@ class ForegroundReconciliationTest {
             event("geofence-enter", Transition.ENTER, observed.plusSeconds(5)),
             event("geofence-exit", Transition.EXIT, observed.plusSeconds(90))))
         assertEquals(1, repeated.derive(observed.plusSeconds(100)).sessions.size)
+    }
+
+    @Test fun cachedPreRegistrationFixCannotClaimVisiblePresenceButPostBoundaryFixCan() {
+        val zone = ZoneId.of("America/New_York")
+        val boundary = observed
+        val registered = CoverageLedger().registrationSucceeded(boundary, zone, hasOffices = true)
+        val now = observed.plusSeconds(10)
+        val cached = observed.minusSeconds(5)
+        val requested = boundary.plusSeconds(1)
+        assertEquals(ReconcileOutcome.STALE, recoveryObservationGate(registered, cached, requested, now, zone))
+        assertEquals(false, registered.observed(cached).presenceConfirmed(now, zone))
+        val postBoundary = observed.plusSeconds(2)
+        assertNull(recoveryObservationGate(registered, postBoundary, requested, now, zone))
+        assertEquals(true, registered.observed(postBoundary).presenceConfirmed(now, zone))
+        assertEquals(ReconcileOutcome.STALE,
+            recoveryObservationGate(registered, boundary, requested, now, zone))
+        assertEquals(ReconcileOutcome.NOT_REGISTERED,
+            recoveryObservationGate(registered.outage(now, zone), postBoundary, requested, now, zone))
     }
 
     private fun event(id: String, transition: Transition, at: Instant) = RecordedEvent(

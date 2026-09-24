@@ -14,6 +14,7 @@ import dev.hamstercage.offices.OfficeLocationServices
 import dev.hamstercage.privacy.PrivacyResetState
 import dev.hamstercage.privacy.PrivacyResetStore
 import java.time.Instant
+import java.time.ZoneId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -58,6 +59,17 @@ internal fun canOpenFromObservation(snapshot: AppSnapshot, observedAt: Instant, 
     return null
 }
 
+/** A cached fix from before registration cannot confirm post-recovery presence. */
+internal fun recoveryObservationGate(coverage: CoverageLedger, observedAt: Instant,
+    requestedAt: Instant, now: Instant, zone: ZoneId): ReconcileOutcome? {
+    if (coverage.registration != RegistrationStatus.ACTIVE || coverage.outageStartedAt != null ||
+        coverage.recoveryBoundaryAt == null || coverage.policyZoneId != zone)
+        return ReconcileOutcome.NOT_REGISTERED
+    if (observedAt < requestedAt || observedAt < coverage.recoveryBoundaryAt ||
+        !coverage.observed(observedAt).presenceConfirmed(now, zone)) return ReconcileOutcome.STALE
+    return null
+}
+
 private fun metersBetween(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Double {
     val dLat = Math.toRadians(bLat - aLat)
     val dLon = Math.toRadians(bLon - aLon)
@@ -78,7 +90,8 @@ class ForegroundReconciliation(private val context: Context,
         if (!setup.fineLocation) return ReconcileOutcome.NEEDS_PRECISE
         if (!setup.locationEnabled) return ReconcileOutcome.LOCATION_OFF
         if (CaptureHealth.state.value.registration != RegistrationStatus.ACTIVE) return ReconcileOutcome.NOT_REGISTERED
-        val fix = try { location.captureFix() } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        val requestedAt = Instant.now()
+        val fix = try { location.captureFix(freshAfterRequest = true) } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             return if (failure.message?.contains("timed out") == true) ReconcileOutcome.TIMEOUT
@@ -101,6 +114,9 @@ class ForegroundReconciliation(private val context: Context,
             if (age !in 0..30_000_000_000L || wallAge !in 0..30_000L)
                 return@withLock ReconcileOutcome.STALE
             if (!fix.hasAccuracy()) return@withLock ReconcileOutcome.INACCURATE
+            val coverage = CoverageStore.state(application).first()
+            recoveryObservationGate(coverage, observedAt, requestedAt, now, state.snapshot.policy.zoneId)
+                ?.let { return@withLock it }
             val (outcome, office) = decidePresence(state.snapshot.offices, fix.latitude,
                 fix.longitude, fix.accuracy, wallAge)
             if (office == null) return@withLock outcome
