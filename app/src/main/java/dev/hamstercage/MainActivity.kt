@@ -14,6 +14,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
+import dev.hamstercage.capture.CaptureController
+import dev.hamstercage.capture.CaptureHealth
 import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.SystemTimeSource
@@ -38,9 +40,12 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         val repository = HamsterRepository.get(this)
+        CaptureController.get(this)
         setContent {
             val storageState by repository.state.collectAsState(initial = StorageState.Loading)
+            val captureStatus by CaptureHealth.state.collectAsState()
             HamsterApp(timeSource = SystemTimeSource(), storageState = storageState, locationSetup = locationSetup,
+                captureStatus = captureStatus,
                 backgroundOptionLabel = LocationPermissions.backgroundOptionLabel(this), setupError = setupError,
                 requestForeground = { foregroundRequest.launch(LocationPermissions.foregroundPermissions) },
                 requestBackground = { requestBackground() },
@@ -62,6 +67,7 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshLocationSetup() {
         locationSetup = LocationPermissions.read(this)
+        CaptureController.get(this).updatePermissionReady(locationSetup.prerequisitesReady)
         setupError = null
     }
 

@@ -13,6 +13,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.HamsterCage"
         android:usesCleartextTraffic="false">
+        <receiver android:name=".capture.GeofenceTransitionReceiver" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
