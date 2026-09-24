@@ -35,6 +35,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import dev.hamstercage.domain.TimeSource
 import dev.hamstercage.domain.AttendanceEngine
+import dev.hamstercage.capture.CaptureStatus
+import dev.hamstercage.capture.RegistrationStatus
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.data.StorageState
 import java.time.ZoneId
@@ -52,6 +54,7 @@ private enum class Destination(val label: String, val description: String) {
 fun HamsterApp(
     timeSource: TimeSource, zoneId: ZoneId = ZoneId.systemDefault(),
     storageState: StorageState = StorageState.Loading,
+    captureStatus: CaptureStatus = CaptureStatus(),
     locationSetup: LocationSetup = LocationSetup(), backgroundOptionLabel: String = "Allow all the time",
     setupError: String? = null, requestForeground: () -> Unit = {}, requestBackground: () -> Unit = {},
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
@@ -119,6 +122,16 @@ fun HamsterApp(
                         Notice("Attendance data unavailable", "Local attendance data could not be opened. Saved data was kept for recovery.")
                     }
                 }
+                if (captureStatus.registration == RegistrationStatus.FAILED) {
+                    Column(Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) {
+                        Notice("Office detection unavailable", "Office boundaries could not be registered or removed on this device. Review location setup and try opening the app again.")
+                    }
+                }
+                if (captureStatus.deliveryFailure) {
+                    Column(Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) {
+                        Notice("Attendance capture needs attention", "A boundary update could not be saved locally. Saved attendance data was kept for review.")
+                    }
+                }
                 PageHeading(selected.label, now.atZone(displayZone).toLocalDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")))
                 Tag("LOCAL ONLY", warm = true)
                 if (selected == Destination.DASHBOARD) {
@@ -139,7 +152,8 @@ fun HamsterApp(
 
                 if (selected == Destination.OFFICES || selected == Destination.SETTINGS) {
                     FormError(setupError)
-                    LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground, openAppSettings, openDeviceSettings)
+                    LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground,
+                        openAppSettings, openDeviceSettings, captureStatus.registration)
                 }
             }
         }
