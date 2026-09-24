@@ -63,6 +63,9 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.preview)
     implementation(libs.activity.compose)
+    implementation(libs.play.basement)
+    // Play services transitively requests legacy Fragment; Activity Result requires a supported version.
+    implementation(libs.fragment)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)

@@ -35,21 +35,28 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import dev.hamstercage.domain.TimeSource
 import dev.hamstercage.domain.AttendanceEngine
+import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.data.StorageState
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private enum class Destination(val label: String, val description: String) {
     DASHBOARD("Dashboard", "Attendance totals will appear here when office capture and the attendance engine are connected."),
-    OFFICES("Offices", "Office setup and location permissions are coming in the office capture features."),
+    OFFICES("Offices", "Office configuration and boundary registration are coming in the office capture features."),
     HISTORY("History", "Saved attendance and corrections will appear here. This shell has no attendance history."),
     SETTINGS("Settings", "Attendance policy and privacy controls are coming in the settings features."),
 }
 
 /** UI depends on domain contracts; the Activity supplies platform/data implementations. */
 @Composable
-fun HamsterApp(timeSource: TimeSource, zoneId: ZoneId = ZoneId.systemDefault(), storageState: StorageState = StorageState.Loading,
-    trackingReady: Boolean = false) {
+fun HamsterApp(
+    timeSource: TimeSource, zoneId: ZoneId = ZoneId.systemDefault(),
+    storageState: StorageState = StorageState.Loading,
+    locationSetup: LocationSetup = LocationSetup(), backgroundOptionLabel: String = "Allow all the time",
+    setupError: String? = null, requestForeground: () -> Unit = {}, requestBackground: () -> Unit = {},
+    openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
+    trackingReady: Boolean = false,
+) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
     val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD)
@@ -126,6 +133,11 @@ fun HamsterApp(timeSource: TimeSource, zoneId: ZoneId = ZoneId.systemDefault(), 
                         else -> Unit // The sanitized storage failure notice above remains the only data state.
                     }
                 } else Notice("Ready for the next step", selected.description)
+                if (selected == Destination.OFFICES || selected == Destination.SETTINGS) {
+                    FormError(setupError)
+                    LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground, openAppSettings, openDeviceSettings)
+                }
+
             }
         }
     }
