@@ -19,7 +19,7 @@ class ShellSmokeTest {
             "Offices" to "Office setup and location permissions are coming in the office capture features.",
             "History" to "Saved attendance and corrections will appear here. This shell has no attendance history.",
             "Settings" to "Attendance policy and privacy controls are coming in the settings features.",
-            "Dashboard" to "Attendance totals will appear here when office capture and the attendance engine are connected.",
+            "Dashboard" to "Office state unknown",
         )
         destinations.forEach { (label, description) ->
             compose.onNode(hasText(label) and hasClickAction()).performClick()
