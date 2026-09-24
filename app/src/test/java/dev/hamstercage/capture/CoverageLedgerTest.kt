@@ -62,4 +62,13 @@ class CoverageLedgerTest {
         assertEquals(setOf(LocalDate.parse("2025-03-09")),
             pending.outage(failedAt, zone).unreviewedUnknownDates)
     }
+
+    @Test fun veryLongClockGapFailsClosedInsteadOfDroppingUnknownDates() {
+        val first = at("2025-03-10T15:00:00Z")
+        val later = at("2040-03-10T15:00:00Z")
+        val uncertain = CoverageLedger().registrationSucceeded(first, zone, true).observed(first)
+            .processStarted(later, zone).registrationSucceeded(later, zone, true)
+        assertEquals(null, uncertain.historyStartDate)
+        assertFalse(uncertain.presenceConfirmed(later, zone))
+    }
 }

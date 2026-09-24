@@ -31,7 +31,13 @@ data class CoverageLedger(
     private fun outage(start: Instant, now: Instant, zone: ZoneId): CoverageLedger {
         val first = outageStartedAt ?: start
         val through = now.atZone(zone).toLocalDate()
-        val newlyAffected = dates((outageRecordedThrough?.plusDays(1) ?: first.atZone(zone).toLocalDate()), through)
+        val firstDate = outageRecordedThrough?.plusDays(1) ?: first.atZone(zone).toLocalDate()
+        if (firstDate.plusDays(3660) < through) return copy(
+            historyStartDate = null, unknownDates = emptySet(), reviewedDates = emptySet(),
+            lastObservationAt = null, outageStartedAt = first, outageRecordedThrough = through,
+            recoveryBoundaryAt = null, registration = RegistrationStatus.FAILED,
+        )
+        val newlyAffected = dates(firstDate, through)
         return copy(unknownDates = unknownDates + newlyAffected, reviewedDates = reviewedDates - newlyAffected,
             outageStartedAt = first, outageRecordedThrough = through, recoveryBoundaryAt = null,
             registration = RegistrationStatus.FAILED)
@@ -60,6 +66,7 @@ data class CoverageLedger(
         registration == RegistrationStatus.ACTIVE && outageStartedAt == null &&
             lastObservationAt?.let { observed ->
                 observed >= (recoveryBoundaryAt ?: return false) &&
+                    observed <= now &&
                     observed.atZone(zone).toLocalDate() == now.atZone(zone).toLocalDate()
             } == true
 
@@ -69,7 +76,6 @@ data class CoverageLedger(
 
     private fun dates(start: LocalDate, end: LocalDate): Set<LocalDate> {
         if (end < start) return emptySet()
-        // A pathological clock jump must not create an unbounded preference value.
-        return generateSequence(start) { if (it < end) it.plusDays(1) else null }.take(3660).toSet()
+        return generateSequence(start) { if (it < end) it.plusDays(1) else null }.toSet()
     }
 }
