@@ -22,6 +22,7 @@ import dev.hamstercage.location.LocationPermissions
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.location.backgroundPermissionAction
 import dev.hamstercage.ui.HamsterApp
+import dev.hamstercage.ui.OfficeActions
 
 class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
@@ -43,7 +44,12 @@ class MainActivity : ComponentActivity() {
                 requestForeground = { foregroundRequest.launch(LocationPermissions.foregroundPermissions) },
                 requestBackground = { requestBackground() },
                 openAppSettings = { openSettings(LocationPermissions.appSettings(this)) },
-                openDeviceSettings = { openSettings(LocationPermissions.deviceSettings()) })
+                openDeviceSettings = { openSettings(LocationPermissions.deviceSettings()) },
+                officeActions = OfficeActions(
+                    newId = HamsterRepository::newId,
+                    version = repository::officeVersion,
+                    save = repository::saveOffice,
+                ))
         }
     }
 
