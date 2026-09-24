@@ -41,7 +41,8 @@ def audit(root, variant="debug"):
     internal_permission = package + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
     # Location is staged by #17. New permission surfaces need an explicit reviewed audit change.
     reviewed_permissions = {"android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION",
-                            "android.permission.ACCESS_BACKGROUND_LOCATION", internal_permission}
+                            "android.permission.ACCESS_BACKGROUND_LOCATION", "android.permission.RECEIVE_BOOT_COMPLETED",
+                            internal_permission}
     require(permissions <= reviewed_permissions, "Unreviewed Android permission")
     if internal_permission in permissions:
         definitions = [item for item in manifest.findall("permission") if item.get(A + "name") == internal_permission]
@@ -70,6 +71,14 @@ def audit(root, variant="debug"):
                 require(len(filters) == 1 and len(filters[0]) == 2 and {(item.tag, item.get(A + "name")) for item in filters[0]} == {
                     ("action", "android.intent.action.MAIN"), ("category", "android.intent.category.LAUNCHER")},
                     "The exported main Activity must be only the launcher")
+            elif name == "dev.hamstercage.capture.CaptureRecoveryReceiver" and component.tag == "receiver":
+                filters = component.findall("intent-filter")
+                require("android.permission.RECEIVE_BOOT_COMPLETED" in permissions and
+                        component.get(A + "permission") is None and len(filters) == 1 and
+                        len(filters[0]) == 2 and {(item.tag, item.get(A + "name")) for item in filters[0]} == {
+                            ("action", "android.intent.action.BOOT_COMPLETED"),
+                            ("action", "android.intent.action.MY_PACKAGE_REPLACED")},
+                        "Recovery receiver must accept only reviewed protected system actions")
             else:
                 # A permission string alone must not authorize an arbitrary new endpoint.
                 require((component.tag, name, component.get(A + "permission")) == (

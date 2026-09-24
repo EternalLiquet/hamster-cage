@@ -4,12 +4,19 @@ import android.content.Context
 import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.offices.registrationIntents
+import dev.hamstercage.location.LocationPermissions
+import java.time.Instant
+import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Process-scoped reconciliation: restart and office edits both reapply desired fences. */
 class CaptureController private constructor(context: Context) {
@@ -19,6 +26,8 @@ class CaptureController private constructor(context: Context) {
     private val readiness = MutableStateFlow<Prerequisites?>(null)
     private val repository = HamsterRepository.get(application)
     private val registrar = GeofenceRegistrar(application)
+    private val reconcileLock = Mutex()
+    private var processStarted = false
 
     init {
         scope.launch {
@@ -33,15 +42,39 @@ class CaptureController private constructor(context: Context) {
                     if (prerequisites == null || state == StorageState.Loading) return@collect
                     val force = prerequisites.revision != lastRevision
                     lastRevision = prerequisites.revision
-                    when (state) {
-                        is StorageState.Ready -> registrar.synchronize(state.snapshot.registrationIntents(), prerequisites.ready, force)
-                        StorageState.Unavailable -> {
-                            registrar.synchronize(emptyList(), false)
-                            CaptureHealth.registration(RegistrationStatus.FAILED)
-                        }
-                        StorageState.Loading -> Unit
-                    }
+                    try { reconcile(state, prerequisites.ready, force) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { CaptureHealth.registration(RegistrationStatus.FAILED) }
                 }
+        }
+    }
+
+    /** Used by a bounded system receiver; its coroutine remains attached to goAsync. */
+    suspend fun refreshFromSystem() {
+        val ready = LocationPermissions.read(application).prerequisitesReady
+        reconcile(repository.state.first(), ready, force = true)
+    }
+
+    private suspend fun reconcile(state: StorageState, ready: Boolean, force: Boolean) = reconcileLock.withLock {
+        val now = Instant.now()
+        val zone = (state as? StorageState.Ready)?.snapshot?.policy?.zoneId ?: ZoneId.systemDefault()
+        if (!processStarted) {
+            CoverageStore.change(application) { it.processStarted(now, zone) }
+            processStarted = true
+        }
+        val status = when (state) {
+            is StorageState.Ready -> registrar.synchronize(state.snapshot.registrationIntents(), ready, force)
+            StorageState.Unavailable -> {
+                registrar.synchronize(emptyList(), false)
+                CaptureHealth.registration(RegistrationStatus.FAILED)
+                CaptureStatus(RegistrationStatus.FAILED)
+            }
+            StorageState.Loading -> return@withLock
+        }
+        CoverageStore.change(application) { ledger ->
+            if (status.registration == RegistrationStatus.ACTIVE || status.registration == RegistrationStatus.NO_OFFICES)
+                ledger.registrationSucceeded(now, zone, status.registration == RegistrationStatus.ACTIVE)
+            else ledger.outage(now, zone).copy(registration = status.registration)
         }
     }
 
