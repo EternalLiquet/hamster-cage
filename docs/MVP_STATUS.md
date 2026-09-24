@@ -1,10 +1,16 @@
 # Product MVP checkpoint
 
+## Departure estimates #23 checkpoint
+
+The pure estimator names all five target contexts and keeps estimated exit time separate from accrued credit. It uses prior unioned credit and office exit grace, suppresses predictions for missing history, relevant ambiguous/malformed bounds or competing open offices, and checks those conditions before apparent target satisfaction. Projections stop at the target window and configured safe open-session horizon. No source fact or historical aggregate is changed.
+
+Eighteen focused departure tests and the 62 existing domain tests pass. They cover target names, prior credit, met/unmet states, overlap, grace, leave-now projections, exclusions/WFH, rolling/week boundaries, correction resolution, clock anomalies, midnight and DST. Independent verification/review and exact-head CI remain required. See [departure contract](DEPARTURE_ESTIMATES.md); UI/tracking-health integration remains separate.
+
 ## Calendar metrics #21 checkpoint
 
 The pure domain slice adds today/week/rolling 30/90-date summaries, explicit full-week projection, policy-local day boundaries and denominator/coverage accounting. Exclusions reduce requirement while preserving actual credit; WFH does not reduce requirement. Missing weekend/holiday coverage is explicitly unknown, and no expected-day denominator is shortened to the install date. A zero denominator has an undefined average. Raw daily totals remain separate from corrections/manual/grace credit.
 
-All 17 focused calendar tests pass alongside the 45 existing reconstruction/clock tests. They cover holidays/WFH, future and inclusive-window boundaries, midnight/DST, policy/timezone changes, unknown coverage and malformed/extreme input bounds. This implementation checkpoint is not independent acceptance; exact-head CI and separate verification/review are required. See [calendar contract](CALENDAR_METRICS.md). Departure and UI features remain separate issues.
+All 17 focused calendar tests pass alongside the 45 existing reconstruction/clock tests. They cover holidays/WFH, future and inclusive-window boundaries, midnight/DST, policy/timezone changes, unknown coverage and malformed/extreme input bounds. Calendar #21 merged via PR #57 at 2a538b4dfea54f08fd1e017e51ae0372671a7ec7, preserving independently verified source ea87d52f821168991a7a034e466fe159d5328e79; review and all exact-head CI passed. See [calendar contract](CALENDAR_METRICS.md). Departure and UI features remain separate issues.
 
 Delivery uses one issue per PR, with separate implementation, verification and review agents. PR #50 remains an unmerged extraction reference. Only phases 0–5 are in scope; no scheduled continuation tasks or post-MVP work.
 
@@ -31,6 +37,6 @@ Reconstruction #13 merged through PR #54 at `ffe699ab0b9e0a8e4b65c5ce8882707ed17
 
 ## Remaining work and device gates
 
-Storage #12 merged via PR #55 at `6b5a049dae25dc38d905b463e96e5cd9a8d3589d`, verified head `494c7411413f28b38072d03e6347ec8fe4f44310`. [Independent evidence](https://github.com/EternalLiquet/hamster-cage/pull/55#issuecomment-5806840358), review and all exact-head CI passed. The calendar branch now includes this prerequisite without changing its verified domain source. Phase0 Security Pass #15 and capture/pages/settings/integration issues #16–35 remain open until their acceptance criteria pass. Calendar #21 is the current focused implementation; departure estimates remain separate. Product MVP is not complete.
+Storage #12 merged via PR #55 at `6b5a049dae25dc38d905b463e96e5cd9a8d3589d`, verified head `494c7411413f28b38072d03e6347ec8fe4f44310`. [Independent evidence](https://github.com/EternalLiquet/hamster-cage/pull/55#issuecomment-5806840358), review and all exact-head CI passed. The calendar branch now includes this prerequisite without changing its verified domain source. Phase0 Security Pass #15 and the remaining capture/pages/settings/integration issues through #35 require their own acceptance evidence. Calendar #21 is merged and closed; departure estimates remain separate. Product MVP is not complete.
 
 No physical-phone checks have run. Actual phone background delivery, permission changes, reboot/force-stop recovery and battery/OEM behavior remain explicit integration gates. Local and hosted emulator checks are identified as such. Production signing remains separate from the debug preview; every delivered APK must carry source SHA, checksum and signing caveat. No continuous GPS, INTERNET permission, public backend, analytics or sensitive fixture data is permitted.
