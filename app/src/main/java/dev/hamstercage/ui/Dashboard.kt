@@ -100,23 +100,44 @@ fun DashboardScreen(
         listOf("This week" to TargetWindow.WEEK_TO_DATE, "Rolling 30 days" to TargetWindow.ROLLING_30,
             "Rolling 90 days" to TargetWindow.ROLLING_90).forEach { (title, target) ->
             val summary = AttendanceEngine.summary(input, result, target)
+            val coverage = AttendanceEngine.reportingCoverage(input, result, summary.startDate, summary.endDate)
             Panel {
                 Text(title, style = MaterialTheme.typography.titleLarge)
                 val formatter = DateTimeFormatter.ofPattern("MMM d")
                 Text("${summary.startDate.format(formatter)} – ${summary.endDate.format(formatter)}", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-                DashboardMetric("Credited", minutesText(summary.creditedMinutes), "${target.name}_credit")
-                DashboardMetric("Expected workdays", summary.expectedWorkdays.toString(), "${target.name}_days")
-                DashboardMetric("Required through today", minutesText(summary.requiredMinutes.toDouble()), "${target.name}_required")
-                DashboardMetric("Average / expected day", if (summary.hasCompleteHistory)
+                if (coverage.firstReliableDay == null) {
+                    Text("Earlier days predate reliable tracking. Rolling trends will appear as attendance is captured; no balance can be calculated yet.",
+                        Modifier.testTag("${target.name}_coverage"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+                } else {
+                    DashboardMetric("Credited on covered days", minutesText(coverage.coveredCreditedMinutes), "${target.name}_credit")
+                    DashboardMetric("Expected workdays with coverage", coverage.coveredExpectedWorkdays.toString(), "${target.name}_days")
+                    DashboardMetric("Required on covered days since tracking began", minutesText(coverage.coveredRequiredMinutes.toDouble()), "${target.name}_required")
+                }
+                if (summary.creditedMinutes > coverage.coveredCreditedMinutes + 0.0001)
+                    Text("${minutesText(summary.creditedMinutes - coverage.coveredCreditedMinutes)} recorded on dates without reliable coverage; review in History. Excluded from covered-day progress.",
+                        Modifier.testTag("${target.name}_provisional_credit"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+                DashboardMetric("Average on covered expected days", if (summary.hasCompleteHistory)
                     summary.averageMinutes?.let(::minutesText) ?: "No expected days" else "Unknown", "${target.name}_average")
                 DashboardMetric("Balance", if (summary.hasCompleteHistory) balanceText(summary.balanceMinutes) else "Unknown", "${target.name}_balance", true)
-                if (target == TargetWindow.WEEK_TO_DATE) {
+                if (target == TargetWindow.WEEK_TO_DATE && summary.hasCompleteHistory) {
                     val full = AttendanceEngine.summary(input, result, TargetWindow.FULL_WEEK)
                     DashboardMetric("Full-week projected requirement", minutesText(full.requiredMinutes.toDouble()), "full_week_required")
                     Text("Includes ${full.projectedExpectedWorkdays} future expected workdays.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
                 }
-                if (!summary.hasCompleteHistory)
-                    Text("${summary.unknownCalendarDays} calendar days have no reliable coverage.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+                if (coverage.firstReliableDay != null && coverage.unavailableBeforeTracking.isNotEmpty()) {
+                    val firstUnavailable = coverage.unavailableBeforeTracking.minOrNull()!!
+                    val lastUnavailable = coverage.unavailableBeforeTracking.maxOrNull()!!
+                    Text("${coverage.unavailableBeforeTracking.size} earlier dates outside reliable tracking (${firstUnavailable.format(formatter)} – ${lastUnavailable.format(formatter)}) are excluded; recorded days in that span count separately. No rolling balance can be calculated yet.",
+                        Modifier.testTag("${target.name}_pretracking"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+                }
+                if (coverage.unknownAfterTracking.isNotEmpty()) {
+                    val firstUnknown = coverage.unknownAfterTracking.minOrNull()!!
+                    val lastUnknown = coverage.unknownAfterTracking.maxOrNull()!!
+                    val dates = if (firstUnknown == lastUnknown) firstUnknown.format(formatter) else
+                        "${firstUnknown.format(formatter)} – ${lastUnknown.format(formatter)}"
+                    Text("${coverage.unknownAfterTracking.size} later calendar ${if (coverage.unknownAfterTracking.size == 1) "day has" else "days have"} unknown coverage ($dates); excluded from the requirement above. Balance and average remain Unknown.",
+                        Modifier.testTag("${target.name}_unknown"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+                }
             }
         }
         Text("Personal estimates. Geofence delivery can be delayed; arrival walking grace is an uncredited delay, not a confirmed building entry.",

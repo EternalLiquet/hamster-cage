@@ -19,6 +19,11 @@ class CalendarMetricsTest {
         AttendanceInput(listOf(office), events, policy = policy, now = now, historyStartDate = day.minusDays(100))
     private fun summary(data: AttendanceInput, target: TargetWindow = TargetWindow.TODAY) =
         AttendanceEngine.summary(data, AttendanceEngine.derive(data), target)
+    private fun reporting(data: AttendanceInput, target: TargetWindow = TargetWindow.ROLLING_90): ReportingCoverage {
+        val result = AttendanceEngine.derive(data)
+        val window = AttendanceEngine.summary(data, result, target)
+        return AttendanceEngine.reportingCoverage(data, result, window.startDate, window.endDate)
+    }
 
     @Test fun defaultsCountAllExpectedWeekdaysIncludingUnattendedDays() {
         val data = input(visit())
@@ -83,6 +88,116 @@ class CalendarMetricsTest {
         assertEquals(result.expectedWorkdays - 1, result.unknownExpectedWorkdays)
         assertEquals(89, result.unknownCalendarDays)
         assertFalse(result.hasCompleteHistory)
+    }
+
+    @Test fun freshInstallHasNoActionableHistoricalRequirement() {
+        val data = input().copy(historyStartDate = null)
+        listOf(TargetWindow.ROLLING_30, TargetWindow.ROLLING_90).forEach { target ->
+            val coverage = reporting(data, target)
+            assertNull(coverage.firstReliableDay)
+            assertEquals(0, coverage.coveredExpectedWorkdays)
+            assertEquals(0, coverage.coveredRequiredMinutes)
+            assertTrue(coverage.unknownAfterTracking.isEmpty())
+            assertEquals(if (target == TargetWindow.ROLLING_30) 30 else 90, coverage.unavailableBeforeTracking.size)
+        }
+    }
+
+    @Test fun firstSessionOnlyCountsItsOwnDayWithoutInventingContinuousCoverage() {
+        val data = input(visit()).copy(historyStartDate = null)
+        val coverage = reporting(data)
+        assertEquals(day, coverage.firstReliableDay)
+        assertEquals(setOf(day), coverage.coveredDates)
+        assertEquals(1, coverage.coveredExpectedWorkdays)
+        assertEquals(360, coverage.coveredRequiredMinutes)
+        assertEquals(89, coverage.unavailableBeforeTracking.size)
+    }
+
+    @Test fun ledgerRolloverAndExplicitOutageKeepLaterUnknownSeparate() {
+        val start = day.minusDays(2)
+        val data = input().copy(historyStartDate = start, unknownDates = setOf(day.minusDays(1)))
+        val coverage = reporting(data)
+        assertEquals(start, coverage.firstReliableDay)
+        assertEquals(setOf(start, day), coverage.coveredDates)
+        assertEquals(setOf(day.minusDays(1)), coverage.unknownAfterTracking)
+        assertEquals(720, coverage.coveredRequiredMinutes)
+        val rolled = data.copy(now = at("20:00", day.plusDays(1)))
+        assertEquals(1080, reporting(rolled).coveredRequiredMinutes)
+    }
+
+    @Test fun ordinaryMondayObservationMakesMissingTuesdayUnknownWithoutLedger() {
+        val monday = day.minusDays(2)
+        val tuesday = day.minusDays(1)
+        val data = input(visit(monday) + visit(day)).copy(historyStartDate = null)
+        val coverage = reporting(data, TargetWindow.ROLLING_30)
+        assertEquals(monday, coverage.firstReliableDay)
+        assertEquals(setOf(monday, day), coverage.coveredDates)
+        assertEquals(setOf(tuesday), coverage.unknownAfterTracking)
+        assertFalse(tuesday in coverage.unavailableBeforeTracking)
+        assertEquals(720, coverage.coveredRequiredMinutes)
+        assertEquals(710.0, coverage.coveredCreditedMinutes, 0.0)
+    }
+
+    @Test fun correctedMondayEnterStillMakesMissingTuesdayUnknownWithoutLedger() {
+        val monday = day.minusDays(2)
+        val tuesday = day.minusDays(1)
+        val correction = Correction("adjust-monday", "session:$monday-in", at("09:30", monday),
+            at("14:30", monday), at("19:00"))
+        val data = input(visit(monday) + visit(day)).copy(historyStartDate = null,
+            corrections = listOf(correction))
+        val coverage = reporting(data, TargetWindow.ROLLING_30)
+        assertEquals(monday, coverage.firstReliableDay)
+        assertEquals(setOf(monday, day), coverage.coveredDates)
+        assertEquals(setOf(tuesday), coverage.unknownAfterTracking)
+        assertFalse(tuesday in coverage.unavailableBeforeTracking)
+        assertEquals(720, coverage.coveredRequiredMinutes)
+        val earlierEffectiveBounds = data.copy(corrections = listOf(correction.copy(
+            start = at("23:30", monday.minusDays(1)))))
+        val moved = reporting(earlierEffectiveBounds, TargetWindow.ROLLING_30)
+        assertEquals(monday.minusDays(1), moved.firstReliableDay)
+        assertEquals(setOf(tuesday), moved.unknownAfterTracking)
+    }
+
+    @Test fun correctedBackfillMovesBaselineButOrphanExitDoesNot() {
+        val old = day.minusDays(5)
+        val orphan = RawEvent("orphan", "a", Transition.EXIT, at("09:00", old.minusDays(1)))
+        val data = input(listOf(orphan) + visit(day)).copy(historyStartDate = null)
+        assertEquals(day, reporting(data).firstReliableDay)
+        val correction = Correction("backfill", "session:orphan", at("08:00", old), at("14:00", old), at("19:00"))
+        val corrected = data.copy(corrections = listOf(correction), unknownDates = setOf(old))
+        assertEquals(old, reporting(corrected).firstReliableDay)
+        assertEquals(setOf(old, day), reporting(corrected).coveredDates)
+        assertTrue(reporting(corrected).unknownAfterTracking.isEmpty())
+        assertTrue(day.minusDays(1) in reporting(corrected).unavailableBeforeTracking)
+        assertEquals(reporting(corrected), reporting(corrected.copy(events = corrected.events.toList())))
+    }
+
+    @Test fun reviewBlockedCreditCannotInflateCoveredDayProgress() {
+        val old = day.minusDays(1)
+        val conflicted = listOf(RawEvent("first", "a", Transition.ENTER, at("09:00", old)),
+            RawEvent("again", "a", Transition.ENTER, at("10:00", old)),
+            RawEvent("exit", "a", Transition.EXIT, at("15:00", old)))
+        val data = input(conflicted + visit(day)).copy(historyStartDate = null)
+        val result = AttendanceEngine.derive(data)
+        val full = AttendanceEngine.summary(data, result, TargetWindow.ROLLING_30)
+        val coverage = AttendanceEngine.reportingCoverage(data, result, full.startDate, full.endDate)
+        assertTrue(full.creditedMinutes > coverage.coveredCreditedMinutes)
+        assertEquals(355.0, coverage.coveredCreditedMinutes, 0.0)
+        assertEquals(setOf(day), coverage.coveredDates)
+        assertEquals(360, coverage.coveredRequiredMinutes)
+        assertEquals(1, coverage.unavailableBeforeTracking.count { it == old })
+    }
+
+    @Test fun exclusionsAndPolicyTimezoneRecomputeCoveredRequirement() {
+        val data = input(visit()).copy(historyStartDate = null,
+            policy = Policy(excludedDates = listOf(ExcludedDate(day, ExclusionReason.BANK_HOLIDAY))))
+        assertEquals(0, reporting(data).coveredRequiredMinutes)
+        assertEquals(setOf(day), reporting(data).coveredDates)
+        val utcEvent = listOf(RawEvent("in", "a", Transition.ENTER, Instant.parse("2026-09-23T00:30:00Z")),
+            RawEvent("out", "a", Transition.EXIT, Instant.parse("2026-09-23T01:30:00Z")))
+        val eastern = input(utcEvent).copy(historyStartDate = null)
+        assertEquals(day.minusDays(1), reporting(eastern).firstReliableDay)
+        val utc = eastern.copy(policy = Policy(zoneId = ZoneId.of("UTC")))
+        assertEquals(day, reporting(utc).firstReliableDay)
     }
 
     @Test fun absentCoverageAndExplicitOutageAreUnknown() {
