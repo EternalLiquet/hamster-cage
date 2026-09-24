@@ -25,8 +25,8 @@ Phase 0 is complete: issues #10–15 and [epic #1](https://github.com/EternalLiq
 | #26 Explanations | Open | Raw/effective bounds and credited interval explanations remain. |
 | #27 Corrections | Open | Preview, confirm, append-only correction and revert remain. |
 | #28 History Security Pass | Open | Requires history/correction surfaces. |
-| #29 Policy | Review [#64](https://github.com/EternalLiquet/hamster-cage/pull/64) | Four focused JVM checks and prior-head API35 persistence/DST/UI/failure/restoration checks pass. Review found legacy empty weekdays; reads now fail closed and preserve bytes, with unversioned/schema1 reopen regression. Renewed exact-head verification/review/CI pending. [Contract](POLICY_SETTINGS.md). |
-| #30 Calendar controls | Implementation | Local exclusions/WFH editor, independent removals, deterministic replacement and bounded date list implemented. Two focused validation tests, Android-test compilation and lint pass; four device behavior/reopen tests await execution. [Contract](CALENDAR_CONTROLS.md). |
+| #29 Policy | Merged [#64](https://github.com/EternalLiquet/hamster-cage/pull/64) | Verified 62bdc896; merge 21f09f2; four JVM and seven API35 policy behavior/UI checks, legacy/schema1 fail-closed byte preservation, restart/travel/DST recomputation and exact-head gates pass. Issue closed. [Contract](POLICY_SETTINGS.md). |
+| #30 Calendar controls | Review [#65](https://github.com/EternalLiquet/hamster-cage/pull/65) | Two JVM and four hosted API35 calendar CRUD/reopen/failure/restoration checks pass at production-identical 13d1201. Refreshed onto merged policy; exact-head independent gates pending. [Contract](CALENDAR_CONTROLS.md). |
 | #31 Privacy controls | Open | Local data explanation/deletion controls remain. |
 | #32 Settings Security Pass | Open | Requires policy/calendar/privacy controls. |
 | #33 Integrated journeys | Open | Full offline journeys, lifecycle/process/migration/failure evidence remains. |
