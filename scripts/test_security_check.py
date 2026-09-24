@@ -125,6 +125,24 @@ class SecurityAuditTest(unittest.TestCase):
                 script, _, _ = self.fixture(Path(directory), manifest)
                 self.run_modes(script, allowed, "PASS:" if allowed else "Recovery receiver")
 
+    def test_geofence_transition_receiver_stays_private_and_filter_free(self):
+        safe = '<receiver android:name="dev.hamstercage.capture.GeofenceTransitionReceiver" android:exported="false" />'
+        candidates = [(safe, True), (safe.replace('android:exported="false"', 'android:exported="true"'), False),
+                      (safe.replace(' />', '><intent-filter><action android:name="synthetic.ACTION" /></intent-filter></receiver>'), False)]
+        for candidate, allowed in candidates:
+            with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as directory:
+                manifest = SAFE_MANIFEST.replace(" /></manifest>", ">" + candidate + "</application></manifest>")
+                script, _, _ = self.fixture(Path(directory), manifest)
+                self.run_modes(script, allowed, "PASS:" if allowed else "Geofence transition receiver")
+
+    def test_direct_location_collection_requires_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script, _, _ = self.fixture(Path(directory))
+            source = Path(directory) / "app/src/main/java/synthetic/Tracking.kt"
+            source.parent.mkdir(parents=True)
+            source.write_text("client.requestLocationUpdates(request, callback)", encoding="utf-8")
+            self.run_modes(script, False, "Continuous or direct location collection")
+
     def test_provider_must_neither_export_nor_grant_data(self):
         for attributes in ['android:exported="true" android:permission="android.permission.DUMP"',
                            'android:exported="false" android:grantUriPermissions="true"']:

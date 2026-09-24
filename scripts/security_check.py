@@ -62,6 +62,10 @@ def audit(root, variant="debug"):
             continue
         name = component.get(A + "name", "")
         require(component.get(A + "exported") in {"true", "false"}, f"Component needs explicit exported state: {name}")
+        if name == "dev.hamstercage.capture.GeofenceTransitionReceiver":
+            require(component.tag == "receiver" and component.get(A + "exported") == "false" and
+                    component.get(A + "permission") is None and not component.findall("intent-filter"),
+                    "Geofence transition receiver must remain private and filter-free")
         if component.tag == "provider":
             require(component.get(A + "exported") == "false" and component.get(A + "grantUriPermissions", "false") == "false"
                     and component.find("grant-uri-permission") is None, "No exported or grantable data provider")
@@ -106,6 +110,8 @@ def audit(root, variant="debug"):
         require("fallbackToDestructiveMigration" not in code, f"Destructive migration in {path}")
         require(not re.search(r"\b(?:Log\.(?:[vdiew]|wtf|println)|print(?:ln)?|printStackTrace)\s*\(", code),
                 f"Unreviewed runtime logging in {path}")
+        require(not re.search(r"\b(?:requestLocationUpdates|requestSingleUpdate|startLocationUpdates)\s*\(", code),
+                f"Continuous or direct location collection needs explicit review: {path}")
     require(not list((root / "app/src").rglob("*.jpg")), "Reference artwork must not be bundled")
 
 
