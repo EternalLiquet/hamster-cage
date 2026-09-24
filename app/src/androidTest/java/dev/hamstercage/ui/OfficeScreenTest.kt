@@ -1,6 +1,7 @@
 package dev.hamstercage.ui
 
 import android.graphics.Bitmap
+import android.location.Location
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +27,7 @@ import dev.hamstercage.offices.OfficeMapProjection
 import dev.hamstercage.offices.OfficeMapTile
 import dev.hamstercage.offices.OfficePlace
 import dev.hamstercage.offices.OfficeFix
+import dev.hamstercage.offices.validatedOfficeFix
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
@@ -324,5 +326,39 @@ class OfficeScreenTest {
         compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
         compose.onNodeWithText("Save office").performScrollTo().performClick()
         compose.waitUntil(5_000) { saved.get() != null }
+    }
+
+    @Test fun poorAndStaleOneShotFixesCannotSaveOldConfirmedOffice() {
+        val office = Office("office-a", "Synthetic office", 0.0, 0.0)
+        val snapshot = AppSnapshot(listOf(office), emptyList(), emptyList(), emptyList(), Policy())
+        val saved = AtomicReference<Office?>(null)
+        val attempts = AtomicInteger()
+        val now = 100_000_000_000L
+        compose.setContent {
+            HamsterTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "new" }, { 1L },
+                        { changed, _ -> saved.set(changed) }, current = {
+                            val attempt = attempts.incrementAndGet()
+                            val fix = Location("synthetic").apply {
+                                latitude = 0.0; longitude = 0.0
+                                accuracy = if (attempt == 1) 150f else 12f
+                                elapsedRealtimeNanos = now - if (attempt == 1) 1_000_000_000L else 31_000_000_000L
+                            }
+                            validatedOfficeFix(fix, now)
+                        }))
+                }
+            }
+        }
+        compose.onNodeWithTag("edit-office-a").performClick()
+        compose.onNodeWithText("Use my current location").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Error: Location is too approximate for an office boundary. Retry outdoors or search an address.").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        compose.onNodeWithText("Use my current location").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Error: The location fix is stale. Retry to get a fresh position.").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        assertEquals(2, attempts.get())
     }
 }

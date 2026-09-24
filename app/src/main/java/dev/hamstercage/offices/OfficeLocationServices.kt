@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.location.Address
 import android.location.Geocoder
 import android.location.LocationManager
+import android.location.Location
 import android.os.Build
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
@@ -43,6 +44,17 @@ data class OfficeMapTile(val bitmap: Bitmap, val zoom: Int, val x: Int, val y: I
 internal fun currentRequestFailure(failure: Exception): IllegalStateException = if (failure is SecurityException)
     IllegalStateException("Precise foreground location was revoked. Grant it in Settings, then retry; or search an address.")
 else IllegalStateException("Current location service is unavailable. Retry outdoors, check Play Services, or search an address.")
+
+internal fun validatedOfficeFix(fix: Location?, nowElapsedNanos: Long): OfficeFix {
+    fix ?: throw IllegalStateException("No current fix. Move into open sky and retry, or search an address.")
+    if (!fix.hasAccuracy() || !fix.accuracy.isFinite() || fix.accuracy !in 0f..100f)
+        throw IllegalStateException("Location is too approximate for an office boundary. Retry outdoors or search an address.")
+    if (!fix.latitude.isFinite() || !fix.longitude.isFinite() || fix.latitude !in -85.0511..85.0511 || fix.longitude !in -180.0..180.0)
+        throw IllegalStateException("The fix has no usable map center. Retry or search an address.")
+    if (fix.elapsedRealtimeNanos <= 0 || nowElapsedNanos - fix.elapsedRealtimeNanos !in 0..30_000_000_000L)
+        throw IllegalStateException("The location fix is stale. Retry to get a fresh position.")
+    return OfficeFix(OfficePlace("Current location", fix.latitude, fix.longitude), fix.accuracy)
+}
 
 /** OSM standard tiles are 256×256; inspect headers before allowing bitmap allocation. */
 internal fun decodeOfficeTile(bytes: ByteArray): Bitmap? {
@@ -119,14 +131,8 @@ class OfficeLocationServices(private val context: Context) {
                 throw failure
             } catch (failure: Exception) {
                 throw currentRequestFailure(failure)
-            } ?: throw IllegalStateException("No current fix. Move into open sky and retry, or search an address.")
-            if (!fix.hasAccuracy() || !fix.accuracy.isFinite() || fix.accuracy > 100f)
-                throw IllegalStateException("Location is too approximate for an office boundary. Retry outdoors or search an address.")
-            if (!fix.latitude.isFinite() || !fix.longitude.isFinite() || fix.latitude !in -85.0511..85.0511 || fix.longitude !in -180.0..180.0)
-                throw IllegalStateException("The fix has no usable map center. Retry or search an address.")
-            if (fix.elapsedRealtimeNanos <= 0 || SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos !in 0..30_000_000_000L)
-                throw IllegalStateException("The location fix is stale. Retry to get a fresh position.")
-            return OfficeFix(OfficePlace("Current location", fix.latitude, fix.longitude), fix.accuracy)
+            }
+            return validatedOfficeFix(fix, SystemClock.elapsedRealtimeNanos())
         } finally { cancellation.cancel() }
     }
 
