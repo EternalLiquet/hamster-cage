@@ -31,7 +31,7 @@ Phases 0, 2 and 3 are complete: issues #10–15 / [epic #1](https://github.com/E
 | #32 Settings Security Pass | Review [#73](https://github.com/EternalLiquet/hamster-cage/pull/73) | Six malformed journal cases, actual private-file denial, hidden navigation, note sanitation and artifact/log checks pass locally. Independent/current-head gates and #31 merge remain. |
 | #33 Integrated journeys | Implementation | Full API37 offline host journey passed at 1b28641: two offices, synthetic capture facts, denied-permission correction, target/timezone/WFH/holiday, Activity/process recreation and cancel/confirmed deletion/restart. Engine 24-case matrix mapped; independent/current-head gates and physical capture evidence remain. [Acceptance](MVP_ACCEPTANCE.md). |
 | #34 Installable APK | Open | Final Product MVP artifact/source SHA/checksum/install instructions are not yet delivered. |
-| #35 Product Security Pass | Open | Final merged artifact and privacy/correctness gate remains. |
+| #35 Product Security Pass | Implementation | Actual APK inventory guard and adversarial private-payload/ambiguous-path regressions pass locally in normal and optimized Python. Final #33/#34 refresh, debug/release artifact inspection and independent/current-head gates remain. [Inventory](PRODUCT_SECURITY.md). |
 
 Full tested SHAs, exact-head CI and independent PASS/review records are linked from each PR. Prior evidence applies only to unchanged source and must be renewed for every new head. Scoped PR merges do not close a feature with outstanding acceptance criteria; epics wait for every child and their Security Pass.
 

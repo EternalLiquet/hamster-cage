@@ -36,6 +36,7 @@ jobs:
         run: |
           python3 scripts/security_check.py
           python3 scripts/security_check.py --variant release
+          python3 scripts/apk_inventory.py app/build/outputs/apk/debug/app-debug.apk
       - name: Audit resolved runtime dependencies
         run: python3 scripts/dependency_audit.py
       - name: Record signed artifact provenance
