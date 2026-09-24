@@ -14,6 +14,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import dev.hamstercage.MainActivity
+import dev.hamstercage.data.AppSnapshot
+import dev.hamstercage.data.StorageState
 import dev.hamstercage.domain.*
 import java.time.Instant
 import java.time.LocalDate
@@ -48,6 +50,17 @@ class DashboardTest {
         compose.onNodeWithText("Provisional credit · coverage incomplete").assertIsDisplayed()
         compose.onNodeWithText("Open office setup").performScrollTo().performClick()
         assertTrue(opened)
+    }
+
+    @Test fun noOfficeDashboardActionReachesTheIntegratedOfficeForm() {
+        val snapshot = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
+        val actions = OfficeActions({ "synthetic-new" }, { null }, { _, _ -> error("This navigation check never saves") })
+        compose.activity.runOnUiThread { compose.activity.setContent {
+            HamsterApp(TimeSource { now }, storageState = StorageState.Ready(snapshot), officeActions = actions)
+        } }
+        compose.onNodeWithText("Open office setup").performScrollTo().performClick()
+        compose.onNode(hasText("Add office") and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithTag("officeName").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun activeDashboardSeparatesObservedCreditAndEachWeekRequirement() {

@@ -42,7 +42,7 @@ import java.time.format.DateTimeFormatter
 
 private enum class Destination(val label: String, val description: String) {
     DASHBOARD("Dashboard", "Attendance totals will appear here when office capture and the attendance engine are connected."),
-    OFFICES("Offices", "Office configuration and boundary registration are coming in the office capture features."),
+    OFFICES("Offices", "Configure private office boundaries and walking grace."),
     HISTORY("History", "Saved attendance and corrections will appear here. This shell has no attendance history."),
     SETTINGS("Settings", "Attendance policy and privacy controls are coming in the settings features."),
 }
@@ -56,6 +56,7 @@ fun HamsterApp(
     setupError: String? = null, requestForeground: () -> Unit = {}, requestBackground: () -> Unit = {},
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
     trackingReady: Boolean = false,
+    officeActions: OfficeActions? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
@@ -132,12 +133,14 @@ fun HamsterApp(
                         storageState == StorageState.Loading -> Text("Opening your local record…")
                         else -> Unit // The sanitized storage failure notice above remains the only data state.
                     }
+                } else if (selected == Destination.OFFICES && officeActions != null) {
+                    OfficeScreen(storageState, officeActions)
                 } else Notice("Ready for the next step", selected.description)
+
                 if (selected == Destination.OFFICES || selected == Destination.SETTINGS) {
                     FormError(setupError)
                     LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground, openAppSettings, openDeviceSettings)
                 }
-
             }
         }
     }
