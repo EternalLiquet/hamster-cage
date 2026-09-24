@@ -16,7 +16,7 @@ class ShellSmokeTest {
     @Test fun eachOfflineDestinationOpens() {
         compose.onNodeWithText("Hamster Cage").assertIsDisplayed()
         val destinations = listOf(
-            "Offices" to "Office setup and location permissions are coming in the office capture features.",
+            "Offices" to "Office configuration and boundary registration are coming in the office capture features.",
             "History" to "Saved attendance and corrections will appear here. This shell has no attendance history.",
             "Settings" to "Attendance policy and privacy controls are coming in the settings features.",
             "Dashboard" to "Attendance totals will appear here when office capture and the attendance engine are connected.",

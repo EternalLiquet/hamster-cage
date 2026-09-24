@@ -1,0 +1,15 @@
+# Location permission setup
+
+Issue #17 adds staged permission setup to Offices and Settings. The rest of navigation remains available when access is denied, approximate, revoked or skipped. This slice does not register office boundaries or claim that capture is running.
+
+The user first receives an explanation and can request coarse and fine foreground access together. Background access is a separate user action, rechecking current permission state before proceeding. API 29 uses its separate background request; API 30 and newer open this app's system settings with the localized background option label in the explanation. Returning to the Activity refreshes permission, device-location and Google Play services availability. Approximate-only access is identified explicitly.
+
+This follows [Android's foreground/location guidance](https://developer.android.com/develop/sensors-and-location/location/permissions) and [background permission flow](https://developer.android.com/develop/sensors-and-location/location/permissions/background). No location updates, geofence registration, persistent service, travel history, network calls or sensitive logging are introduced. Three location permissions are declared; the merged APK must still pass the existing offline, backup and IPC audit. Google Play services availability is read through its lightweight local check.
+
+Permission prerequisites are distinct from successful registration and observed office presence. Even all grants show that automatic detection is not yet running. The following capture issue must retain that distinction and connect explicit registration health.
+
+Verification records must distinguish pure SDK-routing tests, rendered UI tests and actual platform permission/settings checks. Later integrated tests must also exercise real history/correction functionality while access is denied; those features are separate issue PRs. Physical-device background delivery, revocation behavior across OEMs and battery restrictions remain explicit device gates.
+
+Implementation evidence on API37: deny and deny-again through the actual Android permission dialog; History/Settings remain reachable; approximate-only access is labelled; app-settings return after foreground/background changes refreshes health; device-location settings off/recovery changes the label; revoking grants returns to safe setup. Background and service changes used shell-controlled platform grants/settings while the app was paused, then verified the actual rendered Activity after returning. Eight instrumentation cases and six app JVM tests pass. The unavailable-Play-services state is covered with synthetic UI/model inputs, not by disabling the emulator's system package. API29's routing is unit-tested; its actual dialog remains untested on-device.
+
+The local test APK is debug-signed for `dev.hamstercage.preview`, SHA-256 `aafd57bc5ed0c31d5f5a6097f8d1e739fc89995e5c730b122801e4cace6f6a6f`. The focused PR records the corresponding committed source and independent evidence. This is a development-key preview, not the final Product MVP deliverable or a production-signed release.
