@@ -5,6 +5,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -26,7 +30,7 @@ fun HamsterApp(repository: HamsterRepository,refreshGeneration: Int,requestForeg
     val snackbars=remember { SnackbarHostState() }
     var storageError by remember { mutableStateOf(false) }
     val stream=remember(repository) { repository.state.catch { if(it is CancellationException) throw it;storageError=true } }
-    val snapshot by stream.collectAsState(initial=null)
+    val snapshot by stream.collectAsStateWithLifecycle(initialValue=null)
     var destination by rememberSaveable { mutableIntStateOf(0) }
     var now by remember { mutableStateOf(Instant.now()) }
     var officeDialog by remember { mutableStateOf(false) }
@@ -51,7 +55,12 @@ fun HamsterApp(repository: HamsterRepository,refreshGeneration: Int,requestForeg
         catch(e: CancellationException) { throw e }
         catch(e: Exception) { snackbars.showSnackbar("Could not refresh tracking health. Your saved history is unchanged.") }
     }
-    LaunchedEffect(Unit) { while(true) { delay(30_000);now=Instant.now() } }
+    val lifecycleOwner=LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while(true) { now=Instant.now();delay(30_000) }
+        }
+    }
     Scaffold(
         containerColor=CageStyle.Background,
         snackbarHost={SnackbarHost(snackbars)},
@@ -79,7 +88,7 @@ fun HamsterApp(repository: HamsterRepository,refreshGeneration: Int,requestForeg
                     }
                     when(destination) {
                         0 -> DashboardScreen(input,result,monitoringActive,health,{destination=2},{destination=1})
-                        1 -> HistoryScreen(input,result,state.manualEventIds,state.eventEvidence,monitoringActive,{session,date -> editedSession=session to date},{date -> action("Day marked reviewed") {repository.confirmDayReviewed(date)}})
+                        1 -> HistoryScreen(input,result,state.manualEventIds,state.eventEvidence,state.canReviewToday,{session,date -> editedSession=session to date},{date -> action("Day marked reviewed") {repository.confirmDayReviewed(date)}})
                         2 -> OfficesScreen(state.offices,{editedOffice=it;officeDialog=true},health)
                         3 -> SettingsScreen(state.policy,
                             {action("Policy saved") {repository.savePolicy(it)}},

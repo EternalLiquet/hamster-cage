@@ -13,14 +13,14 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 @Composable
-fun HistoryScreen(input: AttendanceInput,result: AttendanceResult,manualIds: Set<String>,evidence: List<EventEvidence>,monitoringActive: Boolean,onCorrect: (Session?,LocalDate) -> Unit,onReviewed: (LocalDate)->Unit) {
+fun HistoryScreen(input: AttendanceInput,result: AttendanceResult,manualIds: Set<String>,evidence: List<EventEvidence>,canReviewToday: Boolean,onCorrect: (Session?,LocalDate) -> Unit,onReviewed: (LocalDate)->Unit) {
     val today=input.now.atZone(input.policy.zoneId).toLocalDate()
     var selected by remember { mutableStateOf<LocalDate?>(null) }
     var dayCount by remember { mutableIntStateOf(14) }
     val date=selected
     BackHandler(enabled=date!=null) { selected=null }
     if(date != null) {
-        DayDetail(input,result,date,manualIds,evidence,monitoringActive,{selected=null},{onCorrect(it,date)},{onReviewed(date)})
+        DayDetail(input,result,date,manualIds,evidence,canReviewToday,{selected=null},{onCorrect(it,date)},{onReviewed(date)})
         return
     }
     ScreenColumn {
@@ -60,7 +60,7 @@ private fun sessionsForDay(input: AttendanceInput,result: AttendanceResult,date:
 }
 
 @Composable
-private fun DayDetail(input: AttendanceInput,result: AttendanceResult,date: LocalDate,manualIds: Set<String>,evidence: List<EventEvidence>,monitoringActive: Boolean,onBack: ()->Unit,onCorrect: (Session?)->Unit,onReviewed: ()->Unit) {
+private fun DayDetail(input: AttendanceInput,result: AttendanceResult,date: LocalDate,manualIds: Set<String>,evidence: List<EventEvidence>,canReviewToday: Boolean,onBack: ()->Unit,onCorrect: (Session?)->Unit,onReviewed: ()->Unit) {
     var confirmReview by remember { mutableStateOf(false) }
     val summary=AttendanceEngine.daily(input,result,date)
     val sessions=sessionsForDay(input,result,date)
@@ -84,7 +84,7 @@ private fun DayDetail(input: AttendanceInput,result: AttendanceResult,date: Loca
             if(!summary.hasCompleteHistory) {
                 Text("Coverage is incomplete. Recorded credit is a lower-bound record, not proof of absence.",style=MaterialTheme.typography.bodyMedium,color=CageStyle.Amber)
                 val today=input.now.atZone(input.policy.zoneId).toLocalDate()
-                val canReview=date.isBefore(today) || (date==today && monitoringActive)
+                val canReview=date.isBefore(today) || (date==today && canReviewToday)
                 OutlinedButton(onClick={confirmReview=true},enabled=canReview) { Text(if(date==today) "Review today through now" else "Mark whole day reviewed") }
                 if(!canReview) Text("Today is still in progress. Enable automatic detection to review coverage through now, or review the whole day after it ends.",style=MaterialTheme.typography.bodyMedium,color=CageStyle.Secondary)
             }

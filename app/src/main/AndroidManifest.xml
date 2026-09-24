@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <!-- WorkManager's optional foreground path is unused by our short recovery worker. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -14,6 +16,7 @@
         android:roundIcon="@drawable/ic_hamster"
         android:supportsRtl="true"
         android:theme="@style/Theme.HamsterCage">
+        <service android:name="androidx.work.impl.foreground.SystemForegroundService" tools:node="remove" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

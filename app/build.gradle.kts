@@ -42,6 +42,8 @@ tasks.register("writeDependencyInventory") {
     }
 }
 dependencies {
+    // Play services brings an older Fragment transitively; Activity Result needs the compatible API.
+    constraints { implementation(libs.fragment) }
     implementation(project(":core-domain"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)

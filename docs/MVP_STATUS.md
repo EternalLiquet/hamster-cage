@@ -14,10 +14,13 @@ Implementation branch: `feat/local-first-mvp`. This is a preview in integration,
 
 ## Verification evidence so far
 
-- 47 meaningful JVM domain tests passed using the installed Kotlin compiler and JUnit runner. Full Gradle check pending integrated build.
-- Independent review found and implementation addressed overlapping manual source reconstruction, false first-day coverage, stale registration after cancellation, and unresolvable capture-failure diagnostics. Follow-up review pending.
-- Persistence and Compose instrumentation tests written. Compiling tests is not running them.
-- APK compilation, Android lint, merged-manifest audit, CI security scans, installation and physical-device checks remain pending until actual evidence is recorded below.
+- Full Gradle run passed 47 domain tests and 3 coverage regression tests (50 total).
+- Android APK and instrumentation APK both compiled. Lint identified an API26 theme incompatibility and an outdated transitive Fragment version; fixes are being verified.
+- Independent review drove fixes for overlapping manual evidence, partial/ongoing coverage gaps, stale registration after interruption and capture-error acknowledgement. Manual and device evidence now reconstruct independently before union.
+- OSV audited 96 resolved runtime dependencies with no known vulnerabilities; rerun after the Fragment compatibility update. Gitleaks passed in GitHub Actions.
+- Manifest audit identified WorkManager's unused foreground-service permission/component; both were removed and the rebuilt manifest must pass before delivery.
+- Seven persistence/Compose instrumentation tests compiled; CI emulator execution is configured but not yet verified. Compiling tests is not running them.
+- Final lint/manifest audit, exact-head CI, emulator installation and physical-device checks remain pending until actual evidence is recorded below.
 
 ## Next integrator actions
 

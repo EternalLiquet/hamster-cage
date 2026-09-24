@@ -20,6 +20,7 @@ data class AppSnapshot(
     val manualEventIds: Set<String> = emptySet(), val unknownDates: Set<LocalDate> = emptySet(),
     val eventEvidence: List<EventEvidence> = emptyList(),
     val manualSessions: List<ManualSession> = emptyList(),
+    val canReviewToday: Boolean = false,
 )
 data class EventEvidence(val id: String, val receivedAt: Instant, val observedLocationAt: Instant?, val source: String)
 
@@ -42,6 +43,8 @@ class HamsterRepository(context: Context) {
     }
     val state: Flow<AppSnapshot> = combine(sourceState, preferences.data, dao.manualSessions()) { snapshot, prefs, manual ->
         snapshot.copy(
+            canReviewToday = LocationPermissions.health(context).canTrack &&
+                (prefs[REGISTERED_COUNT] ?: 0) > 0 && prefs[REGISTRATION_ERROR] == null,
             manualSessions = manual.map { ManualSession(it.id, it.officeId, Instant.ofEpochMilli(it.start), it.end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(it.createdAt), it.note) },
             policy = snapshot.policy.copy(
                 zoneId = ZoneId.of(prefs[ZONE] ?: "America/New_York"),
