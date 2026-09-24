@@ -6,7 +6,7 @@ The expanded CI slice replaces the bootstrap workflow with source-head build, li
 
 Implementation checks: ten wrapper/dependency-audit tests pass in ordinary and optimized Python, including known-vulnerability and unavailable/incomplete-service failures; the three shell JVM tests, lint, APK/test APK assembly, dependency inventory and privacy audit pass. OSV reports no known vulnerabilities in 57 resolved external Maven runtime dependencies. Provenance refuses dirty checkouts. Instrumentation/hosted scanners, independent verification/review and current-head CI are required in the issue PR; the preserved PR #50 results are not substituted for them. This does not complete other Phase 0 features or the Product MVP.
 
-This branch implements issue #10 only. It extracts the pinned build and privacy defaults from PR #50 commit `12a2cc8`, then supplies a focused shell. It does not carry forward the reference branch's broader feature-completion claims.
+This branch adds issue #14's CI slice to the focused issue #10 shell. The shell extracted pinned build/privacy defaults from PR #50 commit `12a2cc8`; none of that reference branch's broader feature-completion claims apply here.
 
 ## Implemented for #10
 
@@ -34,4 +34,4 @@ The issue PR will record the tested commit, commands, actual emulator install/la
 
 ## Remaining scope
 
-All attendance/storage/capture/settings implementation and corresponding security passes (#11–35) remain outstanding on this extraction path. No physical-phone checks have run. Real-device background delivery, permission changes, reboot recovery, and battery/OEM behavior remain explicit later integration gates. Production signing and release distribution remain separate from the debug preview.
+Design/icon (#11), storage (#12), attendance reconstruction (#13), the Phase 0 Security Pass (#15), and all page/integration issues (#16–35) remain outstanding on this extraction path. No physical-phone checks have run. Real-device background delivery, permission changes, reboot recovery, and battery/OEM behavior remain explicit later integration gates. Production signing and release distribution remain separate from the debug preview.
