@@ -25,6 +25,7 @@ import dev.hamstercage.data.SystemTimeSource
 import dev.hamstercage.location.BackgroundPermissionAction
 import dev.hamstercage.location.LocationPermissions
 import dev.hamstercage.location.LocationSetup
+import dev.hamstercage.offices.OfficeLocationServices
 import dev.hamstercage.location.backgroundPermissionAction
 import dev.hamstercage.privacy.PrivacyController
 import dev.hamstercage.privacy.PrivacyResetState
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         val repository = HamsterRepository.get(this)
+        val officeLocations = OfficeLocationServices(this)
         val privacy = PrivacyController.get(this)
         CaptureController.get(this)
         setContent {
@@ -88,6 +90,11 @@ class MainActivity : ComponentActivity() {
                     newId = HamsterRepository::newId,
                     version = repository::officeVersion,
                     save = repository::saveOffice,
+                    search = officeLocations::search,
+                    current = officeLocations::current,
+                    tile = officeLocations::tile,
+                    requestForeground = { foregroundRequest.launch(LocationPermissions.foregroundPermissions) },
+                    openDeviceSettings = { openSettings(LocationPermissions.deviceSettings()) },
                 ), savePolicy = { settings, expected -> repository.savePolicy(settings, expected) },
                 calendarActions = CalendarActions(
                     { value -> historyWrite { repository.saveExclusion(value) } },

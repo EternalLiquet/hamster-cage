@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed on accidental network/backup/unprotected IPC surface in the built app."""
+"""Fail closed on unreviewed network, backup, location and IPC surfaces."""
 from pathlib import Path
 import argparse
 import re
@@ -34,13 +34,16 @@ def audit(root, variant="debug"):
     permission_elements = [element for element in manifest if element.tag in permission_tags]
     permissions = {element.get(A + "name") for element in permission_elements}
     require(all(isinstance(p, str) and p for p in permissions), "Malformed permission entry")
-    require("android.permission.INTERNET" not in permissions, "MVP must not have network permission")
+    require(sum(element.get(A + "name") == "android.permission.INTERNET" for element in permission_elements) == 1,
+            "Reviewed office map requires exactly one INTERNET permission")
+    require(not any(element.tag != "uses-permission" and element.get(A + "name") == "android.permission.INTERNET"
+                    for element in permission_elements), "Network permission must use the reviewed unconditional declaration")
     require(not any("STORAGE" in p for p in permissions), "No shared storage permission")
     require(not any("FOREGROUND_SERVICE" in p for p in permissions), "No persistent tracking service")
     package = manifest.get("package", "")
     internal_permission = package + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
     # Location is staged by #17. New permission surfaces need an explicit reviewed audit change.
-    reviewed_permissions = {"android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION",
+    reviewed_permissions = {"android.permission.INTERNET", "android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION",
                             "android.permission.ACCESS_BACKGROUND_LOCATION", "android.permission.RECEIVE_BOOT_COMPLETED",
                             internal_permission}
     require(permissions <= reviewed_permissions, "Unreviewed Android permission")
@@ -105,13 +108,25 @@ def audit(root, variant="debug"):
             exclusions = {(x.get("domain"), x.get("path")) for x in branch.findall("exclude")}
             for domain in ["root", "database", "file", "sharedpref", "external", "device_root", "device_database", "device_file", "device_sharedpref"]:
                 require((domain, ".") in exclusions, f"Missing {domain} backup exclusion")
+    reviewed_lookup = root / "app/src/main/java/dev/hamstercage/offices/OfficeLocationServices.kt"
     for path in (root / "app/src/main").rglob("*.kt"):
         code = path.read_text(encoding="utf-8")
         require("fallbackToDestructiveMigration" not in code, f"Destructive migration in {path}")
         require(not re.search(r"\b(?:Log\.(?:[vdiew]|wtf|println)|print(?:ln)?|printStackTrace)\s*\(", code),
                 f"Unreviewed runtime logging in {path}")
-        require(not re.search(r"\b(?:requestLocationUpdates|requestSingleUpdate|startLocationUpdates|getCurrentLocation|getLastLocation)\s*\(", code),
-                f"Continuous or direct location collection needs explicit review: {path}")
+        require(not re.search(r"\b(?:requestLocationUpdates|requestSingleUpdate|startLocationUpdates|getLastLocation)\s*\(", code),
+                f"Continuous or cached location collection needs explicit review: {path}")
+        if re.search(r"\bgetCurrentLocation\s*\(", code):
+            require(path == reviewed_lookup, f"One-shot location must stay in reviewed office setup: {path}")
+        if re.search(r"\b(?:URL|openConnection|HttpURLConnection|HttpsURLConnection|Socket|OkHttpClient)\s*\(", code):
+            require(path == reviewed_lookup, f"Network calls must stay in reviewed office lookup/map setup: {path}")
+            require("http://" not in code, "Office lookup/map must not use cleartext HTTP")
+            urls = re.findall(r'\bURL\s*\(\s*"([^"]+)"', code)
+            require(len(urls) == len(re.findall(r"\bURL\s*\(", code)) and
+                    all(url.startswith("https://tile.openstreetmap.org/") for url in urls),
+                    "Office tile URL must use the reviewed HTTPS provider")
+            require("instanceFollowRedirects = false" in code,
+                    "Office tile requests must not follow redirects to another provider")
     require(not list((root / "app/src").rglob("*.jpg")), "Reference artwork must not be bundled")
 
 

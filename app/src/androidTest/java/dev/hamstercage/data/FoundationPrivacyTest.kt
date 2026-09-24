@@ -36,7 +36,8 @@ class FoundationPrivacyTest {
         val info = context.packageManager.getPackageInfo(context.packageName,
             PackageManager.GET_PERMISSIONS or PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or
                 PackageManager.GET_RECEIVERS or PackageManager.GET_PROVIDERS)
-        assertFalse(info.requestedPermissions.orEmpty().contains("android.permission.INTERNET"))
+        // #77 permits only user-triggered address search and reviewed OSM map tiles.
+        assertTrue(info.requestedPermissions.orEmpty().contains("android.permission.INTERNET"))
         assertEquals(0, info.applicationInfo!!.flags and ApplicationInfo.FLAG_ALLOW_BACKUP)
         assertEquals(0, info.applicationInfo!!.flags and ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC)
         assertTrue(info.providers.orEmpty().all { !it.exported && !it.grantUriPermissions })

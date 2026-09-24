@@ -87,7 +87,11 @@ class OfflineJourneyHostTest {
                 nav("Offices")
                 for ((name, longitude) in listOf("Synthetic Journey A" to "0.0", "Synthetic Journey B" to "0.01")) {
                     click("Add office")
-                    field("Office name", name); field("Latitude (degrees)", "0.0"); field("Longitude (degrees)", longitude)
+                    field("Office name", name)
+                    click("Advanced: coordinates and walking grace")
+                    field("Latitude (degrees)", "0.0"); field("Longitude (degrees)", longitude)
+                    click("Review manual coordinates")
+                    click("Confirm pin and radius")
                     click("Save office"); awaitText(name)
                 }
                 val now = Instant.ofEpochMilli(System.currentTimeMillis())
