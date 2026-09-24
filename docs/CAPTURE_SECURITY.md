@@ -1,6 +1,6 @@
 # Phase 1 capture Security Pass (#20)
 
-Scope: offices, permission setup, passive geofence capture and recovery (#16–19). This pass adds no collection. Its focused PR #69 passed independent verification/review and exact-head hosted gates, then merged as a scoped security checkpoint. Issue #20 remains open with linked #18/#19 delivery acceptance: actual UI-closed OS transitions and physical-phone background behavior are still unverified.
+Scope: offices, permission setup, passive geofence capture and recovery (#16–19). This pass adds no collection. Its focused PR #69 passed independent verification/review and exact-head hosted gates, then merged as a scoped security checkpoint. Issue #20 remains open with linked #18/#19 delivery acceptance: actual UI-closed OS transitions and physical-phone background behavior are still unverified. The package table below describes that earlier scoped artifact; #77 later introduced bounded user-driven office lookup/map network access, and draft #88 adds a foreground one-shot presence observation whose failure, cancellation, accuracy, overlap, source-fact and privacy controls require renewed review before #20/final #35 acceptance.
 
 ## Data and reachable surfaces
 
