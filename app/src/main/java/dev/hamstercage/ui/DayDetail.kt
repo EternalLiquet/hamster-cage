@@ -53,10 +53,14 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             Text("Effective bounds: ${at(session.start)} → ${at(session.end)}")
             if (original?.manualSessionId == null) {
                 if (original?.start != null)
-                    Text("Device-observed in-zone time: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
+                    Text(if (ReviewReason.UNCONFIRMED_GAP in original.reviewReasons)
+                        "Original elapsed span between opening and next presence check (continuity unconfirmed): ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}"
+                        else "Device-observed in-zone time: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
                 else Text("Device-observed in-zone duration unknown: no ENTER was recorded.")
             } else Text("Original manually entered duration: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
-            Text("Effective session duration: ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}${if (session.correctionId != null && !session.correctionReverted) " after correction" else ""}.")
+            Text(if (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons)
+                "Effective elapsed span (continuity unconfirmed): ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}."
+                else "Effective session duration: ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}${if (session.correctionId != null && !session.correctionReverted) " after correction" else ""}.")
             if (session.isOpen) Text("Open: evaluated through ${at(input.now)}; no future EXIT is assumed.")
             offices[session.officeId]?.let { value ->
                 session.start?.let { start ->

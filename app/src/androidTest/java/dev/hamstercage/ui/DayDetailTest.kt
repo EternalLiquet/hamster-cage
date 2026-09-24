@@ -35,6 +35,29 @@ class DayDetailTest {
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("ENTER · Synthetic office", substring = true).assertDoesNotExist()
     }
+    @Test fun crossOfficeGapShowsElapsedSpanWithoutClaimingContinuousInZoneTime() {
+        val evaluated = Instant.parse("2026-09-23T14:40:00Z")
+        val second = office.copy(id = "second", name = "Second office")
+        val a = RawEvent("a-in", office.id, Transition.ENTER, Instant.parse("2026-09-23T14:00:00Z"))
+        val bIn = RawEvent("b-in", second.id, Transition.ENTER, Instant.parse("2026-09-23T14:10:00Z"))
+        val bOut = RawEvent("b-out", second.id, Transition.EXIT, Instant.parse("2026-09-23T14:20:00Z"))
+        val fix = RawEvent("a-fix", office.id, Transition.PRESENCE, Instant.parse("2026-09-23T14:30:00Z"))
+        val input = AttendanceInput(listOf(office, second), listOf(a, bIn, bOut, fix),
+            policy = Policy(zoneId = ZoneId.of("UTC")), now = evaluated)
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            DayDetailScreen(input, AttendanceEngine.derive(input), day, {})
+        } } }
+        compose.onNodeWithText("Original elapsed span between opening and next presence check (continuity unconfirmed): 30m")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Effective elapsed span (continuity unconfirmed): 30m.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Device-observed in-zone time: 30m").assertDoesNotExist()
+        compose.onNodeWithText("Effective session duration: 30m.").assertDoesNotExist()
+        compose.onAllNodesWithText("Device-observed in-zone time: 10m")[0]
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("The listed end is the next presence check, not an observed EXIT. This earlier segment earns no credit until corrected.")
+            .performScrollTo().assertIsDisplayed()
+    }
     @Test fun historyNavigationShowsCorrectedTotalAndRetainedRawEvidenceAtLargeText() {
         val input = AttendanceInput(listOf(office), listOf(
             RawEvent("in", office.id, Transition.ENTER, now.minusSeconds(7200)),
