@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -33,7 +34,13 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
     lint { abortOnError = true; checkReleaseBuilds = true }
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
 }
+
+class RoomSchemaArguments(@get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE) val schemaDir: File) : CommandLineArgumentProvider {
+    override fun asArguments() = listOf("room.schemaLocation=${schemaDir.path}")
+}
+ksp { arg(RoomSchemaArguments(file("schemas"))) }
 
 tasks.register("writeDependencyInventory") {
     doLast {
@@ -59,9 +66,15 @@ dependencies {
     implementation(libs.play.basement)
     // Play services transitively requests legacy Fragment; Activity Result requires a supported version.
     implementation(libs.fragment)
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+    implementation(libs.datastore)
+    implementation(libs.coroutines.android)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.test)
+    androidTestImplementation(libs.room.testing)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)
     // 3.7 replaces removed reflective InputManager APIs, including on Android 17.

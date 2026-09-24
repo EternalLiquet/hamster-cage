@@ -13,6 +13,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
+import dev.hamstercage.data.HamsterRepository
+import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.SystemTimeSource
 import dev.hamstercage.location.BackgroundPermissionAction
 import dev.hamstercage.location.LocationPermissions
@@ -32,8 +35,10 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
+        val repository = HamsterRepository.get(this)
         setContent {
-            HamsterApp(timeSource = SystemTimeSource(), locationSetup = locationSetup,
+            val storageState by repository.state.collectAsState(initial = StorageState.Loading)
+            HamsterApp(timeSource = SystemTimeSource(), storageState = storageState, locationSetup = locationSetup,
                 backgroundOptionLabel = LocationPermissions.backgroundOptionLabel(this), setupError = setupError,
                 requestForeground = { foregroundRequest.launch(LocationPermissions.foregroundPermissions) },
                 requestBackground = { requestBackground() },
