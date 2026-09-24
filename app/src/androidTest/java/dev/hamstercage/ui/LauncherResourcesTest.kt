@@ -14,7 +14,12 @@ class LauncherResourcesTest {
     @Test fun installedPackageUsesAdaptiveSelectedArtworkAndThemedLayer() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val info = context.packageManager.getApplicationInfo(context.packageName, 0)
-        assertEquals(R.mipmap.ic_launcher, info.icon)
+        // Some launchers select the manifest's round icon for ApplicationInfo.icon.
+        assertTrue(info.icon == R.mipmap.ic_launcher || info.icon == R.mipmap.ic_launcher_round)
+        for (resource in listOf(R.mipmap.ic_launcher, R.mipmap.ic_launcher_round)) {
+            val packaged = context.packageManager.getDrawable(context.packageName, resource, info)
+            assertTrue("Both manifest launcher variants must be adaptive", packaged is AdaptiveIconDrawable)
+        }
         val icon = context.packageManager.getApplicationIcon(info)
         assertTrue(icon is AdaptiveIconDrawable)
         icon as AdaptiveIconDrawable
