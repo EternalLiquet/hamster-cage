@@ -24,11 +24,16 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                     require(intent?.action == GeofenceRegistrar.ACTION) { "Unexpected capture action." }
                     val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt)
                     HamsterRepository.get(application).appendRawEvents(observations)
+                    CoverageStore.change(application) { ledger ->
+                        ledger.observed(observations.maxOf { it.event.at })
+                    }
                     CaptureHealthStore.setDeliveryFailure(application, false)
                 }
                 CaptureHealth.deliverySucceeded()
             } catch (_: Exception) {
                 // Do not expose payloads, coordinates, identifiers, or exception text.
+                try { CoverageStore.change(application) { it.unlocatedOutage(receivedAt) } }
+                catch (_: Exception) { Unit }
                 try { CaptureHealthStore.setDeliveryFailure(application, true) }
                 catch (_: Exception) { Unit }
                 CaptureHealth.deliveryFailed()

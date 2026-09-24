@@ -16,6 +16,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import dev.hamstercage.capture.CaptureController
 import dev.hamstercage.capture.CaptureHealth
+import dev.hamstercage.capture.CoverageLedger
+import dev.hamstercage.capture.CoverageStore
 import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.SystemTimeSource
@@ -45,8 +47,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val storageState by repository.state.collectAsState(initial = StorageState.Loading)
             val captureStatus by CaptureHealth.state.collectAsState()
+            val coverage by CoverageStore.state(this).collectAsState(initial = CoverageLedger())
             HamsterApp(timeSource = SystemTimeSource(), storageState = storageState, locationSetup = locationSetup,
-                captureStatus = captureStatus,
+                captureStatus = captureStatus, coverage = coverage,
                 correctionActions = CorrectionActions(SystemTimeSource()::now, HamsterRepository::newId, repository::commitAttendanceEdit),
                 backgroundOptionLabel = LocationPermissions.backgroundOptionLabel(this), setupError = setupError,
                 requestForeground = { foregroundRequest.launch(LocationPermissions.foregroundPermissions) },

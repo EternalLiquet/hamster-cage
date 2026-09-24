@@ -111,6 +111,20 @@ class SecurityAuditTest(unittest.TestCase):
                 script, _, _ = self.fixture(Path(directory), manifest)
                 self.run_modes(script, False, "FAIL:")
 
+    def test_recovery_receiver_accepts_only_exact_system_actions(self):
+        component = '<receiver android:name="dev.hamstercage.capture.CaptureRecoveryReceiver" android:exported="true"><intent-filter>' \
+            '<action android:name="android.intent.action.BOOT_COMPLETED" />' \
+            '<action android:name="android.intent.action.MY_PACKAGE_REPLACED" />' \
+            '</intent-filter></receiver>'
+        for candidate, allowed in [(component, True),
+                                   (component.replace("MY_PACKAGE_REPLACED", "PACKAGE_REPLACED"), False),
+                                   (component.replace("BOOT_COMPLETED", "synthetic.ACTION"), False)]:
+            with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as directory:
+                manifest = SAFE_MANIFEST.replace("<application", '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /><application')
+                manifest = manifest.replace(" /></manifest>", ">" + candidate + "</application></manifest>")
+                script, _, _ = self.fixture(Path(directory), manifest)
+                self.run_modes(script, allowed, "PASS:" if allowed else "Recovery receiver")
+
     def test_provider_must_neither_export_nor_grant_data(self):
         for attributes in ['android:exported="true" android:permission="android.permission.DUMP"',
                            'android:exported="false" android:grantUriPermissions="true"']:
