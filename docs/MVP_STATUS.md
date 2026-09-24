@@ -26,7 +26,7 @@ Phase 0 is complete: issues #10–15 and [epic #1](https://github.com/EternalLiq
 | #27 Corrections | Open | Preview, confirm, append-only correction and revert remain. |
 | #28 History Security Pass | Open | Requires history/correction surfaces. |
 | #29 Policy | Implementation | Local validated policy editor, atomic stale-write rejection and restored drafts implemented. Four focused validation/default/travel tests pass; persistence/DST/UI/failure/restoration checks await device execution. [Contract](POLICY_SETTINGS.md). |
-| #30 Calendar controls | Open | Exclusions and WFH controls remain. |
+| #30 Calendar controls | Implementation | Local exclusions/WFH editor, independent removals, deterministic replacement and bounded date list implemented. Two focused validation tests, Android-test compilation and lint pass; four device behavior/reopen tests await execution. [Contract](CALENDAR_CONTROLS.md). |
 | #31 Privacy controls | Open | Local data explanation/deletion controls remain. |
 | #32 Settings Security Pass | Open | Requires policy/calendar/privacy controls. |
 | #33 Integrated journeys | Open | Full offline journeys, lifecycle/process/migration/failure evidence remains. |
