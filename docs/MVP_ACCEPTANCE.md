@@ -13,7 +13,7 @@ The full API37 host journey and the existing-private-state refusal regression pa
 
 ## Engine acceptance coverage
 
-The existing domain suites supply the full 24-case baseline below; CI runs them on the exact PR head. This is a mapping to behavioral assertions, not a replacement test suite. `A` is `AttendanceEngineTest`, `C` is `CalendarMetricsTest`, and `D` is `DepartureTest` in `core-domain/src/test/kotlin/dev/hamstercage/domain`.
+The table below records the 24-case baseline used for #33's earlier exact-head verification; it is historical evidence, not #78 acceptance. Issue #78 supersedes its arrival/exit grace assertions and example totals. Revalidate the affected cases against uncredited arrival walking grace and projection-only exit/departure grace on the focused #78 head before citing them as current behavior. `A` is `AttendanceEngineTest`, `C` is `CalendarMetricsTest`, and `D` is `DepartureTest` in `core-domain/src/test/kotlin/dev/hamstercage/domain`.
 
 | # | Behavior asserted | Existing test |
 | --- | --- | --- |

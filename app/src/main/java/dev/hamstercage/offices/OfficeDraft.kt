@@ -29,9 +29,9 @@ data class OfficeDraft(
             "Radius must be between 50 and 5000 meters."
         }
         val entryValue = entryGraceMinutes.trim().toIntOrNull()
-        require(entryValue != null && entryValue in 0..120) { "Entry grace must be 0 to 120 minutes." }
+        require(entryValue != null && entryValue in 0..120) { "Arrival walking grace must be 0 to 120 minutes." }
         val exitValue = exitGraceMinutes.trim().toIntOrNull()
-        require(exitValue != null && exitValue in 0..120) { "Exit grace must be 0 to 120 minutes." }
+        require(exitValue != null && exitValue in 0..120) { "Exit/departure grace must be 0 to 120 minutes." }
         return Office(id, nameValue, latitudeValue, longitudeValue, radiusValue, enabled,
             countsTowardAttendance, entryValue, exitValue)
     }

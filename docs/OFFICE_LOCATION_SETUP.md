@@ -1,6 +1,6 @@
 # Office location setup contract (#77)
 
-Issue #77 makes office creation usable without typing coordinates. The normal flow is **Name → Search address or Use my current location → review pin and radius → Save office**. The implementation has independent synthetic/emulator verification; final phone delivery and issue acceptance remain open. Manual coordinates and separate entry/exit grace remain under Advanced.
+Issue #77 makes office creation usable without typing coordinates. The normal flow is **Name → Search address or Use my current location → review pin and radius → Save office**. The implementation has independent synthetic/emulator verification; final phone delivery and issue acceptance remain open. Manual coordinates and separate arrival walking grace (uncredited time before attendance starts) and exit/departure grace (projection only) remain under Advanced.
 
 ## Search, map and privacy
 

@@ -41,12 +41,14 @@ class CorrectionEditorTest {
         assertNull(saved)
         validDraft()
         compose.onNodeWithText("Preview attendance change").performScrollTo().performClick()
-        compose.onNodeWithTag("correction_preview_total").performScrollTo().assertTextEquals("All recorded credited time: 0m → 40m")
+        compose.onNodeWithTag("correction_preview_total").performScrollTo().assertTextEquals("All recorded credited time: 0m → 25m")
         assertNull(saved)
         compose.onNodeWithText("Confirm attendance change").performScrollTo().performClick()
         compose.onNodeWithText("Attendance change saved").assertIsDisplayed()
         assertTrue(saved is AttendanceEdit.Correct)
         assertEquals(input.events, saved!!.proposedInput().events)
+        // Corrected 14:30–15:00 bounds earn 25m after the 5m arrival delay.
+        assertEquals(25.0, AttendanceEngine.derive(saved!!.proposedInput()).intervals.sumOf { it.minutes }, 0.0)
     }
     @Test fun failedSaveReturnsEditableDraftWithoutSensitiveErrorDetails() {
         show { throw IOException("private-correction-secret") }
@@ -73,13 +75,14 @@ class CorrectionEditorTest {
     @Test fun sameMillisecondRevertWithSmallerIdWinsAndPreviewMatchesSavedMarker() {
         val existing = Correction("z", session.id, now.minusSeconds(5400), now.minusSeconds(3600), now, appendSequence = 1)
         val corrected = input.copy(corrections = listOf(existing))
+        assertEquals(25.0, AttendanceEngine.derive(corrected).intervals.sumOf { it.minutes }, 0.0)
         var saved: AttendanceEdit? = null
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
             CorrectionEditor(corrected, AttendanceEngine.derive(corrected).sessions.single(),
                 CorrectionActions({ now }, { "a" }, { saved = it })) {}
         } } }
         compose.onNodeWithText("Preview revert to original").performScrollTo().performClick()
-        compose.onNodeWithTag("correction_preview_total").performScrollTo().assertTextEquals("All recorded credited time: 40m → 0m")
+        compose.onNodeWithTag("correction_preview_total").performScrollTo().assertTextEquals("All recorded credited time: 25m → 0m")
         compose.onNodeWithText("Confirm attendance change").performScrollTo().performClick()
         compose.onNodeWithText("Attendance change saved").assertIsDisplayed()
         val marker = (saved as AttendanceEdit.Correct).value

@@ -86,7 +86,7 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
                 Text("Preview evaluated at ${at(edit.baseline.now)}. New observations, policy or advancing time can update later totals.")
                 if (edit is AttendanceEdit.Correct && edit.value.revertToOriginal)
                     Text("Revert appends an audit marker and restores original reconstruction, including any missing boundaries and review flags.")
-                else Text("The resulting attendance is marked MANUAL. Office grace and overlap rules still apply.")
+                else Text("The resulting attendance is marked MANUAL. Arrival walking delay and overlap rules still apply; exit grace affects projections only.")
                 if (after.reviews.isNotEmpty()) Text("${after.reviews.size} review notices remain in the local record; inspect day detail after saving.")
                 Text("Raw observations, earlier corrections and manual source entries are retained.")
             }

@@ -16,6 +16,7 @@ import dev.hamstercage.domain.AttendanceInput
 import dev.hamstercage.domain.AttendanceResult
 import dev.hamstercage.domain.TargetWindow
 import dev.hamstercage.domain.DepartureStatus
+import java.time.Duration
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -37,6 +38,18 @@ fun DashboardScreen(
             DashboardMetric("Balance", if (daily.hasCompleteHistory) balanceText(daily.balanceMinutes) else "Unknown", "today_balance", true)
             DashboardMetric("Device-observed time", minutesText(AttendanceEngine.observedDailyMinutes(input, today)), "today_observed")
             presence.sessionStarted?.let { DashboardMetric("Session started", instantText(it, input.policy.zoneId), "session_start") }
+            val open = result.sessions.filter { it.isOpen && input.offices.any { office -> office.id == it.officeId && office.enabled && office.countsTowardAttendance } }
+            if (open.size == 1) {
+                val session = open.single()
+                val grace = input.offices.single { it.id == session.officeId }.entryGraceMinutes
+                val creditStart = session.start!!.plusSeconds(grace * 60L)
+                Text("Arrival walking grace: ${grace}m uncredited. Credit starts at ${instantText(creditStart, input.policy.zoneId)}.",
+                    Modifier.testTag("arrival_credit_start"), style = MaterialTheme.typography.bodyMedium)
+                if (input.now < creditStart) {
+                    val minutesLeft = (Duration.between(input.now, creditStart).seconds + 59) / 60
+                    Text("${minutesLeft}m until credit starts (if the observed visit continues).", Modifier.testTag("arrival_countdown"))
+                }
+            }
             if (presence.manual) Tag("MANUAL BOUNDS")
             if (!trackingReady && presence.sessionStarted != null)
                 Text("Live office state is unconfirmed. Open-session totals are estimates until reviewed.", style = MaterialTheme.typography.bodyMedium)
@@ -53,7 +66,7 @@ fun DashboardScreen(
             Text("No attendance recorded yet.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         Panel {
             Text("Departure targets", style = MaterialTheme.typography.titleLarge)
-            Text("Projections include office exit grace; they do not add future attendance.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+            Text("Departure estimates may use office exit grace; it never adds recorded attendance.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
             TargetWindow.entries.forEach { target ->
                 val estimate = AttendanceEngine.departure(input, result, target)
                 val value = when (estimate.status) {
@@ -92,7 +105,7 @@ fun DashboardScreen(
                     Text("${summary.unknownCalendarDays} calendar days have no reliable coverage.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
             }
         }
-        Text("Personal estimates. Geofence delivery can be delayed; grace is a policy allowance, not an observed crossing.",
+        Text("Personal estimates. Geofence delivery can be delayed; arrival walking grace is an uncredited delay, not a confirmed building entry.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
     }
 }

@@ -266,10 +266,12 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                     if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) error = "Enter valid latitude and longitude."
                     else { selectedLabel = "Manual coordinates"; manualSelection = true; reviewing = true; confirmed = false; loadedMap = null; tileEpoch++; error = null }
                 })
-                OutlinedTextField(entryGrace, { entryGrace = it }, label = { Text("Entry grace (minutes)") },
+                OutlinedTextField(entryGrace, { entryGrace = it }, label = { Text("Arrival walking grace (minutes)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(exitGrace, { exitGrace = it }, label = { Text("Exit grace (minutes)") },
+                Text("Time after an observed entry before attendance credit starts. Walking-in time is uncredited.")
+                OutlinedTextField(exitGrace, { exitGrace = it }, label = { Text("Exit/departure grace (minutes)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Text("Used only to estimate when you may leave; it does not add recorded attendance.")
             }
             Column(Modifier.fillMaxWidth().padding(vertical = CageStyle.Tight)) {
                 Text("Enabled for detection", style = MaterialTheme.typography.bodyMedium)
@@ -318,8 +320,8 @@ private fun OfficeRow(office: Office, onEdit: (Office) -> Unit) {
             Tag(if (office.countsTowardAttendance) "COUNTS" else "NOT CREDITED")
         }
         MetricRow("Radius", "${office.radiusMeters} m")
-        MetricRow("Entry grace", "${office.entryGraceMinutes} min")
-        MetricRow("Exit grace", "${office.exitGraceMinutes} min")
+        MetricRow("Arrival walking grace (uncredited)", "${office.entryGraceMinutes} min")
+        MetricRow("Exit/departure grace (projection only)", "${office.exitGraceMinutes} min")
         CageButton("Edit ${office.name}", onClick = { onEdit(office) },
             modifier = Modifier.testTag("edit-${office.id}"))
     }

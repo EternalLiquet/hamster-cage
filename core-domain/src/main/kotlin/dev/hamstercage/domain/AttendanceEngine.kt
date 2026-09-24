@@ -153,28 +153,44 @@ object AttendanceEngine {
             if (start == null || !office.enabled || !office.countsTowardAttendance ||
                 ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons) null
             else {
-                val end = session.end?.plusSeconds(office.exitGraceMinutes * 60L)?.coerceAtMost(input.now) ?: input.now
-                CreditedInterval(start.minusSeconds(office.entryGraceMinutes * 60L), end, setOf(session.id))
+                val end = minOf(session.end ?: input.now, input.now)
+                val creditStart = start.plusSeconds(office.entryGraceMinutes * 60L)
+                if (end <= creditStart) null else CreditedInterval(creditStart, end, setOf(session.id))
             }
         }
-        // Reconcile wobble only inside the same office; a transfer between offices is not attendance.
-        val bySession = effective.associateBy { it.id }
-        val reconciled = credited.groupBy { bySession.getValue(it.sessionIds.first()).officeId }.values
-            .flatMap { union(it, input.policy.shortGapMinutes) }
+        // Reconcile only the observed gap between visits at the same office. The next
+        // visit's arrival window remains uncredited even when that gap is short.
+        val creditBySession = credited.associateBy { it.sessionIds.single() }
+        val reconciled = effective.groupBy { it.officeId }.values.flatMap { officeSessions ->
+                val officeIntervals = officeSessions.mapNotNull { creditBySession[it.id] }
+                // Include visits that earned no credit in adjacency. Reconcile only
+                // between two positive-credit visits; a brief uncredited visit blocks
+                // both neighboring gaps and cannot be skipped as a continuity bridge.
+                val ordered = officeSessions.sortedWith(compareBy<Session> { it.start ?: it.end }.thenBy { it.id })
+                val gapCredits = ordered.zipWithNext().mapNotNull { (before, after) ->
+                    val previousCredit = creditBySession[before.id]
+                    val nextCredit = creditBySession[after.id]
+                    val nextEntry = after.start
+                    if (previousCredit == null || nextCredit == null || nextEntry == null ||
+                        previousCredit.end >= nextEntry || Duration.between(previousCredit.end, nextEntry) >
+                        Duration.ofMinutes(input.policy.shortGapMinutes.toLong())) null
+                    else CreditedInterval(previousCredit.end, nextEntry, setOf(before.id, after.id), reconciledGap = true)
+                }
+                union(officeIntervals + gapCredits)
+            }
         return AttendanceResult(effective, union(reconciled), reviews.distinct().sortedWith(
             compareBy<ReviewItem> { it.sessionId ?: "" }.thenBy { it.reason.name }.thenBy { it.sourceEventIds.sorted().joinToString() }))
     }
 
-    /** Gap reconciliation may add the configured gap; plain union never adds time. */
-    fun union(intervals: List<CreditedInterval>, gapMinutes: Int = 0): List<CreditedInterval> {
-        require(gapMinutes >= 0)
+    /** Plain union never adds time. Reconciled observed gaps arrive as explicit intervals. */
+    fun union(intervals: List<CreditedInterval>): List<CreditedInterval> {
         val result = mutableListOf<CreditedInterval>()
         intervals.filter { it.end > it.start }.sortedWith(compareBy<CreditedInterval> { it.start }.thenBy { it.end }).forEach { interval ->
             val previous = result.lastOrNull()
-            if (previous != null && Duration.between(previous.end, interval.start) <= Duration.ofMinutes(gapMinutes.toLong())) {
+            if (previous != null && interval.start <= previous.end) {
                 result[result.lastIndex] = previous.copy(end = maxOf(previous.end, interval.end),
                     sessionIds = previous.sessionIds + interval.sessionIds,
-                    reconciledGap = previous.reconciledGap || interval.reconciledGap || interval.start > previous.end)
+                    reconciledGap = previous.reconciledGap || interval.reconciledGap)
             } else result += interval
         }
         return result
@@ -184,11 +200,15 @@ object AttendanceEngine {
         max(0.0, Duration.between(it, minOf(session.end ?: now, now)).elapsedMinutes())
     } ?: 0.0
 
-    fun observedDailyMinutes(input: AttendanceInput, date: LocalDate): Double {
+    fun observedDailyMinutes(input: AttendanceInput, date: LocalDate): Double =
+        observedDailyMinutes(input, listOf(date)).getValue(date)
+
+    fun observedDailyMinutes(input: AttendanceInput, dates: List<LocalDate>): Map<LocalDate, Double> {
         val raw = input.copy(corrections = emptyList(), manualSessions = emptyList(),
             offices = input.offices.map { it.copy(entryGraceMinutes = 0, exitGraceMinutes = 0) },
             policy = input.policy.copy(shortGapMinutes = 0))
-        return daily(raw, derive(raw), date).creditedMinutes
+        val result = derive(raw)
+        return dates.associateWith { daily(raw, result, it).creditedMinutes }
     }
 
     fun daily(input: AttendanceInput, result: AttendanceResult, date: LocalDate): PeriodSummary =
@@ -237,8 +257,8 @@ object AttendanceEngine {
         val eligibleOffices = input.offices.filter { it.enabled && it.countsTowardAttendance }.associateBy { it.id }
         val relevant = result.sessions.filter { session ->
             val office = eligibleOffices[session.officeId]
-            office != null && (session.end == null || session.end.plusSeconds(office.exitGraceMinutes * 60L) >= windowStart) &&
-                (session.start == null || session.start.minusSeconds(office.entryGraceMinutes * 60L) < windowEnd)
+            office != null && (session.end == null || session.end >= windowStart) &&
+                (session.start == null || session.start < windowEnd)
         }
         val current = relevant.filter { it.isOpen }
         val benign = setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT)
@@ -254,11 +274,12 @@ object AttendanceEngine {
         if (input.now < windowStart || input.now >= windowEnd) return outcome(DepartureStatus.OUTSIDE_WINDOW)
         val session = current.single()
         val office = eligibleOffices.getValue(session.officeId)
-        val targetAt = input.now.plusMillis(kotlin.math.ceil(remaining * 60000.0).toLong())
+        val arrivalCreditStart = session.start!!.plusSeconds(office.entryGraceMinutes * 60L)
+        val targetAt = maxOf(input.now, arrivalCreditStart).plusMillis(kotlin.math.ceil(remaining * 60000.0).toLong())
         val exitAt = maxOf(input.now, targetAt.minusSeconds(office.exitGraceMinutes * 60L))
         // A continuing visit earns one minute per minute, regardless of overlapping offices.
         // Do not roll today's/rolling window forward to make an otherwise unreachable target fit.
-        if (targetAt > windowEnd || exitAt > session.start!!.plusSeconds(input.policy.maxOpenSessionHours * 3600L))
+        if (targetAt > windowEnd || exitAt > session.start.plusSeconds(input.policy.maxOpenSessionHours * 3600L))
             return outcome(DepartureStatus.UNREACHABLE_IN_WINDOW)
         return DepartureEstimate(target, DepartureStatus.ESTIMATED, remaining, targetAt, exitAt)
     }

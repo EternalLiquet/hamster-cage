@@ -24,9 +24,9 @@ class DayExplanationTest {
         val data = input(raw("a", Transition.ENTER, "09:15"), raw("b", Transition.EXIT, "11:45"),
             raw("c", Transition.ENTER, "13:30"), raw("d", Transition.EXIT, "17:00"))
         val detail = explain(data)
-        assertEquals(380.0, detail.summary.creditedMinutes, 0.001)
+        assertEquals(350.0, detail.summary.creditedMinutes, 0.001)
         assertEquals(at("09:15"), detail.originalSessions.first().start)
-        assertEquals(at("09:10"), detail.intervals.first().start)
+        assertEquals(at("09:20"), detail.intervals.first().start)
         assertEquals(data.events, detail.rawEvents)
         assertTrue(detail.denominator.contains("1 day × 360 minutes"))
     }
@@ -35,11 +35,14 @@ class DayExplanationTest {
         val data = input(raw("a", Transition.ENTER, "09:00"), raw("b", Transition.EXIT, "14:00"),
             raw("c", Transition.ENTER, "14:04"), raw("d", Transition.EXIT, "17:00"))
         val detail = explain(data)
-        assertEquals(490.0, detail.summary.creditedMinutes, 0.001)
-        assertEquals(setOf("session:a", "session:c"), detail.intervals.single().sessionIds)
-        val gap = explain(data.copy(events = data.events.map { if (it.id == "c") it.copy(at = at("14:15")) else it }))
-        assertTrue(gap.intervals.single().reconciledGap)
-        assertEquals(490.0, gap.summary.creditedMinutes, 0.001)
+        assertEquals(470.0, detail.summary.creditedMinutes, 0.001)
+        assertEquals(2, detail.intervals.size)
+        assertEquals(setOf("session:a", "session:c"), detail.intervals.first().sessionIds)
+        val gap = explain(data.copy(events = data.events.map { if (it.id == "c") it.copy(at = at("14:05")) else it }))
+        assertTrue(gap.intervals.first().reconciledGap)
+        assertEquals(at("14:05"), gap.intervals.first().end)
+        assertEquals(at("14:10"), gap.intervals.last().start)
+        assertEquals(470.0, gap.summary.creditedMinutes, 0.001)
     }
 
     @Test fun correctionMovingAcrossDaysRetainsRawEvidenceAndAuditOnBothDays() {
@@ -48,7 +51,7 @@ class DayExplanationTest {
         val originalDay = explain(data)
         val movedDay = explain(data, day.minusDays(1))
         assertEquals(0.0, originalDay.summary.creditedMinutes, 0.001)
-        assertEquals(70.0, movedDay.summary.creditedMinutes, 0.001)
+        assertEquals(55.0, movedDay.summary.creditedMinutes, 0.001)
         listOf(originalDay, movedDay).forEach {
             assertEquals(data.events, it.rawEvents)
             assertEquals(data.corrections, it.corrections)
@@ -74,13 +77,13 @@ class DayExplanationTest {
         val base = input(raw("a", Transition.ENTER, "09:00"), raw("b", Transition.EXIT, "10:00"))
         val detail = explain(base.copy(policy = base.policy.copy(excludedDates = listOf(ExcludedDate(day, ExclusionReason.BANK_HOLIDAY)), wfhDates = setOf(day))))
         assertEquals(0, detail.summary.requiredMinutes)
-        assertEquals(70.0, detail.summary.creditedMinutes, 0.001)
+        assertEquals(55.0, detail.summary.creditedMinutes, 0.001)
         assertTrue(detail.denominator.contains("BANK HOLIDAY"))
         assertTrue(detail.denominator.contains("WFH is a label"))
     }
 
     @Test fun graceAcrossMidnightRetainsContributingSessionsAndSourceEvents() {
-        val data = input(RawEvent("a", office.id, Transition.ENTER, Instant.parse("2026-09-24T00:03:00Z")),
+        val data = input(RawEvent("a", office.id, Transition.ENTER, Instant.parse("2026-09-23T23:53:00Z")),
             RawEvent("b", office.id, Transition.EXIT, Instant.parse("2026-09-24T01:00:00Z")))
         val detail = explain(data)
         assertEquals(2.0, detail.summary.creditedMinutes, 0.001)

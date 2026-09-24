@@ -25,6 +25,15 @@ class HistoryPresentationTest {
         assertTrue("UNKNOWN COVERAGE" in unknown.badges)
     }
 
+    @Test fun timelineSeparatesObservedArrivalFromUncreditedDelay() {
+        val entry = now.minusSeconds(180)
+        val source = input().copy(offices = listOf(office.copy(entryGraceMinutes = 5)),
+            events = listOf(RawEvent("entry", office.id, Transition.ENTER, entry)))
+        val day = days(source).first()
+        assertEquals(3.0, day.observedMinutes, 0.0)
+        assertEquals(0.0, day.summary.creditedMinutes, 0.0)
+    }
+
     @Test fun textualHolidayWfhManualAndReviewBadgesKeepTheirDifferentMeanings() {
         val source = input().copy(
             policy = Policy(excludedDates = listOf(ExcludedDate(today, ExclusionReason.BANK_HOLIDAY)), wfhDates = setOf(today)),
