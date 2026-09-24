@@ -1,6 +1,6 @@
 # Phase 1 capture Security Pass (#20)
 
-Scope: offices, permission setup, passive geofence capture and recovery (#16–19). This pass adds no collection. Its final sign-off depends on the merged #19 source and independent gates. Actual closed-UI transition delivery on a physical device remains an explicit #18/#19 integration gate.
+Scope: offices, permission setup, passive geofence capture and recovery (#16–19). This pass adds no collection. It is refreshed onto merged #19 source; its own final sign-off requires independent and exact-head hosted gates. Actual closed-UI transition delivery on a physical device remains an explicit #18/#19 integration gate.
 
 ## Data and reachable surfaces
 
@@ -22,4 +22,4 @@ Focused Android tests cover two-office replay/unknown-office rollback, missing/f
 
 `scripts/security_check.py` audits merged debug/release manifests, exact protected exported receiver actions, non-exported/filter-free geofence receiver, permissions, backup resources, direct location collection calls, runtime logging and forbidden bundled references. Adversarial Python tests mutate manifest/source inputs to prove these checks fail, including the new receiver and direct-location cases. The tracked synthetic dashboard screenshot was inspected; it shows no real location or attendance. Source/asset inventory found no tracked database, secret, credential or sensitive log. CI runs OSV against resolved runtime dependencies, Gitleaks and CodeQL at the PR head. Native `osv-scanner` and `gitleaks` executables are not locally available, so only hosted results can establish those scanner gates.
 
-The exact source SHA, build checks, packaged debug/release permission and component inspection, APK checksum/signing caveat, hosted scanner results, independent verification and review belong to PR #20's evidence. No physical closed-UI geofence transition or manufacturer battery behavior is claimed here. The capture Privacy Pass remains open until its #19 dependency and its own exact-head gates complete; #18/#19 remain open for real background-delivery evidence.
+The exact source SHA, build checks, packaged debug/release permission and component inspection, APK checksum/signing caveat, hosted scanner results, independent verification and review belong to PR #69's evidence. No physical closed-UI geofence transition or manufacturer battery behavior is claimed here. This Security Pass remains open until its exact-head gates complete; #18/#19 remain open for real background-delivery evidence.
