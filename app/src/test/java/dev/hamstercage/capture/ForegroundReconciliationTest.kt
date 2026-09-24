@@ -3,6 +3,9 @@ package dev.hamstercage.capture
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.domain.Office
+import dev.hamstercage.domain.AttendanceEngine
+import dev.hamstercage.domain.DepartureStatus
+import dev.hamstercage.domain.TargetWindow
 import dev.hamstercage.domain.Policy
 import dev.hamstercage.domain.RawEvent
 import dev.hamstercage.domain.ReviewReason
@@ -71,7 +74,14 @@ class ForegroundReconciliationTest {
         val repeated = snapshot(listOf(event("reconcile", Transition.PRESENCE, observed),
             event("geofence-enter", Transition.ENTER, observed.plusSeconds(5)),
             event("geofence-exit", Transition.EXIT, observed.plusSeconds(90))))
-        assertEquals(1, repeated.derive(observed.plusSeconds(100)).sessions.size)
+        val stillInside = snapshot(listOf(event("reconcile", Transition.PRESENCE, observed),
+            event("geofence-enter", Transition.ENTER, observed.plusSeconds(5))))
+        val live = stillInside.derive(observed.plusSeconds(60))
+        assertEquals("In Synthetic office", dashboardPresence(stillInside.input(observed.plusSeconds(60)), live, true).label)
+        val result = repeated.derive(observed.plusSeconds(100))
+        assertEquals(1, result.sessions.size)
+        assertEquals(false, ReviewReason.REPEATED_ENTER in result.sessions.single().reviewReasons)
+        assertEquals("Outside office", dashboardPresence(repeated.input(observed.plusSeconds(100)), result, true).label)
     }
 
     @Test fun retainedPreOutageEnterIsSplitWithoutBackdatedOrOverlappingCredit() {
@@ -100,6 +110,8 @@ class ForegroundReconciliationTest {
         assertEquals(true, recovered.observed(observed).presenceConfirmed(now, zone))
         assertEquals("In Synthetic office", dashboardPresence(after.input(now), result, true).label)
         assertEquals(true, dashboardPresence(after.input(now), result, true).needsReview)
+        val projected = AttendanceEngine.departure(after.input(now), result, TargetWindow.TODAY)
+        assertEquals(DepartureStatus.ESTIMATED, projected.status)
         assertEquals(ReconcileOutcome.ALREADY_PRESENT,
             canOpenFromObservation(after, office.id, recovered.observed(observed), now, now))
     }

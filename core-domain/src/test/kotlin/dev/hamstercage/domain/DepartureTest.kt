@@ -59,6 +59,20 @@ class DepartureTest {
         assertEquals(at("09:15"), result.creditedTargetAt)
         assertEquals(at("09:10"), result.estimatedExitAt)
     }
+    @Test fun repairedSameDayGapKeepsOldMinutesUncreditedAndProjectsFromCurrentPresence() {
+        val data = input(listOf(enter("09:00", "old"),
+            RawEvent("fix", "a", Transition.PRESENCE, at("10:00")),
+            enter("10:02", "normal")), now = at("10:30"), policy = Policy(targetMinutesPerDay = 60))
+        val derived = AttendanceEngine.derive(data)
+        assertTrue(ReviewReason.UNCONFIRMED_GAP in derived.sessions.first().reviewReasons)
+        assertEquals(25.0, AttendanceEngine.summary(data, derived, TargetWindow.TODAY).creditedMinutes, 0.0)
+        val projected = AttendanceEngine.departure(data, derived, TargetWindow.TODAY)
+        assertEquals(DepartureStatus.ESTIMATED, projected.status)
+        assertEquals(at("11:05"), projected.creditedTargetAt)
+        assertEquals(at("11:00"), projected.estimatedExitAt)
+        val anomalous = data.copy(events = data.events + enter("10:03", "repeat"))
+        assertSuppressed(DepartureStatus.NEEDS_REVIEW, estimate(anomalous))
+    }
 
     @Test fun lateArrivalCannotUseTomorrowToMeetTodayTarget() {
         val data = input(listOf(enter("23:58")), now = at("23:59"), policy = Policy(targetMinutesPerDay = 10))
