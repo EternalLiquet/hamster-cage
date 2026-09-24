@@ -1,0 +1,2 @@
+PASS: actual process restart 24869 -> 24971; recorded credit 13m -> 14m; office state remains unknown.
+Synthetic source remains on emulator; no personal attendance or physical-device check.

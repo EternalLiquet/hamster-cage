@@ -16,7 +16,7 @@ class ShellSmokeTest {
     @Test fun eachOfflineDestinationOpens() {
         compose.onNodeWithText("Hamster Cage").assertIsDisplayed()
         val destinations = listOf(
-            "Offices" to "Office configuration and boundary registration are coming in the office capture features.",
+            "Offices" to "No offices yet",
             "History" to "Every total comes from your local record.",
             "Settings" to "Attendance policy and privacy controls are coming in the settings features.",
             "Dashboard" to "Office state unknown",
