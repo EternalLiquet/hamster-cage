@@ -15,7 +15,6 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
-import dev.hamstercage.MainActivity
 import dev.hamstercage.data.*
 import dev.hamstercage.domain.*
 import java.time.Instant
@@ -24,23 +23,24 @@ import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 
 class HistoryTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = createAndroidComposeRule<OfficeTestActivity>()
     private val now = Instant.parse("2026-09-23T16:00:00Z")
     private val today = LocalDate.of(2026, 9, 23)
     private val office = Office("synthetic", "Synthetic office", 0.0, 0.0, entryGraceMinutes = 0, exitGraceMinutes = 0)
     private fun source() = AttendanceInput(listOf(office), emptyList(), now = now)
     private fun show(input: AttendanceInput, scale: Float = 1f) {
         val density = compose.activity.resources.displayMetrics.density
-        compose.activity.runOnUiThread { compose.activity.setContent {
+        compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density, scale)) {
                 HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) { HistoryScreen(input, AttendanceEngine.derive(input)) } }
             }
-        } }
+        }
     }
 
     @Test fun emptyHistoryShowsExpectedZeroWithUnknownBalanceAtLargeText() {
@@ -75,7 +75,7 @@ class HistoryTest {
         compose.onNodeWithTag("history_required_$date").performScrollTo().assertTextContains("0m")
     }
 
-    @Test fun savedCorrectionAndPolicyFlowsRefreshVisibleHistoryWithoutRestart() = runBlocking {
+    @Test fun savedCorrectionAndPolicyFlowsRefreshVisibleHistoryWithoutRestart() {
         val context = compose.activity.applicationContext
         val name = "history-${UUID.randomUUID()}"
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -84,22 +84,31 @@ class HistoryTest {
         val repository = HamsterRepository(database, preferences, TimeSource { now })
         val seen = AtomicReference<StorageState>(StorageState.Loading)
         try {
-            repository.saveOffice(office)
             val manual = ManualSession("manual", office.id, now.minusSeconds(7200), now, now)
-            repository.appendManualSession(manual)
-            compose.activity.runOnUiThread { compose.activity.setContent {
+            val initial = runBlocking {
+                repository.saveOffice(office)
+                repository.appendManualSession(manual)
+                withTimeout(10_000) { repository.state.first() }
+            }
+            assertTrue("Initial isolated repository state: ${initial::class.simpleName}", initial is StorageState.Ready)
+            assertEquals(1, (initial as StorageState.Ready).snapshot.manualSessions.size)
+            compose.setContent {
                 val state by repository.state.collectAsState(StorageState.Loading)
                 SideEffect { seen.set(state) }
                 HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
                     (state as? StorageState.Ready)?.snapshot?.input(now)?.let { input -> HistoryScreen(input, AttendanceEngine.derive(input)) }
                 } }
-            } }
-            compose.waitUntil(10_000) { (seen.get() as? StorageState.Ready)?.snapshot?.manualSessions?.size == 1 }
+            }
+            compose.waitForIdle() // Commit the initial composition before observing its SideEffect.
+            try { compose.waitUntil(10_000) { (seen.get() as? StorageState.Ready)?.snapshot?.manualSessions?.size == 1 } }
+            catch (failure: Throwable) { throw AssertionError("First rendered storage state: ${seen.get()::class.simpleName}", failure) }
             compose.onNodeWithTag("history_credit_$today").assertTextContains("2h 0m")
             val snapshot = (seen.get() as StorageState.Ready).snapshot
             val session = snapshot.derive(now).sessions.single()
-            repository.appendCorrection(Correction("fix", session.id, now.minusSeconds(3600), now, now))
-            repository.savePolicy(PolicySettings(targetMinutesPerDay = 480))
+            runBlocking {
+                repository.appendCorrection(Correction("fix", session.id, now.minusSeconds(3600), now, now))
+                repository.savePolicy(PolicySettings(targetMinutesPerDay = 480))
+            }
             compose.waitUntil(10_000) { (seen.get() as? StorageState.Ready)?.snapshot?.let { it.corrections.size == 1 && it.policy.targetMinutesPerDay == 480 } == true }
             compose.onNodeWithTag("history_credit_$today").assertTextContains("1h 0m")
             compose.onNodeWithTag("history_required_$today").assertTextContains("8h 0m")
@@ -109,7 +118,7 @@ class HistoryTest {
             compose.waitForIdle()
             database.close()
             scope.cancel()
-            scope.coroutineContext[Job]?.join()
+            runBlocking { scope.coroutineContext[Job]?.join() }
             context.deleteDatabase("$name.db")
             context.preferencesDataStoreFile(name).delete()
         }
