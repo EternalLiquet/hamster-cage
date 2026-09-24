@@ -233,11 +233,13 @@ object AttendanceEngine {
         val reliable = result.sessions.filter { it.officeId in eligible && it.start != null &&
             it.reviewReasons.all(benign::contains) && (it.end == null || it.end > it.start) }
         val sessionStart = reliable.minOfOrNull { it.start!!.atZone(input.policy.zoneId).toLocalDate() }
-        // An ordinary captured session starts the period in which later missing days
-        // are outages. A voluntary manual/corrected backfill covers its own dates but
-        // cannot make the intervening pre-capture history a mandatory review gap.
-        val observedStart = reliable.filter { it.confidence != Confidence.MANUAL }
-            .minOfOrNull { it.start!!.atZone(input.policy.zoneId).toLocalDate() }
+        // Retained raw ENTER proves when capture began even if a later correction makes
+        // the effective session MANUAL or moves its bounds. Manual-only intervals and
+        // corrected orphan EXITs have no ENTER and remain isolated backfill islands.
+        val enterById = input.events.filter { it.transition == Transition.ENTER }.associateBy { it.id }
+        val observedStart = reliable.flatMap { session ->
+            session.sourceEventIds.mapNotNull { id -> enterById[id]?.takeIf { it.officeId == session.officeId } }
+        }.minOfOrNull { it.at.atZone(input.policy.zoneId).toLocalDate() }
         val continuousStart = listOfNotNull(input.historyStartDate, observedStart).minOrNull()
         val ledgerStart = input.historyStartDate?.let { start ->
             var candidate = start

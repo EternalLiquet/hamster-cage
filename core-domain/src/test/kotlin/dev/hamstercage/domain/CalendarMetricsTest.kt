@@ -137,6 +137,26 @@ class CalendarMetricsTest {
         assertEquals(710.0, coverage.coveredCreditedMinutes, 0.0)
     }
 
+    @Test fun correctedMondayEnterStillMakesMissingTuesdayUnknownWithoutLedger() {
+        val monday = day.minusDays(2)
+        val tuesday = day.minusDays(1)
+        val correction = Correction("adjust-monday", "session:$monday-in", at("09:30", monday),
+            at("14:30", monday), at("19:00"))
+        val data = input(visit(monday) + visit(day)).copy(historyStartDate = null,
+            corrections = listOf(correction))
+        val coverage = reporting(data, TargetWindow.ROLLING_30)
+        assertEquals(monday, coverage.firstReliableDay)
+        assertEquals(setOf(monday, day), coverage.coveredDates)
+        assertEquals(setOf(tuesday), coverage.unknownAfterTracking)
+        assertFalse(tuesday in coverage.unavailableBeforeTracking)
+        assertEquals(720, coverage.coveredRequiredMinutes)
+        val earlierEffectiveBounds = data.copy(corrections = listOf(correction.copy(
+            start = at("23:30", monday.minusDays(1)))))
+        val moved = reporting(earlierEffectiveBounds, TargetWindow.ROLLING_30)
+        assertEquals(monday.minusDays(1), moved.firstReliableDay)
+        assertEquals(setOf(tuesday), moved.unknownAfterTracking)
+    }
+
     @Test fun correctedBackfillMovesBaselineButOrphanExitDoesNot() {
         val old = day.minusDays(5)
         val orphan = RawEvent("orphan", "a", Transition.EXIT, at("09:00", old.minusDays(1)))
