@@ -99,7 +99,8 @@ class HamsterRepository internal constructor(
         events.forEach { evidence ->
             val event = evidence.event
             validId(event.id); validId(event.officeId)
-            require(evidence.source == "PLAY_SERVICES_GEOFENCE") { "Unsupported raw event source." }
+            require(evidence.source == "PLAY_SERVICES_GEOFENCE" ||
+                evidence.source == "FOREGROUND_LOCATION_RECONCILIATION") { "Unsupported raw event source." }
             val record = EventRecord(event.id, event.officeId, event.transition.name, event.at.persistedMillis(),
                 evidence.receivedAt.persistedMillis(), evidence.observedLocationAt?.persistedMillis(), evidence.source)
             val previous = dao.event(event.id)

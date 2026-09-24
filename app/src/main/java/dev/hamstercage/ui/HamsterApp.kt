@@ -39,6 +39,7 @@ import dev.hamstercage.domain.AttendanceEngine
 import dev.hamstercage.capture.CaptureStatus
 import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.capture.RegistrationStatus
+import dev.hamstercage.capture.ReconcileOutcome
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.PolicySettings
@@ -65,6 +66,7 @@ fun HamsterApp(
     locationSetup: LocationSetup = LocationSetup(), backgroundOptionLabel: String = "Allow all the time",
     setupError: String? = null, requestForeground: () -> Unit = {}, requestBackground: () -> Unit = {},
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
+    reconcileOffice: (suspend () -> ReconcileOutcome)? = null,
     trackingReady: Boolean = false,
     officeActions: OfficeActions? = null,
     correctionActions: CorrectionActions? = null,
@@ -172,7 +174,7 @@ fun HamsterApp(
                             }
                             val result = remember(input) { AttendanceEngine.derive(input) }
                             if (selected == Destination.HISTORY) key(privacyState.generation) {
-                                HistoryScreen(input, result, correctionActions)
+                                HistoryScreen(input, result, correctionActions, snapshot.eventEvidence)
                             }
                             else {
                                 DashboardScreen(input, result, effectiveTrackingReady,
@@ -204,8 +206,12 @@ fun HamsterApp(
                 if ((selected == Destination.OFFICES || selected == Destination.SETTINGS) &&
                     privacyState is PrivacyResetState.Idle && !fullResetRequested) {
                     FormError(setupError)
-                    LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground,
-                        openAppSettings, openDeviceSettings, captureStatus.registration)
+                    key(selected) {
+                        LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground,
+                            openAppSettings, openDeviceSettings, captureStatus.registration,
+                            snapshot?.offices?.count { it.enabled && it.countsTowardAttendance } ?: 0,
+                            reconcileOffice)
+                    }
                 }
             }
         }

@@ -295,7 +295,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                     scope.launch {
                         try {
                             actions.save(office, expectedVersion)
-                            status = "Office saved locally. Boundary registration will follow capture setup."
+                            status = "Office saved locally. Once detection is registered, use Check current office below if you are already there."
                             editing = false
                         } catch (failure: CancellationException) { throw failure }
                         catch (_: Exception) { error = "Office could not be saved. Review the form and try again." }

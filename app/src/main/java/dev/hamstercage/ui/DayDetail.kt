@@ -9,14 +9,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import dev.hamstercage.domain.*
+import dev.hamstercage.data.RecordedEvent
 import java.time.Instant
 import java.time.Duration
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: LocalDate, back: () -> Unit, edit: ((Session) -> Unit)? = null) {
+fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: LocalDate, back: () -> Unit,
+    edit: ((Session) -> Unit)? = null, eventEvidence: List<RecordedEvent> = emptyList()) {
     val detail = remember(input, result, date) { explainDay(input, result, date) }
+    val evidenceById = remember(eventEvidence) { eventEvidence.associateBy { it.event.id } }
     val offices = input.offices.associateBy { it.id }
     fun at(time: Instant?) = time?.atZone(input.policy.zoneId)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) ?: "Missing boundary"
     fun office(id: String) = evidenceText(offices[id]?.name ?: "Unknown office")
@@ -73,7 +76,9 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             edit?.let { action -> OutlinedButton(onClick = { action(session) }) { Text("Correct ${evidenceId(session.id)}") } }
         }
         EvidenceSection("Raw observations", detail.rawEvents) { event ->
-            Text("${event.transition.name} · ${office(event.officeId)} · ${at(event.at)}")
+            val oneShot = evidenceById[event.id]?.source == "FOREGROUND_LOCATION_RECONCILIATION"
+            Text("${if (oneShot) "Current-location presence" else event.transition.name} · ${office(event.officeId)} · ${at(event.at)}")
+            if (oneShot) Text("One-shot precise fix. The session starts at this observation, not at a guessed arrival.")
             Text("Source event: ${evidenceId(event.id)}", style = MaterialTheme.typography.bodySmall)
         }
         EvidenceSection("Manual source intervals", detail.manualSessions) { manual ->

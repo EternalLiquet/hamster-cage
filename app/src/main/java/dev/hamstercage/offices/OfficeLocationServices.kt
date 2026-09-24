@@ -114,6 +114,12 @@ class OfficeLocationServices(private val context: Context) {
     }
 
     suspend fun current(): OfficeFix {
+        val fix = captureFix()
+        return validatedOfficeFix(fix, SystemClock.elapsedRealtimeNanos())
+    }
+
+    /** One request only. The caller owns its lifecycle; no fix is cached or persisted. */
+    suspend fun captureFix(): Location {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
             throw IllegalStateException("Precise foreground location is needed. Grant it below, then retry; background access is not needed to set up an office.")
         if (!LocationManagerCompat.isLocationEnabled(context.getSystemService(Context.LOCATION_SERVICE) as LocationManager))
@@ -132,7 +138,7 @@ class OfficeLocationServices(private val context: Context) {
             } catch (failure: Exception) {
                 throw currentRequestFailure(failure)
             }
-            return validatedOfficeFix(fix, SystemClock.elapsedRealtimeNanos())
+            return fix ?: throw IllegalStateException("No current fix. Retry outdoors or search an address.")
         } finally { cancellation.cancel() }
     }
 

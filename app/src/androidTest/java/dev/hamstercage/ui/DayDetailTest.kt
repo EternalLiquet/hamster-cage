@@ -10,6 +10,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
 import dev.hamstercage.domain.*
+import dev.hamstercage.data.RecordedEvent
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -21,6 +22,19 @@ class DayDetailTest {
     private val now = Instant.parse("2026-09-23T16:00:00Z")
     private val day = LocalDate.of(2026, 9, 23)
     private val office = Office("synthetic", "Synthetic office", 0.0, 0.0)
+    @Test fun foregroundPresenceIsAuditedAsCurrentFixWithoutClaimingPhysicalEntry() {
+        val raw = RawEvent("fix", office.id, Transition.ENTER, now.minusSeconds(600))
+        val input = AttendanceInput(listOf(office), listOf(raw), now = now)
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            DayDetailScreen(input, AttendanceEngine.derive(input), day, {},
+                eventEvidence = listOf(RecordedEvent(raw, raw.at, raw.at, "FOREGROUND_LOCATION_RECONCILIATION")))
+        } } }
+        compose.onNodeWithText("Current-location presence · Synthetic office", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("One-shot precise fix. The session starts at this observation, not at a guessed arrival.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("ENTER · Synthetic office", substring = true).assertDoesNotExist()
+    }
     @Test fun historyNavigationShowsCorrectedTotalAndRetainedRawEvidenceAtLargeText() {
         val input = AttendanceInput(listOf(office), listOf(
             RawEvent("in", office.id, Transition.ENTER, now.minusSeconds(7200)),

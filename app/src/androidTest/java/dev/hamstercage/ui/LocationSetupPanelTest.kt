@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import dev.hamstercage.MainActivity
 import dev.hamstercage.location.LocationSetup
+import dev.hamstercage.capture.ReconcileOutcome
+import dev.hamstercage.capture.RegistrationStatus
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -19,12 +21,15 @@ import org.junit.Test
 class LocationSetupPanelTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
-    private fun show(setup: LocationSetup, foreground: () -> Unit = {}, background: () -> Unit = {}) {
+    private fun show(setup: LocationSetup, foreground: () -> Unit = {}, background: () -> Unit = {},
+        offices: Int = 0, reconcile: (suspend () -> ReconcileOutcome)? = null,
+        registration: RegistrationStatus = RegistrationStatus.UNKNOWN) {
         rule.activityRule.scenario.onActivity { activity ->
             activity.setContent {
                 HamsterTheme {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
-                        LocationSetupPanel(setup, "Allow all the time", foreground, background, {}, {})
+                        LocationSetupPanel(setup, "Allow all the time", foreground, background, {}, {},
+                            registration, offices, reconcile)
                     }
                 }
             }
@@ -61,5 +66,22 @@ class LocationSetupPanelTest {
         show(LocationSetup(true, true, true, true, true))
         rule.onNodeWithText("Location prerequisites ready").assertIsDisplayed()
         rule.onNodeWithText("Permissions are ready. Automatic detection is not running: office registration has not been configured.").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun explicitOneShotActionExplainsConfirmedAndUnknownResults() {
+        var calls = 0
+        var outcome = ReconcileOutcome.CONFIRMED
+        show(LocationSetup(true, true, true, true, true), offices = 1,
+            registration = RegistrationStatus.ACTIVE,
+            reconcile = { calls++; outcome })
+        rule.onNodeWithText("Check current office").performScrollTo().performClick()
+        rule.onNodeWithText("Inside an office. A session starts at the current observation; walking grace is uncredited.")
+            .performScrollTo().assertIsDisplayed()
+        rule.runOnIdle { assertEquals(1, calls) }
+        outcome = ReconcileOutcome.OUTSIDE
+        rule.onNodeWithText("Check current office").performScrollTo().performClick()
+        rule.onNodeWithText("Outside saved office boundaries. Office state remains unknown; retry when inside.")
+            .performScrollTo().assertIsDisplayed()
+        rule.runOnIdle { assertEquals(2, calls) }
     }
 }
