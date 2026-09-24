@@ -1,6 +1,10 @@
 package dev.hamstercage.privacy
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -29,6 +33,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -37,6 +42,37 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HistoryDeletionTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @Test fun partialJournalFailsClosedAfterFreshStoreReopenWithoutChangingBytes() = runBlocking {
+        for (partial in listOf("pending-without-generation", "idle-without-pending")) {
+            val name = "privacy-partial-${UUID.randomUUID()}"
+            val file = context.preferencesDataStoreFile(name)
+            var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            try {
+                val preferences = PreferenceDataStoreFactory.create(scope = scope) { file }
+                preferences.edit { saved ->
+                    if (partial == "pending-without-generation")
+                        saved[booleanPreferencesKey("pending_history_delete")] = true
+                    else {
+                        saved[intPreferencesKey("version")] = 1
+                        saved[longPreferencesKey("generation")] = 1L
+                    }
+                }
+                scope.cancel()
+                val originalBytes = file.readBytes()
+                scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+                val reopened = PrivacyResetJournal(PreferenceDataStoreFactory.create(scope = scope) { file })
+                assertEquals(PrivacyResetState.Unavailable, reopened.read())
+                var rejected = false
+                try { reopened.begin() } catch (_: Exception) { rejected = true }
+                assertTrue("Partial $partial cannot authorize another reset", rejected)
+                assertArrayEquals(originalBytes, file.readBytes())
+            } finally {
+                scope.cancel()
+                file.delete()
+            }
+        }
+    }
 
     @Test fun cancelDoesNothingAndFailedCleanupResumesFromFreshJournal() = runBlocking {
         val name = "privacy-journal-${UUID.randomUUID()}"

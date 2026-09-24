@@ -78,12 +78,16 @@ internal class PrivacyResetJournal(private val preferences: DataStore<Preference
     }
 
     private fun decode(preferences: Preferences): PrivacyResetState {
-        require((preferences[VERSION] ?: 1) == 1) { "Unsupported privacy reset version" }
-        val generation = preferences[GENERATION] ?: 0L
+        // Only a truly absent journal is a new install. A partial nonempty
+        // record could have been torn/corrupted during an authorized delete.
+        if (preferences.asMap().isEmpty()) return PrivacyResetState.Idle(0)
+        require(preferences[VERSION] == 1) { "Unsupported privacy reset version" }
+        val generation = requireNotNull(preferences[GENERATION]) { "Missing privacy reset generation" }
+        val pending = requireNotNull(preferences[PENDING]) { "Missing privacy reset pending state" }
         require(generation >= 0) { "Invalid privacy reset generation" }
         val retired = preferences[RETIRED_THROUGH] ?: -1L
         require(retired >= -1L && retired < generation) { "Invalid fence retirement cursor" }
-        return if (preferences[PENDING] == true) PrivacyResetState.Pending(generation)
+        return if (pending) PrivacyResetState.Pending(generation)
         else PrivacyResetState.Idle(generation)
     }
 }
