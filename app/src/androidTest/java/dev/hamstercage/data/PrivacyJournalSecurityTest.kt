@@ -20,10 +20,10 @@ class PrivacyJournalSecurityTest {
         val malformed = listOf(
             preferencesOf(booleanPreferencesKey("pending_history_delete") to true),
             preferencesOf(booleanPreferencesKey("pending_history_delete") to false),
-            preferencesOf(intPreferencesKey("version") to 99),
-            preferencesOf(longPreferencesKey("generation") to -1L),
-            preferencesOf(longPreferencesKey("generation") to 2L, longPreferencesKey("retired_fence_generation_through") to 2L),
-            preferencesOf(stringPreferencesKey("version") to "PRIVATE_JOURNAL_SENTINEL_32"),
+            preferencesOf(intPreferencesKey("version") to 99, longPreferencesKey("generation") to 0L, booleanPreferencesKey("pending_history_delete") to false),
+            preferencesOf(intPreferencesKey("version") to 1, longPreferencesKey("generation") to -1L, booleanPreferencesKey("pending_history_delete") to false),
+            preferencesOf(intPreferencesKey("version") to 1, longPreferencesKey("generation") to 2L, booleanPreferencesKey("pending_history_delete") to false, longPreferencesKey("retired_fence_generation_through") to 2L),
+            preferencesOf(stringPreferencesKey("version") to "PRIVATE_JOURNAL_SENTINEL_32", longPreferencesKey("generation") to 0L, booleanPreferencesKey("pending_history_delete") to false),
         )
         for (bad in malformed) {
             val name = "journal-security-${UUID.randomUUID()}"
