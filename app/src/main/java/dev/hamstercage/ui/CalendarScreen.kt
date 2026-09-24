@@ -108,7 +108,7 @@ fun CalendarScreen(state: StorageState, today: LocalDate, actions: CalendarActio
                 Text(day.toString(), Modifier.testTag("calendar_saved_$day"), style = MaterialTheme.typography.titleMedium)
                 exclusion?.let { saved ->
                     Tag(exclusionLabel(saved.reason).uppercase())
-                    if (saved.note.isNotBlank()) Text(saved.note, style = MaterialTheme.typography.bodyMedium)
+                    if (saved.note.isNotBlank()) Text(evidenceText(saved.note), style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = {
                         date = day.toString(); note = saved.note; reasonName = saved.reason.name
                         editingExisting = true; editing = true; error = null; message = null
