@@ -22,11 +22,11 @@ Phase 0 is complete: issues #10–15 and [epic #1](https://github.com/EternalLiq
 | #23 Departure | Merged [#58](https://github.com/EternalLiquet/hamster-cage/pull/58) | Verified d758b58; merge c384b7b; 18 departure plus 62 existing domain tests, five named targets, ambiguity before satisfaction, union/grace/window/horizon checks. [Contract](DEPARTURE_ESTIMATES.md). |
 | #24 Dashboard Security Pass | Open | Requires completed dashboard and estimates. |
 | #25 History | Merged [#62](https://github.com/EternalLiquet/hamster-cage/pull/62) | Verified 5380cad; merge 2a8ffb6; ten presentation cases plus API35/37 history, live Room/DataStore correction/policy refresh, 200% text, paging/timezone and exact-head gates pass. Issue closed. [Contract](HISTORY.md). |
-| #26 Explanations | Open | Raw/effective bounds and credited interval explanations remain. |
-| #27 Corrections | Open | Preview, confirm, append-only correction and revert remain. |
+| #26 Explanations | Merged [#67](https://github.com/EternalLiquet/hamster-cage/pull/67) | Verified c97b5bd; merge e9822ee; eight traceability/DST cases and two API37 explanation navigation/200%-text/raw-evidence checks pass with exact-head gates. Issue closed. [Contract](DAY_EXPLANATIONS.md). |
+| #27 Corrections | Merged [#68](https://github.com/EternalLiquet/hamster-cage/pull/68) | Verified afc42b7; merge 820d2d9; append-only revert and Room migration 1→2, full domain suite and seven API37 repository/UI/migration checks pass with exact-head gates. Issue closed. [Contract](CORRECTIONS.md). |
 | #28 History Security Pass | Open | Requires history/correction surfaces. |
 | #29 Policy | Merged [#64](https://github.com/EternalLiquet/hamster-cage/pull/64) | Verified 62bdc896; merge 21f09f2; four JVM and seven API35 policy behavior/UI checks, legacy/schema1 fail-closed byte preservation, restart/travel/DST recomputation and exact-head gates pass. Issue closed. [Contract](POLICY_SETTINGS.md). |
-| #30 Calendar controls | Merged [#65](https://github.com/EternalLiquet/hamster-cage/pull/65) | Verified 13d1201; merge 16beaa6; two JVM and four hosted API35 calendar CRUD/reopen/failure/restoration checks and exact-head gates pass. Issue closed. [Contract](CALENDAR_CONTROLS.md). |
+| #30 Calendar controls | Merged [#65](https://github.com/EternalLiquet/hamster-cage/pull/65) | Verified 68712bd; merge 16beaa6; two JVM and four API35 CRUD/reopen/failure/restoration cases plus renewed history integration gates pass. Issue closed. [Contract](CALENDAR_CONTROLS.md). |
 | #31 Privacy controls | Open | Local data explanation/deletion controls remain. |
 | #32 Settings Security Pass | Open | Requires policy/calendar/privacy controls. |
 | #33 Integrated journeys | Open | Full offline journeys, lifecycle/process/migration/failure evidence remains. |

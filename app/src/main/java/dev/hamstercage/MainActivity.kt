@@ -27,6 +27,7 @@ import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.location.backgroundPermissionAction
 import dev.hamstercage.ui.HamsterApp
 import dev.hamstercage.ui.OfficeActions
+import dev.hamstercage.ui.CorrectionActions
 import dev.hamstercage.ui.CalendarActions
 
 class MainActivity : ComponentActivity() {
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
             val coverage by CoverageStore.state(this).collectAsState(initial = CoverageLedger())
             HamsterApp(timeSource = SystemTimeSource(), storageState = storageState, locationSetup = locationSetup,
                 captureStatus = captureStatus, coverage = coverage,
+                correctionActions = CorrectionActions(SystemTimeSource()::now, HamsterRepository::newId, repository::commitAttendanceEdit),
                 backgroundOptionLabel = LocationPermissions.backgroundOptionLabel(this), setupError = setupError,
                 requestForeground = { foregroundRequest.launch(LocationPermissions.foregroundPermissions) },
                 requestBackground = { requestBackground() },
