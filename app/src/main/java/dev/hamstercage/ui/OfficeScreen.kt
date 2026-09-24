@@ -20,6 +20,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -98,7 +99,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         searchJob?.cancel(); searching = false; locating = false
         latitude = place.latitude.toString(); longitude = place.longitude.toString()
         selectedLabel = place.label; reviewing = true; confirmed = false
-        results = emptyList(); error = null; mapTile = null; tileEpoch++
+        results = emptyList(); error = null; status = null; mapTile = null; tileEpoch++
     }
 
     fun populate(draft: OfficeDraft) {
@@ -173,6 +174,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
             Notice(if (editingId == null) "Add office" else "Edit office",
                 "Name the office, choose a search result or your current location, review the pin and boundary, then save.")
             FormError(error)
+            status?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             OutlinedTextField(name, { name = it }, label = { Text("Office name") },
                 modifier = Modifier.fillMaxWidth().testTag("officeName"), singleLine = true)
             OutlinedTextField(address, { address = it; searchEpoch++; searchJob?.cancel(); searching = false; results = emptyList() },
@@ -245,13 +247,13 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                 OutlinedTextField(exitGrace, { exitGrace = it }, label = { Text("Exit grace (minutes)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)
             }
-            Row(Modifier.fillMaxWidth().padding(vertical = CageStyle.Tight), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.fillMaxWidth().padding(vertical = CageStyle.Tight)) {
                 Text("Enabled for detection", style = MaterialTheme.typography.bodyMedium)
-                Switch(enabled, { enabled = it }, modifier = Modifier.semantics { contentDescription = "Enabled for detection" })
+                Switch(enabled, { enabled = it }, modifier = Modifier.align(Alignment.End).semantics { contentDescription = "Enabled for detection" })
             }
-            Row(Modifier.fillMaxWidth().padding(vertical = CageStyle.Tight), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.fillMaxWidth().padding(vertical = CageStyle.Tight)) {
                 Text("Counts toward attendance", style = MaterialTheme.typography.bodyMedium)
-                Switch(eligible, { eligible = it }, modifier = Modifier.semantics { contentDescription = "Counts toward attendance" })
+                Switch(eligible, { eligible = it }, modifier = Modifier.align(Alignment.End).semantics { contentDescription = "Counts toward attendance" })
             }
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
                 CageButton("Save office", onClick = {

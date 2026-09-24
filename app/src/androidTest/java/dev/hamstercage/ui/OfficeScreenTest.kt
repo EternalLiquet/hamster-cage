@@ -25,6 +25,7 @@ import dev.hamstercage.domain.Policy
 import dev.hamstercage.offices.OfficeMapProjection
 import dev.hamstercage.offices.OfficeMapTile
 import dev.hamstercage.offices.OfficePlace
+import dev.hamstercage.offices.OfficeFix
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
@@ -157,5 +158,35 @@ class OfficeScreenTest {
         compose.waitForIdle()
         assertEquals(0, compose.onAllNodesWithText("Select Old result").fetchSemanticsNodes().size)
         compose.onNodeWithTag("searchAddressButton").assertIsDisplayed()
+    }
+
+    @Test fun explicitCurrentFixShowsAccuracyAndStillNeedsMapConfirmation() {
+        val snapshot = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
+        val saved = AtomicReference<Office?>(null)
+        val tile = OfficeMapTile(Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888), 16,
+            OfficeMapProjection.tileX(0.0, 16), OfficeMapProjection.tileY(0.0, 16))
+        compose.setContent {
+            HamsterTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "synthetic-current" }, { null },
+                        { office, _ -> saved.set(office) },
+                        current = { OfficeFix(OfficePlace("Current location", 0.0, 0.0), 12f) },
+                        tile = { _, _ -> tile }))
+                }
+            }
+        }
+        compose.onNode(hasText("Add office") and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithTag("officeName").performTextReplacement("Synthetic current office")
+        compose.onNodeWithText("Use my current location").performScrollTo().performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Current fix accuracy: 12 m. Review the pin before saving.").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("© OpenStreetMap contributors").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        compose.waitUntil(5_000) { saved.get() != null }
+        assertEquals(0.0, saved.get()!!.latitude, 0.000001)
     }
 }
