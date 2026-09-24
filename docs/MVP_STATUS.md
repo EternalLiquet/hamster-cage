@@ -1,5 +1,11 @@
 # Product MVP checkpoint
 
+## Calendar metrics #21 checkpoint
+
+The pure domain slice adds today/week/rolling 30/90-date summaries, explicit full-week projection, policy-local day boundaries and denominator/coverage accounting. Exclusions reduce requirement while preserving actual credit; WFH does not reduce requirement. Missing weekend/holiday coverage is explicitly unknown, and no expected-day denominator is shortened to the install date. A zero denominator has an undefined average. Raw daily totals remain separate from corrections/manual/grace credit.
+
+All 17 focused calendar tests pass alongside the 45 existing reconstruction/clock tests. They cover holidays/WFH, future and inclusive-window boundaries, midnight/DST, policy/timezone changes, unknown coverage and malformed/extreme input bounds. This implementation checkpoint is not independent acceptance; exact-head CI and separate verification/review are required. See [calendar contract](CALENDAR_METRICS.md). Departure and UI features remain separate issues.
+
 Delivery uses one issue per PR, with separate implementation, verification and review agents. PR #50 remains an unmerged extraction reference. Only phases 0–5 are in scope; no scheduled continuation tasks or post-MVP work.
 
 ## Merged foundation
@@ -14,10 +20,10 @@ The focused domain slice normalizes immutable raw observations per office, appli
 
 At source `f82de27cfd361383b3eb58052ba2548d50fcbd19`, 43 attendance and two clock tests pass. The matrix covers documented 380/490-minute examples, duplicate/repeated/missing/conflicting facts, malformed numeric/extreme time values, midnight/DST, multi-office union, manual overlap and correction identity. Independent findings were repaired: a simultaneous EXIT/ENTER closes an existing visit before starting the next, while an isolated zero-length observation gets no grace; a malformed newer correction cannot erase an earlier valid edit. No raw fact is fabricated or rewritten.
 
-[Independent verification](https://github.com/EternalLiquet/hamster-cage/pull/54#issuecomment-5806548852) and all hosted checks passed that source. This branch now incorporates the merged design prerequisite. Renewed verification/review and current-head CI are required after this integration; earlier approval does not cover the new commit. See [domain contract](ATTENDANCE_RECONSTRUCTION.md).
+Reconstruction #13 merged through PR #54 at `ffe699ab0b9e0a8e4b65c5ce8882707ed17060dc`, preserving verified source `399e2106a5f79400de032f60236a41f22b81a571`. [Renewed independent verification](https://github.com/EternalLiquet/hamster-cage/pull/54#issuecomment-5806683656), independent review and all current-head checks passed after design integration. Issue #13 is closed. See [domain contract](ATTENDANCE_RECONSTRUCTION.md).
 
 ## Remaining work and device gates
 
-Storage #12, reconstruction #13 final integration, Phase0 Security Pass #15, and capture/pages/settings/integration issues #16–35 remain open until their own acceptance criteria pass. Calendar totals and departure estimates are separate from reconstruction. Product MVP is not complete.
+Storage #12, Phase0 Security Pass #15, and capture/pages/settings/integration issues #16–35 remain open until their own acceptance criteria pass. Calendar #21 is the current focused implementation; departure estimates remain separate. Product MVP is not complete.
 
 No physical-phone checks have run. Actual phone background delivery, permission changes, reboot/force-stop recovery and battery/OEM behavior remain explicit integration gates. Local and hosted emulator checks are identified as such. Production signing remains separate from the debug preview; every delivered APK must carry source SHA, checksum and signing caveat. No continuous GPS, INTERNET permission, public backend, analytics or sensitive fixture data is permitted.
