@@ -1,0 +1,9 @@
+# Daily history (#25)
+
+History reads the same repository snapshot and attendance engine as Dashboard. It renders fourteen policy-local dates at a time, including expected days with no recorded credit. Earlier/newer paging is bounded and can reach the oldest retained source or calendar date. No derived totals are persisted. Raw, manual, correction, policy and calendar updates invalidate the repository snapshot and refresh the list; a visible-only clock keeps the current date/session amount fresh.
+
+Each date shows recorded credit, required minutes and balance. Unknown coverage is labelled and suppresses a confident balance. HOLIDAY removes the requirement; WFH remains a label and does not remove an expected day. Other exclusions use EXCLUDED. REVIEW, MANUAL and UNKNOWN COVERAGE are textual badges, stacked for large text. The policy timezone controls midnight and DST boundaries, independently of device travel time.
+
+This slice is a daily ledger. Session explanation and editing belong to #26/#27; no inactive edit controls are shown. Persisted coverage is provided by #19, so until that integration the list truthfully remains provisional. It requires no network, introduces no component/permission and does not log attendance data.
+
+Focused tests cover empty expected days, unknown coverage, holiday/WFH/manual/review semantics, policy-midnight/DST, a thousand synthetic sessions, correction/policy recomputation and fixed page size. Emulator tests exercise large text, paging, timezone/badges and live Room/DataStore correction/policy updates. Exact results and commit SHAs belong in the PR; physical-phone checks are not implied.
