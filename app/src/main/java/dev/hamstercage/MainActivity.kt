@@ -18,7 +18,6 @@ import androidx.compose.runtime.collectAsState
 import dev.hamstercage.capture.CaptureController
 import dev.hamstercage.capture.CaptureHealth
 import dev.hamstercage.capture.CaptureWriteGate
-import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.capture.CoverageStore
 import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.StorageState
@@ -37,6 +36,7 @@ import dev.hamstercage.ui.OfficeActions
 import dev.hamstercage.ui.CorrectionActions
 import dev.hamstercage.ui.CalendarActions
 import dev.hamstercage.ui.PrivacyActions
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.withLock
 
 class MainActivity : ComponentActivity() {
@@ -57,14 +57,15 @@ class MainActivity : ComponentActivity() {
         CaptureController.get(this)
         setContent {
             val visible = remember(repository, privacy) {
-                privacyVisibleStorage(privacy.state) { repository.state }
+                privacyVisibleStorage(privacy.state, freshStorage = { repository.state },
+                    freshCoverage = { CoverageStore.state(this).map { it } })
             }
             val presentation by visible.collectAsState(
                 initial = PrivacyStorageState(PrivacyResetState.Unavailable, StorageState.Unavailable))
             val storageState = presentation.storage
             val privacyState = presentation.reset
+            val coverage = presentation.coverage
             val captureStatus by CaptureHealth.state.collectAsState()
-            val coverage by CoverageStore.state(this).collectAsState(initial = CoverageLedger())
             val editingGeneration = (privacyState as? PrivacyResetState.Idle)?.generation
             suspend fun historyWrite(action: suspend () -> Unit) = CaptureWriteGate.mutex.withLock {
                 check(editingGeneration != null &&
