@@ -1,0 +1,22 @@
+{
+  "source_repository": "EternalLiquet/gpt-projects-files",
+  "source_commit": "5d597258a8f98eee2d26f147c97f7447a2bfe133",
+  "source_path": "hamster-cage/branding/hamster-cage-icon.png",
+  "source_sha256": "6c1904727b647cf36c08eda6d799e4529e925b3720c961df821c50ab108675f6",
+  "layer_dp": 108,
+  "artwork_dp": 64,
+  "assets": {
+    "app/src/main/res/drawable-nodpi/ic_launcher_foreground.png": "2b4d8b961402750d6109768695c5ceb062d940846e0abc5400f3b22b7d6f67e0",
+    "app/src/main/res/drawable-nodpi/ic_launcher_monochrome.png": "49cb6e992841e7c28d7923ec61c22c860e0c1c12aa13eee17fa78ebee56a1194",
+    "app/src/main/res/mipmap-mdpi/ic_launcher.png": "13b492187c8847d162371bfc9f6eaa75d8ae99eebdbe5e899622ee64f66f077d",
+    "app/src/main/res/mipmap-mdpi/ic_launcher_round.png": "28f8df28ba44f8ff67da003c5f751586053c8839790f014ea0c5a6ce0ca7aac6",
+    "app/src/main/res/mipmap-hdpi/ic_launcher.png": "984d467a0e6fefa2165c73cd541436b8a840c884802e852e8362388bdd8a5d3d",
+    "app/src/main/res/mipmap-hdpi/ic_launcher_round.png": "08fd7c4d1d25b278bb51d5df9c2ee83f107de2857d63aac604fe8d6ecb2ed310",
+    "app/src/main/res/mipmap-xhdpi/ic_launcher.png": "c8497277188134f206161f54f528d0ffbc7f2f92f2e440487061b295a68cdb2c",
+    "app/src/main/res/mipmap-xhdpi/ic_launcher_round.png": "45f7d08838413784259e600e392649cac735f7a2d33d911c5c389033edc09a63",
+    "app/src/main/res/mipmap-xxhdpi/ic_launcher.png": "6f66b3e04800618cdeeb2de2495aa94d6b66170ebc85e9c3c47aa68fa48b7a4c",
+    "app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png": "976ebf6af21202c24fc4b9173dc33fc8d00d988e65b8a709e86b4cb2b06050e8",
+    "app/src/main/res/mipmap-xxxhdpi/ic_launcher.png": "60d2f3159e6e6678d1a9843bd6b825cf204dedf6472a190bad80849da28e5601",
+    "app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png": "2b76d893c5b3a9c996b6b58b4ec5c9654794c04eaba1d3a9b7e5a271c2676bdb"
+  }
+}

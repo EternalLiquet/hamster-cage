@@ -1,6 +1,6 @@
 # Build and install the shell
 
-Issue #10 supports Android 8.0 / API 26 and later. The current four destinations are offline shell pages; capture, storage and attendance calculations arrive in their own issue PRs.
+The Phase 0 shell supports Android 8.0 / API 26 and later. The current four destinations share the accessible design system and selected hamster launcher identity; capture, storage and attendance calculations arrive in their own issue PRs.
 
 ## Toolchain
 
@@ -36,7 +36,7 @@ adb shell am start -W -n dev.hamstercage.preview/dev.hamstercage.MainActivity
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-Open Dashboard, Offices, History, and Settings with device networking disabled. The instrumentation suite exercises all destinations and Activity recreation. These are shell checks; they do not prove geofence or battery behavior.
+Open Dashboard, Offices, History, and Settings with device networking disabled. The instrumentation suite exercises all destinations, Activity recreation, 200% navigation text and touch targets, and installed adaptive/themed launcher resources. Repeat at a 360dp screen width for small-screen review. The [design evidence](evidence/issue-11/README.md) includes actual emulator screenshots and separately labeled mask fixtures. These are shell checks; they do not prove geofence or battery behavior.
 
 The APK uses package `dev.hamstercage.preview`, version `0.1.0-shell-debug`, build type **debug**, and the local Android development signing key. It is not a production-signed release. Another machine's debug key cannot update it in place. `assembleRelease` produces an unsigned release artifact until a separate secure signing process is configured. Never commit signing keys.
 

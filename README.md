@@ -1,6 +1,6 @@
 # Hamster Cage
 
-Hamster Cage is an Android-first, local-first personal RTO attendance tracker. This branch delivers the issue #10 app shell: four offline destinations and a testable foundation. Attendance features are not implemented in this shell.
+Hamster Cage is an Android-first, local-first personal RTO attendance tracker. The Phase 0 foundation has four offline destinations, a shared accessible design system, and the owner-selected hamster launcher artwork. Attendance features are not implemented in this shell.
 
 Product, security, synchronization, UX source material, and visual references are maintained in the private [project-source repository](https://github.com/EternalLiquet/gpt-projects-files/tree/master/hamster-cage). Development follows the phased [roadmap](docs/ROADMAP.md).
 
@@ -14,4 +14,4 @@ Follow the [toolchain, build, installation and architecture notes](docs/BUILD_AN
 
 ## Visual source policy
 
-The visual reference and its attribution README live under `hamster-cage/visual-reference/` in the private project-source repository. They are design inspiration only. This shell uses the standard Material dark theme and an original geometric launcher placeholder. Issue #11 delivers the shared design system and owner-selected hamster-at-computer icon within Phase 0.
+The visual reference and its attribution README live under `hamster-cage/visual-reference/` in the private project-source repository. They are design inspiration only and are never bundled. The app uses shared charcoal/navy, amber and peach tokens and the owner-selected hamster-at-computer icon. See the [design system and branding provenance](docs/DESIGN_SYSTEM.md).
