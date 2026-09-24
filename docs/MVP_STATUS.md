@@ -28,9 +28,9 @@ Implementation checks passed on 2026-09-24 UTC:
 - `:app:connectedDebugAndroidTest` passed both tests: all four destinations open, and selection survives Activity recreation. Airplane mode was enabled and the active default network was `none` throughout these checks.
 - A clean build compiled the app and tests. Windows Gradle cache-transform locks required retries; no check was disabled. The old instrumentation dependency's removed InputManager call was fixed by pinning AndroidX Test runner 1.7.0, JUnit 1.3.0 and Espresso 3.7.0.
 
-Independent verification, independent review, exact-head CI, and merge remain required. The PR records the exact implementation commit and repeats these checks on the committed head; this checkpoint is not independent sign-off.
+Issue #10 merged through [PR #51](https://github.com/EternalLiquet/hamster-cage/pull/51) at `e5b3eef41fd263996a8ca0058e552c43afb9e2d6`. Its source head `e6deefc8621230ece676808ee4b816fe8153048c` passed independent verification, independent review and exact-head CI. The [verifier evidence](https://github.com/EternalLiquet/hamster-cage/pull/51#issuecomment-5806094303) includes the clean offline install/navigation checks, adversarial audit failures and unchanged APK identity. The issue is closed; Phase 0 and Product MVP are not complete.
 
-The issue PR will record the tested commit, commands, actual emulator install/launch results, and any unavailable criteria. Product MVP issues remain open until their individual acceptance criteria and security passes are satisfied.
+Issue #14 still requires its own current-head hosted CI, independent verification and independent review before merge. The combined local Python suite now includes eight shell privacy tests plus ten wrapper/dependency tests. Product MVP issues remain open until their individual acceptance criteria and security passes are satisfied.
 
 ## Remaining scope
 
