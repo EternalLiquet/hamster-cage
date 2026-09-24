@@ -25,7 +25,7 @@ If installing through a file manager, turn its “install unknown apps” permis
 
 ## Rebuild locally
 
-Use JDK 17, Android SDK platform 36, build-tools 35.0.0, platform-tools and the committed Gradle 8.11.1 wrapper. Set `JAVA_HOME` and `ANDROID_HOME` (or untracked `local.properties` with `sdk.dir`). From a clean checkout:
+Use Python 3.11 or later, JDK 17, Android SDK platform 36, build-tools 35.0.0, platform-tools and the committed Gradle 8.11.1 wrapper. Set `JAVA_HOME` and `ANDROID_HOME` (or untracked `local.properties` with `sdk.dir`). From a clean checkout:
 
 ```sh
 python3 scripts/verify_wrapper.py
