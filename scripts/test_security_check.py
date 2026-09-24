@@ -27,14 +27,14 @@ class SecurityAuditTest(unittest.TestCase):
         shutil.copytree(XML, rules)
         return script, target, rules
 
-    def run_modes(self, script, success, expected):
+    def run_modes(self, script, success, expected, arguments=()):
         for flags, optimized in [([], None), (["-O"], None), ([], "1")]:
             with self.subTest(flags=flags, PYTHONOPTIMIZE=optimized):
                 environment = dict(os.environ)
                 environment.pop("PYTHONOPTIMIZE", None)
                 if optimized is not None:
                     environment["PYTHONOPTIMIZE"] = optimized
-                result = subprocess.run([sys.executable, *flags, str(script)], capture_output=True, text=True, env=environment, check=False)
+                result = subprocess.run([sys.executable, *flags, str(script), *arguments], capture_output=True, text=True, env=environment, check=False)
                 self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
                 self.assertIn(expected, result.stdout + result.stderr)
                 if not success:
@@ -91,6 +91,71 @@ class SecurityAuditTest(unittest.TestCase):
                 unsafe = SAFE_MANIFEST.replace(reference, "@xml/other_rules")
                 script, _, _ = self.fixture(Path(directory), unsafe)
                 self.run_modes(script, False, "must use the audited")
+
+    def test_new_sensitive_permission_and_weak_internal_permission_are_rejected(self):
+        for permission in ['<uses-permission android:name="android.permission.READ_CONTACTS" />',
+                           '<permission android:name=".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" android:protectionLevel="normal" />'
+                           '<uses-permission android:name=".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />']:
+            with self.subTest(permission=permission), tempfile.TemporaryDirectory() as directory:
+                script, _, _ = self.fixture(Path(directory), SAFE_MANIFEST.replace("<application", permission + "<application"))
+                self.run_modes(script, False, "FAIL:")
+
+    def test_arbitrary_exported_component_cannot_borrow_a_reviewed_permission(self):
+        for component in [
+            '<receiver android:name="synthetic.UnreviewedReceiver" android:exported="true" android:permission="android.permission.DUMP" />',
+            '<service android:name="synthetic.UnreviewedService" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />',
+            '<receiver android:name="synthetic.ImplicitReceiver"><intent-filter><action android:name="synthetic.ACTION" /></intent-filter></receiver>',
+        ]:
+            with self.subTest(component=component), tempfile.TemporaryDirectory() as directory:
+                manifest = SAFE_MANIFEST.replace(" /></manifest>", ">" + component + "</application></manifest>")
+                script, _, _ = self.fixture(Path(directory), manifest)
+                self.run_modes(script, False, "FAIL:")
+
+    def test_provider_must_neither_export_nor_grant_data(self):
+        for attributes in ['android:exported="true" android:permission="android.permission.DUMP"',
+                           'android:exported="false" android:grantUriPermissions="true"']:
+            with self.subTest(attributes=attributes), tempfile.TemporaryDirectory() as directory:
+                component = f'<provider android:name="synthetic.DataProvider" {attributes} />'
+                script, _, _ = self.fixture(Path(directory), SAFE_MANIFEST.replace(" /></manifest>", ">" + component + "</application></manifest>"))
+                self.run_modes(script, False, "No exported or grantable")
+
+    def test_launcher_must_not_silently_add_a_data_or_intent_surface(self):
+        safe = '<activity android:name="dev.hamstercage.MainActivity" android:exported="true"><intent-filter>' \
+               '<action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" />' \
+               '</intent-filter></activity>'
+        for extra in ['', '<data android:scheme="synthetic" />', '<action android:name="android.intent.action.SEND" />']:
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as directory:
+                activity = safe.replace('</intent-filter>', extra + '</intent-filter>')
+                script, _, _ = self.fixture(Path(directory), SAFE_MANIFEST.replace(" /></manifest>", ">" + activity + "</application></manifest>"))
+                self.run_modes(script, not extra, "only the launcher" if extra else "PASS:")
+
+    def test_release_debug_or_test_flags_are_rejected(self):
+        for attribute in ['', 'android:debuggable="true"', 'android:testOnly="true"']:
+            with self.subTest(attribute=attribute), tempfile.TemporaryDirectory() as directory:
+                script, target, _ = self.fixture(Path(directory), SAFE_MANIFEST.replace("<application", "<application " + attribute))
+                release = target.parents[2] / "release/processReleaseManifest/AndroidManifest.xml"
+                release.parent.mkdir(parents=True)
+                shutil.copyfile(target, release)
+                self.run_modes(script, not attribute, "Release must not" if attribute else "PASS:", ["--variant", "release"])
+
+    def test_sensitive_diagnostic_logging_is_rejected(self):
+        for code in ['Log.wtf("tag", "synthetic")', 'Log.println(1, "tag", "synthetic")',
+                     'print("synthetic")', 'failure.printStackTrace()']:
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
+                script, _, _ = self.fixture(Path(directory))
+                source = Path(directory) / "app/src/main/java/synthetic/Diagnostic.kt"
+                source.parent.mkdir(parents=True)
+                source.write_text(code, encoding="utf-8")
+                self.run_modes(script, False, "Unreviewed runtime logging")
+
+    def test_variant_or_qualified_backup_overrides_cannot_bypass_audit(self):
+        for relative in ["release/res/xml/backup_rules.xml", "main/res/xml-v31/data_extraction_rules.xml"]:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as directory:
+                script, _, _ = self.fixture(Path(directory))
+                override = Path(directory) / "app/src" / relative
+                override.parent.mkdir(parents=True)
+                override.write_text("<unrestricted-backup />", encoding="utf-8")
+                self.run_modes(script, False, "Backup resource overlays")
 
 
 if __name__ == "__main__":

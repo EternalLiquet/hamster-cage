@@ -1,10 +1,20 @@
 # Product MVP checkpoint
 
+## Foundation Security Pass #15 checkpoint
+
+The Phase 0 audit inventories local source/policy data, OS components, permissions, backup rules, logging, artifacts and CI trust boundaries. It strengthens export/provider/permission checks, rejects unaudited backup overlays and diagnostic logs, and adds a release-manifest CI audit. Fifteen adversarial privacy-audit methods pass across three Python interpreter modes. Debug and minified unsigned release builds pass; both binary manifests and their compiled backup exclusions were inspected. No INTERNET permission, embedded source database/credentials/private key, exported data provider or application logging was found.
+
+Both new OS instrumentation checks pass on API37: installed network/backup/component controls, and actual Room/DataStore files deny reads from shell UID 2000 with no returned source bytes. The shell denial probe uses the separate stderr descriptor available on API34+, including hosted API35; older APIs do not claim that probe. Existing storage failure/restart and domain anomaly evidence remains required in exact-head CI. Independent verification/review are pending. See [foundation security inventory](FOUNDATION_SECURITY.md). Phase 0 and Product MVP are not declared complete until the applicable issue gates pass.
+
+
+
+
+
 ## Departure estimates #23 checkpoint
 
 The pure estimator names all five target contexts and keeps estimated exit time separate from accrued credit. It uses prior unioned credit and office exit grace, suppresses predictions for missing history, relevant ambiguous/malformed bounds or competing open offices, and checks those conditions before apparent target satisfaction. Projections stop at the target window and configured safe open-session horizon. No source fact or historical aggregate is changed.
 
-Eighteen focused departure tests and the 62 existing domain tests pass. They cover target names, prior credit, met/unmet states, overlap, grace, leave-now projections, exclusions/WFH, rolling/week boundaries, correction resolution, clock anomalies, midnight and DST. Independent verification/review and exact-head CI remain required. See [departure contract](DEPARTURE_ESTIMATES.md); UI/tracking-health integration remains separate.
+Eighteen focused departure tests and the 62 existing domain tests pass. They cover target names, prior credit, met/unmet states, overlap, grace, leave-now projections, exclusions/WFH, rolling/week boundaries, correction resolution, clock anomalies, midnight and DST. Departure #23 merged via PR #58 at c384b7b3b5b891db0f5527face8ca7cd1fdcdc48 after independent verification/review and passing current-head CI. See [departure contract](DEPARTURE_ESTIMATES.md); UI/tracking-health integration remains separate.
 
 ## Calendar metrics #21 checkpoint
 
