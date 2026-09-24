@@ -79,7 +79,7 @@ class GeofenceRegistrar(
         }
     }
 
-    private fun pendingIntent(): PendingIntent {
+    internal fun pendingIntent(): PendingIntent {
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
         // Google Play services must fill transition extras on S+, hence mutable. The
