@@ -39,7 +39,8 @@ def audit(root):
     require(app is not None, "Manifest must contain an application")
     require(app.get(A + "allowBackup") == "false", "Cloud backup must be disabled")
     require(app.get(A + "usesCleartextTraffic") == "false", "Cleartext traffic must be disabled")
-    require(app.get(A + "dataExtractionRules") is not None, "Explicit data extraction rules are required")
+    require(app.get(A + "dataExtractionRules") == "@xml/data_extraction_rules", "Manifest must use the audited data extraction rules")
+    require(app.get(A + "fullBackupContent") == "@xml/backup_rules", "Manifest must use the audited backup rules")
     for component in app:
         if component.tag not in {"activity", "activity-alias", "service", "receiver", "provider"}:
             continue

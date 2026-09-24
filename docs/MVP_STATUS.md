@@ -17,6 +17,7 @@ Implementation checks passed on 2026-09-24 UTC:
 - `python scripts/security_check.py` passed against the merged debug manifest.
 - Independent review required fail-closed audit validation: explicit checks now remain active under `python -O` and `PYTHONOPTIMIZE=1`; subprocess tests cover forbidden networking, malformed XML, ambiguous manifest outputs and missing backup branches.
 - Independent verification also exercised SDK-conditioned permission tags. Both `uses-permission-sdk-23` and the legacy `uses-permission-sdk-m` alias now receive the same forbidden-permission and malformed-entry checks in all interpreter modes.
+- The built manifest must reference the exact backup resources that the audit inspects; a different or missing policy reference fails in every Python mode.
 - `adb install -r` and explicit launcher start succeeded on the local Pixel emulator (Android 17, API 37).
 - `:app:connectedDebugAndroidTest` passed both tests: all four destinations open, and selection survives Activity recreation. Airplane mode was enabled and the active default network was `none` throughout these checks.
 - A clean build compiled the app and tests. Windows Gradle cache-transform locks required retries; no check was disabled. The old instrumentation dependency's removed InputManager call was fixed by pinning AndroidX Test runner 1.7.0, JUnit 1.3.0 and Espresso 3.7.0.

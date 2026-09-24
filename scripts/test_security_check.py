@@ -11,7 +11,8 @@ SOURCE = Path(__file__).resolve().parent
 XML = SOURCE.parent / "app/src/main/res/xml"
 SAFE_MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 <application android:allowBackup="false" android:usesCleartextTraffic="false"
-android:dataExtractionRules="@xml/data_extraction_rules" /></manifest>'''
+android:dataExtractionRules="@xml/data_extraction_rules"
+android:fullBackupContent="@xml/backup_rules" /></manifest>'''
 
 
 class SecurityAuditTest(unittest.TestCase):
@@ -83,6 +84,13 @@ class SecurityAuditTest(unittest.TestCase):
             script, _, rules = self.fixture(Path(directory))
             (rules / "data_extraction_rules.xml").write_text("<data-extraction-rules />", encoding="utf-8")
             self.run_modes(script, False, "both required")
+
+    def test_manifest_cannot_point_to_unaudited_backup_resources(self):
+        for reference in ["@xml/data_extraction_rules", "@xml/backup_rules"]:
+            with self.subTest(reference=reference), tempfile.TemporaryDirectory() as directory:
+                unsafe = SAFE_MANIFEST.replace(reference, "@xml/other_rules")
+                script, _, _ = self.fixture(Path(directory), unsafe)
+                self.run_modes(script, False, "must use the audited")
 
 
 if __name__ == "__main__":
