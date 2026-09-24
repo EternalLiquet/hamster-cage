@@ -39,6 +39,7 @@ import dev.hamstercage.capture.CaptureStatus
 import dev.hamstercage.capture.RegistrationStatus
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.data.StorageState
+import dev.hamstercage.data.PolicySettings
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -60,6 +61,7 @@ fun HamsterApp(
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
     trackingReady: Boolean = false,
     officeActions: OfficeActions? = null,
+    savePolicy: (suspend (PolicySettings, PolicySettings) -> Unit)? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
@@ -149,6 +151,8 @@ fun HamsterApp(
                     }
                 } else if (selected == Destination.OFFICES && officeActions != null) {
                     OfficeScreen(storageState, officeActions)
+                } else if (selected == Destination.SETTINGS && savePolicy != null) {
+                    PolicyScreen(storageState, savePolicy)
                 } else Notice("Ready for the next step", selected.description)
 
                 if (selected == Destination.OFFICES || selected == Destination.SETTINGS) {
