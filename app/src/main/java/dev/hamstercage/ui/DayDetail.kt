@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import dev.hamstercage.domain.*
 import java.time.Instant
+import java.time.Duration
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -25,6 +26,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         Text("${input.policy.zoneId.id} · evaluated ${at(input.now)}", style = MaterialTheme.typography.bodyMedium)
         Panel {
             Text("Recorded credit: ${minutesText(detail.summary.creditedMinutes)}", Modifier.testTag("detail_credit"), style = MaterialTheme.typography.titleLarge)
+            Text("Device-observed time: ${minutesText(AttendanceEngine.observedDailyMinutes(input, date))}", Modifier.testTag("detail_observed"))
             Text("Required: ${minutesText(detail.summary.requiredMinutes.toDouble())}", Modifier.testTag("detail_required"))
             Text(detail.denominator)
             if (!detail.summary.hasCompleteHistory) Notice("Unknown coverage", "The recorded credit is provisional. Missing history is not proof of zero attendance.")
@@ -34,7 +36,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             Text("${at(interval.start)} → ${at(interval.end)}")
             Text("${minutesText(interval.minutes)} · sessions ${interval.sessionIds.sorted().joinToString(transform = ::evidenceId)}")
             if (interval.reconciledGap) Text("Includes a same-office gap reconciled by the ${input.policy.shortGapMinutes}-minute policy.")
-            Text("Clipped to this policy-local day after grace, gap reconciliation and overlap union.")
+            Text("Clipped to this policy-local day after uncredited arrival delay, gap reconciliation and overlap union.")
         }
         EvidenceSection("Reconstructed sessions", detail.sessions) { session ->
             Text("${office(session.officeId)} · ${evidenceId(session.id)}", style = MaterialTheme.typography.titleMedium)
@@ -44,9 +46,19 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                 Text("Original evidence: ${reviewExplanation(it)} The applied correction supplies effective bounds.")
             }
             Text("Effective bounds: ${at(session.start)} → ${at(session.end)}")
+            Text("Observed in-zone time: ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}")
             if (session.isOpen) Text("Open: evaluated through ${at(input.now)}; no future EXIT is assumed.")
             offices[session.officeId]?.let { value ->
-                Text("Grace: ${value.entryGraceMinutes}m before entry; ${value.exitGraceMinutes}m after a known exit, capped at now.")
+                session.start?.let { start ->
+                    val creditStart = start.plusSeconds(value.entryGraceMinutes * 60L)
+                    Text("Arrival walking grace: ${value.entryGraceMinutes}m uncredited. Credit starts at ${at(creditStart)}.")
+                    if (session.isOpen && input.now < creditStart) {
+                        val minutesLeft = (Duration.between(input.now, creditStart).seconds + 59) / 60
+                        Text("${minutesLeft}m until credit starts if the observed visit continues.")
+                    }
+                    if (session.end?.let { it <= creditStart } == true) Text("Visit ended before arrival grace; 0m credited for this visit.")
+                }
+                Text("Exit/departure grace: ${value.exitGraceMinutes}m for departure projections only; it adds no recorded credit.")
                 if (!value.enabled || !value.countsTowardAttendance) Text("This office is disabled or excluded from attendance credit.")
             }
             Text("Confidence: ${session.confidence.name}. Source events: ${session.sourceEventIds.sorted().joinToString(transform = ::evidenceId).ifEmpty { "Manual interval" }}")

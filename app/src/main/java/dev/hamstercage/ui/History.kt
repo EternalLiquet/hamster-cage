@@ -15,6 +15,7 @@ import dev.hamstercage.domain.AttendanceInput
 import dev.hamstercage.domain.AttendanceResult
 import java.time.format.DateTimeFormatter
 import java.time.LocalDate
+import java.time.Duration
 
 @Composable
 fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionActions: CorrectionActions? = null) {
@@ -52,6 +53,20 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
                 day.badges.forEach { Tag(it, warm = it == "REVIEW") }
                 Column(Modifier.testTag("history_credit_${day.date}").semantics(mergeDescendants = true) {}) {
                     MetricRow("Recorded credit", minutesText(day.summary.creditedMinutes))
+                }
+                MetricRow("Device-observed time", minutesText(day.observedMinutes))
+                if (day.date == input.now.atZone(input.policy.zoneId).toLocalDate()) {
+                    val active = result.sessions.filter { it.isOpen && input.offices.any { office -> office.id == it.officeId && office.enabled && office.countsTowardAttendance } }
+                    if (active.size == 1) {
+                        val session = active.single()
+                        val grace = input.offices.single { it.id == session.officeId }.entryGraceMinutes
+                        val creditStart = session.start!!.plusSeconds(grace * 60L)
+                        Text("Arrival walking grace: ${grace}m uncredited. Credit starts at ${instantText(creditStart, input.policy.zoneId)}.")
+                        if (input.now < creditStart) {
+                            val minutesLeft = (Duration.between(input.now, creditStart).seconds + 59) / 60
+                            Text("${minutesLeft}m until credit starts if the observed visit continues.")
+                        }
+                    }
                 }
                 Column(Modifier.testTag("history_required_${day.date}").semantics(mergeDescendants = true) {}) {
                     MetricRow("Required", minutesText(day.summary.requiredMinutes.toDouble()))

@@ -56,7 +56,7 @@ data class Policy(
     fun isExpected(date: LocalDate): Boolean = date.dayOfWeek in expectedWeekdays && excludedDates.none { it.date == date }
 }
 
-/** Effective observed bounds: per-office walking grace is still applied. Latest correction wins. */
+/** Effective observed bounds: per-office arrival walking delay is still applied. Latest correction wins. */
 data class Correction(
     val id: String,
     val sessionId: String,

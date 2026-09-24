@@ -31,16 +31,17 @@ class DayDetailTest {
         compose.setContent { CompositionLocalProvider(LocalDensity provides Density(density, 2f)) {
             HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) { HistoryScreen(input, AttendanceEngine.derive(input)) } }
         } }
-        compose.onNodeWithTag("history_credit_$day").performScrollTo().assertTextContains("40m")
+        compose.onNodeWithTag("history_credit_$day").performScrollTo().assertTextContains("25m")
         compose.onNodeWithText("Explain $day").performScrollTo().performClick()
-        compose.onNodeWithTag("detail_credit").performScrollTo().assertTextEquals("Recorded credit: 40m")
+        compose.onNodeWithTag("detail_credit").performScrollTo().assertTextEquals("Recorded credit: 25m")
+        compose.onNodeWithTag("detail_observed").performScrollTo().assertTextEquals("Device-observed time: 1h 0m")
         compose.onNodeWithText("Original bounds: 2026-09-23T14:00:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Effective bounds: 2026-09-23T14:30:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Source event: in").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Source event: out").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Synthetic correction").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Back to daily history").performScrollTo().performClick()
-        compose.onNodeWithTag("history_credit_$day").performScrollTo().assertTextContains("40m")
+        compose.onNodeWithTag("history_credit_$day").performScrollTo().assertTextContains("25m")
     }
 
     @Test fun missingBoundaryReviewExplainsWhyNoCreditWasInvented() {

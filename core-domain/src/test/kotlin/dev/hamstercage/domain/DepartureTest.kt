@@ -42,24 +42,39 @@ class DepartureTest {
         val before = AttendanceEngine.summary(data, derived, TargetWindow.TODAY)
         val result = AttendanceEngine.departure(data, derived, TargetWindow.TODAY)
         assertEquals(DepartureStatus.ESTIMATED, result.status)
-        assertEquals(175.0, result.remainingMinutes, 0.0)
-        assertEquals(at("14:55"), result.creditedTargetAt)
-        assertEquals(at("14:50"), result.estimatedExitAt)
-        assertEquals(185.0, before.creditedMinutes, 0.0)
+        assertEquals(185.0, result.remainingMinutes, 0.0)
+        assertEquals(at("15:05"), result.creditedTargetAt)
+        assertEquals(at("15:00"), result.estimatedExitAt)
+        assertEquals(175.0, before.creditedMinutes, 0.0)
         assertEquals(before, AttendanceEngine.summary(data, derived, TargetWindow.TODAY))
         assertTrue(derived.intervals.all { it.end <= data.now })
     }
 
-    @Test fun graceCanPermitLeavingNowWithoutClaimingTargetAlreadyMet() {
-        val result = estimate(input(now = at("14:53")))
+    @Test fun departureDuringArrivalDelayWaitsForCreditStart() {
+        val data = input(now = at("09:03"), policy = Policy(targetMinutesPerDay = 10))
+        val derived = AttendanceEngine.derive(data)
+        assertEquals(0.0, AttendanceEngine.summary(data, derived, TargetWindow.TODAY).creditedMinutes, 0.0)
+        val result = AttendanceEngine.departure(data, derived, TargetWindow.TODAY)
         assertEquals(DepartureStatus.ESTIMATED, result.status)
-        assertEquals(2.0, result.remainingMinutes, 0.0)
-        assertEquals(at("14:53"), result.estimatedExitAt)
-        assertEquals(at("14:55"), result.creditedTargetAt)
+        assertEquals(at("09:15"), result.creditedTargetAt)
+        assertEquals(at("09:10"), result.estimatedExitAt)
+    }
+
+    @Test fun lateArrivalCannotUseTomorrowToMeetTodayTarget() {
+        val data = input(listOf(enter("23:58")), now = at("23:59"), policy = Policy(targetMinutesPerDay = 10))
+        assertSuppressed(DepartureStatus.UNREACHABLE_IN_WINDOW, estimate(data))
+    }
+
+    @Test fun graceCanPermitLeavingNowWithoutClaimingTargetAlreadyMet() {
+        val result = estimate(input(now = at("15:00")))
+        assertEquals(DepartureStatus.ESTIMATED, result.status)
+        assertEquals(5.0, result.remainingMinutes, 0.0)
+        assertEquals(at("15:00"), result.estimatedExitAt)
+        assertEquals(at("15:05"), result.creditedTargetAt)
     }
 
     @Test fun cleanAlreadyMetTargetRequestsNoAdditionalTimeWithNoExitPrediction() {
-        val result = estimate(input(listOf(enter(), exit("15:00")), now = at("16:00")))
+        val result = estimate(input(listOf(enter(), exit("15:05")), now = at("16:00")))
         assertSuppressed(DepartureStatus.TARGET_SATISFIED, result)
         assertEquals(0.0, result.remainingMinutes, 0.0)
     }
@@ -112,8 +127,8 @@ class DepartureTest {
         val data = input(listOf(enter(), enter("09:30", "bin", "b"), exit("11:00", "bout", "b")))
             .copy(offices = listOf(office, office.copy(id = "b", exitGraceMinutes = 120)))
         val result = estimate(data)
-        assertEquals(175.0, result.remainingMinutes, 0.0)
-        assertEquals(at("14:50"), result.estimatedExitAt)
+        assertEquals(185.0, result.remainingMinutes, 0.0)
+        assertEquals(at("15:00"), result.estimatedExitAt)
     }
 
     @Test fun priorCreditAndWeeklyTargetBoundaryStayDistinct() {
@@ -121,10 +136,10 @@ class DepartureTest {
             enter("09:00", "tuein", date = day.minusDays(1)), exit("15:00", "tueout", date = day.minusDays(1)))
         val data = input(prior + enter())
         val throughToday = estimate(data, TargetWindow.WEEK_TO_DATE)
-        assertEquals(155.0, throughToday.remainingMinutes, 0.0)
-        assertEquals(at("14:30"), throughToday.estimatedExitAt)
+        assertEquals(195.0, throughToday.remainingMinutes, 0.0)
+        assertEquals(at("15:10"), throughToday.estimatedExitAt)
         val fullWeek = estimate(data, TargetWindow.FULL_WEEK)
-        assertEquals(875.0, fullWeek.remainingMinutes, 0.0)
+        assertEquals(915.0, fullWeek.remainingMinutes, 0.0)
         assertSuppressed(DepartureStatus.UNREACHABLE_IN_WINDOW, fullWeek) // Would exceed the safe open-session horizon.
     }
 
@@ -133,15 +148,15 @@ class DepartureTest {
         val data = input(policy = dailyOnly)
         val thirty = estimate(data, TargetWindow.ROLLING_30)
         val ninety = estimate(data, TargetWindow.ROLLING_90)
-        assertEquals(115.0, thirty.remainingMinutes, 0.0)
-        assertEquals(at("13:50"), thirty.estimatedExitAt)
+        assertEquals(125.0, thirty.remainingMinutes, 0.0)
+        assertEquals(at("14:00"), thirty.estimatedExitAt)
         assertTrue(ninety.remainingMinutes > thirty.remainingMinutes)
     }
 
     @Test fun exclusionHasNoRequirementButWfhStillHasOne() {
         val holiday = input(emptyList(), policy = Policy(excludedDates = listOf(ExcludedDate(day, ExclusionReason.BANK_HOLIDAY))))
         assertSuppressed(DepartureStatus.TARGET_SATISFIED, estimate(holiday))
-        assertEquals(175.0, estimate(input(policy = Policy(wfhDates = setOf(day)))).remainingMinutes, 0.0)
+        assertEquals(185.0, estimate(input(policy = Policy(wfhDates = setOf(day)))).remainingMinutes, 0.0)
     }
 
     @Test fun targetCannotBorrowTomorrowButFullWeekCanProjectAcrossMidnight() {
@@ -150,15 +165,15 @@ class DepartureTest {
         assertSuppressed(DepartureStatus.UNREACHABLE_IN_WINDOW, estimate(data))
         val week = estimate(data, TargetWindow.FULL_WEEK)
         assertEquals(DepartureStatus.ESTIMATED, week.status)
-        assertEquals(at("05:50", day.plusDays(1)), week.estimatedExitAt)
-        assertEquals(at("05:55", day.plusDays(1)), week.creditedTargetAt)
+        assertEquals(at("06:00", day.plusDays(1)), week.estimatedExitAt)
+        assertEquals(at("06:05", day.plusDays(1)), week.creditedTargetAt)
     }
 
     @Test fun mondayDoesNotReusePreviousWeekCredit() {
         val monday = day.plusDays(5)
         val data = input(listOf(enter("09:00", "previous", date = day), exit("15:00", "previousout", date = day),
             enter(date = monday)), now = at("12:00", monday))
-        assertEquals(175.0, estimate(data, TargetWindow.WEEK_TO_DATE).remainingMinutes, 0.0)
+        assertEquals(185.0, estimate(data, TargetWindow.WEEK_TO_DATE).remainingMinutes, 0.0)
     }
 
     @Test fun dstProjectionUsesElapsedTimeAndPolicyTimezone() {
@@ -167,7 +182,7 @@ class DepartureTest {
         val data = input(listOf(enter("00:30", date = spring)), now = at("01:30", spring), policy = policy)
             .copy(historyStartDate = spring)
         val result = estimate(data)
-        assertEquals(at("04:20", spring), result.estimatedExitAt)
-        assertEquals(at("04:25", spring), result.creditedTargetAt)
+        assertEquals(at("04:30", spring), result.estimatedExitAt)
+        assertEquals(at("04:35", spring), result.creditedTargetAt)
     }
 }

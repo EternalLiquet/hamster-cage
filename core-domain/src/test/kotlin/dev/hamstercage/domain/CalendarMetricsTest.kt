@@ -25,9 +25,9 @@ class CalendarMetricsTest {
         val week = summary(data, TargetWindow.WEEK_TO_DATE)
         assertEquals(3, week.expectedWorkdays)
         assertEquals(1080, week.requiredMinutes)
-        assertEquals(370.0, week.creditedMinutes, 0.0)
-        assertEquals(370.0 / 3, week.averageMinutes!!, 0.00001)
-        assertEquals(-710.0, week.balanceMinutes, 0.0)
+        assertEquals(355.0, week.creditedMinutes, 0.0)
+        assertEquals(355.0 / 3, week.averageMinutes!!, 0.00001)
+        assertEquals(-725.0, week.balanceMinutes, 0.0)
     }
 
     @Test fun excludedDayRemovesRequirementAndPreservesActualAttendance() {
@@ -36,7 +36,7 @@ class CalendarMetricsTest {
         val daily = AttendanceEngine.daily(data, AttendanceEngine.derive(data), monday)
         assertEquals(0, daily.requiredMinutes)
         assertNull(daily.averageMinutes)
-        assertEquals(370.0, daily.creditedMinutes, 0.0)
+        assertEquals(355.0, daily.creditedMinutes, 0.0)
         assertEquals(1440, summary(data, TargetWindow.FULL_WEEK).requiredMinutes)
     }
 
@@ -71,7 +71,7 @@ class CalendarMetricsTest {
         val result = summary(data, target)
         assertEquals(start, result.startDate)
         assertEquals(day, result.endDate)
-        assertEquals(740.0, result.creditedMinutes, 0.0)
+        assertEquals(710.0, result.creditedMinutes, 0.0)
         val expected = (0 until days).count { start.plusDays(it.toLong()).dayOfWeek !in setOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY) }
         assertEquals(expected, result.expectedWorkdays)
     }
@@ -115,7 +115,7 @@ class CalendarMetricsTest {
     @Test fun changedPolicyRecomputesSameRawFacts() {
         val original = input(visit())
         val updated = original.copy(policy = original.policy.copy(targetMinutesPerDay = 420))
-        assertEquals(-50.0, summary(updated).balanceMinutes, 0.0)
+        assertEquals(-65.0, summary(updated).balanceMinutes, 0.0)
         assertEquals(original.events, updated.events)
         val sundayPolicy = original.copy(policy = original.policy.copy(expectedWeekdays = setOf(DayOfWeek.SUNDAY)))
         assertEquals(0, summary(sundayPolicy).requiredMinutes)
@@ -126,8 +126,8 @@ class CalendarMetricsTest {
         val events = listOf(RawEvent("in", "a", Transition.ENTER, at("23:00", day.minusDays(1))), RawEvent("out", "a", Transition.EXIT, at("01:00")))
         val data = input(events)
         val result = AttendanceEngine.derive(data)
-        assertEquals(65.0, AttendanceEngine.daily(data, result, day.minusDays(1)).creditedMinutes, 0.0)
-        assertEquals(65.0, AttendanceEngine.daily(data, result, day).creditedMinutes, 0.0)
+        assertEquals(55.0, AttendanceEngine.daily(data, result, day.minusDays(1)).creditedMinutes, 0.0)
+        assertEquals(60.0, AttendanceEngine.daily(data, result, day).creditedMinutes, 0.0)
     }
 
     @Test fun springAndFallDaysUseTheirActualElapsedLengths() {
@@ -145,17 +145,17 @@ class CalendarMetricsTest {
             RawEvent("out", "a", Transition.EXIT, Instant.parse("2026-09-23T01:30:00Z")))
         val data = input(events, now = Instant.parse("2026-09-23T04:00:00Z"))
         val result = AttendanceEngine.derive(data)
-        assertEquals(70.0, AttendanceEngine.daily(data, result, day.minusDays(1)).creditedMinutes, 0.0)
+        assertEquals(55.0, AttendanceEngine.daily(data, result, day.minusDays(1)).creditedMinutes, 0.0)
         assertEquals(0.0, AttendanceEngine.daily(data, result, day).creditedMinutes, 0.0)
         val utc = data.copy(policy = data.policy.copy(zoneId = ZoneId.of("UTC")))
-        assertEquals(70.0, summary(utc).creditedMinutes, 0.0)
+        assertEquals(55.0, summary(utc).creditedMinutes, 0.0)
     }
 
     @Test fun rawObservedTotalIgnoresCorrectionsManualFactsAndGrace() {
         val data = input(visit()).copy(corrections = listOf(Correction("c", "session:$day-in", at("10:00"), at("14:00"), at("19:00"))),
             manualSessions = listOf(ManualSession("manual", "a", at("08:00"), at("18:00"), at("19:00"))))
         assertEquals(360.0, AttendanceEngine.observedDailyMinutes(data, day), 0.0)
-        assertEquals(610.0, summary(data).creditedMinutes, 0.0)
+        assertEquals(595.0, summary(data).creditedMinutes, 0.0)
     }
 
     @Test fun creditedInputsAreClippedToWindowAndNowThenUnioned() {

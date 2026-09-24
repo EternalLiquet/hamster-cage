@@ -5,15 +5,16 @@ import java.time.LocalDate
 
 internal const val HISTORY_PAGE_DAYS = 14
 
-data class HistoryDay(val date: LocalDate, val summary: PeriodSummary, val badges: List<String>)
+data class HistoryDay(val date: LocalDate, val summary: PeriodSummary, val observedMinutes: Double, val badges: List<String>)
 
 /** Bounded presentation only. Totals and policy-local date clipping belong to the shared engine. */
 fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: Int = 0): List<HistoryDay> {
     require(offsetDays >= 0)
     val last = input.now.atZone(input.policy.zoneId).toLocalDate().minusDays(offsetDays.toLong())
     val eventsById = input.events.groupBy { it.id }
-    return (0 until HISTORY_PAGE_DAYS).map { offset ->
-        val date = last.minusDays(offset.toLong())
+    val dates = (0 until HISTORY_PAGE_DAYS).map { last.minusDays(it.toLong()) }
+    val observed = AttendanceEngine.observedDailyMinutes(input, dates)
+    return dates.map { date ->
         val start = date.atStartOfDay(input.policy.zoneId).toInstant()
         val end = date.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()
         fun onDay(at: java.time.Instant?) = at != null && at >= start && at < end
@@ -43,7 +44,7 @@ fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: In
             if (sessions.any { it.manualSessionId != null || it.correctionId != null }) add("MANUAL")
             if (!summary.hasCompleteHistory) add("UNKNOWN COVERAGE")
         }
-        HistoryDay(date, summary, badges)
+        HistoryDay(date, summary, observed.getValue(date), badges)
     }
 }
 

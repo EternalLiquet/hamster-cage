@@ -66,11 +66,22 @@ class DashboardTest {
     @Test fun activeDashboardSeparatesObservedCreditAndEachWeekRequirement() {
         show(data(listOf(enter())))
         compose.onNodeWithTag("office_state").assertTextEquals("In Synthetic office")
-        compose.onNodeWithTag("today_credit").assertTextEquals("3h 5m")
+        compose.onNodeWithTag("today_credit").assertTextEquals("2h 55m")
         compose.onNodeWithTag("today_observed").assertTextContains("3h 0m")
+        compose.onNodeWithTag("arrival_credit_start").assertTextContains("Credit starts at 9:05 AM", substring = true)
         compose.onNodeWithTag("WEEK_TO_DATE_required").performScrollTo().assertTextContains("18h 0m")
         compose.onNodeWithTag("full_week_required").performScrollTo().assertTextContains("30h 0m")
-        compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("About 2:50 PM")
+        compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("About 3:00 PM")
+    }
+
+    @Test fun activeArrivalWindowShowsZeroCreditAndCountdown() {
+        val entry = Instant.parse("2026-09-23T13:00:00Z")
+        val input = data(listOf(RawEvent("in", "a", Transition.ENTER, entry))).copy(now = entry.plusSeconds(180))
+        show(input)
+        compose.onNodeWithTag("today_observed").assertTextContains("3m")
+        compose.onNodeWithTag("today_credit").assertTextEquals("0m")
+        compose.onNodeWithTag("arrival_credit_start").assertTextContains("Credit starts at 9:05 AM", substring = true)
+        compose.onNodeWithTag("arrival_countdown").assertTextContains("2m until credit starts", substring = true)
     }
 
     @Test fun trackingLossSuppressesAnOtherwiseAvailableDepartureEstimate() {
@@ -87,13 +98,13 @@ class DashboardTest {
         fun update(input: AttendanceInput) { compose.runOnIdle { fixture.value = input } }
         update(data(listOf(enter(), RawEvent("out", "a", Transition.EXIT, now.minusSeconds(60)))))
         compose.onNodeWithTag("office_state").assertTextEquals("Outside office")
-        compose.onNodeWithTag("today_balance").assertTextContains("−2h 55m")
+        compose.onNodeWithTag("today_balance").assertTextContains("−3h 6m")
         update(data(listOf(RawEvent("missing", "a", Transition.EXIT, now))))
         compose.onNodeWithTag("office_state").assertTextEquals("Needs review")
         update(data().copy(policy = Policy(excludedDates = listOf(ExcludedDate(today, ExclusionReason.BANK_HOLIDAY)))))
         compose.onNodeWithTag("today_target").assertTextContains("0m")
         compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("Already satisfied")
-        update(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600)), RawEvent("out", "a", Transition.EXIT, now.minusSeconds(3600)))))
+        update(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600 + 5 * 60)), RawEvent("out", "a", Transition.EXIT, now.minusSeconds(3600)))))
         compose.onNodeWithTag("TODAY_departure").assertTextContains("Already satisfied")
     }
 
