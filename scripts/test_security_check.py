@@ -55,6 +55,21 @@ class SecurityAuditTest(unittest.TestCase):
             script, _, _ = self.fixture(Path(directory), "<manifest><application>")
             self.run_modes(script, False, "FAIL:")
 
+    def test_sdk_conditioned_forbidden_permissions_rejected_in_all_modes(self):
+        for tag in ["uses-permission-sdk-23", "uses-permission-sdk-m"]:
+            for permission in ["INTERNET", "READ_EXTERNAL_STORAGE", "FOREGROUND_SERVICE_LOCATION"]:
+                with self.subTest(tag=tag, permission=permission), tempfile.TemporaryDirectory() as directory:
+                    unsafe = SAFE_MANIFEST.replace("<application", f'<{tag} android:name="android.permission.{permission}" /><application')
+                    script, _, _ = self.fixture(Path(directory), unsafe)
+                    self.run_modes(script, False, "FAIL:")
+
+    def test_sdk_conditioned_malformed_permissions_rejected_in_all_modes(self):
+        for tag in ["uses-permission-sdk-23", "uses-permission-sdk-m"]:
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as directory:
+                unsafe = SAFE_MANIFEST.replace("<application", f"<{tag} /><application")
+                script, _, _ = self.fixture(Path(directory), unsafe)
+                self.run_modes(script, False, "Malformed permission entry")
+
     def test_ambiguous_manifests_rejected_under_optimization(self):
         with tempfile.TemporaryDirectory() as directory:
             script, target, _ = self.fixture(Path(directory))

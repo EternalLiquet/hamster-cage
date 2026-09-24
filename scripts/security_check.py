@@ -26,7 +26,11 @@ def audit(root):
     require(manifests[0] == intended, "Unexpected debug merged-manifest location")
     manifest = ET.parse(intended).getroot()
     require(manifest.tag == "manifest", "Invalid Android manifest root")
-    permissions = {p.get(A + "name") for p in manifest.findall("uses-permission")}
+    # SDK-conditioned declarations still grant permission on supported devices.
+    # Retain the legacy M alias because Android manifest parsers accept it too.
+    permission_tags = {"uses-permission", "uses-permission-sdk-23", "uses-permission-sdk-m"}
+    permission_elements = [element for element in manifest if element.tag in permission_tags]
+    permissions = {element.get(A + "name") for element in permission_elements}
     require(all(isinstance(p, str) and p for p in permissions), "Malformed permission entry")
     require("android.permission.INTERNET" not in permissions, "MVP must not have network permission")
     require(not any("STORAGE" in p for p in permissions), "No shared storage permission")
