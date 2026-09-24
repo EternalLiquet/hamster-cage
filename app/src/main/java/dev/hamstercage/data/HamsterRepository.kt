@@ -99,7 +99,9 @@ class HamsterRepository internal constructor(
             val record = EventRecord(event.id, event.officeId, event.transition.name, event.at.persistedMillis(),
                 evidence.receivedAt.persistedMillis(), evidence.observedLocationAt?.persistedMillis(), evidence.source)
             val previous = dao.event(event.id)
-            require(previous == null || previous == record) { "Conflicting event ID." }
+            // A second delivery of the same observation cannot rewrite the first receipt time.
+            // The delivery itself may arrive later, while the observed fact remains identical.
+            require(previous == null || previous.copy(receivedAt = record.receivedAt) == record) { "Conflicting event ID." }
             if (previous == null) {
                 // Delivery may lag behind a user disabling the office. Keep the observation;
                 // current policy decides whether it contributes credit during derivation.

@@ -1,0 +1,90 @@
+package dev.hamstercage.capture
+
+import android.Manifest
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import com.google.android.gms.location.Geofence
+import com.google.android.gms.location.GeofencingClient
+import com.google.android.gms.location.GeofencingRequest
+import com.google.android.gms.location.LocationServices
+import dev.hamstercage.offices.OfficeRegistrationIntent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/** Replaces the desired set after office edits, startup, or permission changes. */
+class GeofenceRegistrar(
+    context: Context,
+    private val client: GeofencingClient = LocationServices.getGeofencingClient(context.applicationContext),
+) {
+    private val application = context.applicationContext
+    private val lock = Mutex()
+    private var lastApplied: List<OfficeRegistrationIntent>? = null
+
+    suspend fun synchronize(desired: List<OfficeRegistrationIntent>, ready: Boolean, force: Boolean = false): CaptureStatus = lock.withLock {
+        val sorted = desired.sortedBy { it.officeId }
+        // Recheck at the platform call even if the UI most recently reported ready;
+        // permission can be revoked between its state read and this reconciliation.
+        val permitted = application.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+            (Build.VERSION.SDK_INT < 29 || application.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED)
+        if (!ready || !permitted) {
+            lastApplied = null
+            // Revocation usually clears platform monitoring. A best-effort removal also
+            // prevents stale boundaries when setup was disabled while the app was closed.
+            try { client.removeGeofences(pendingIntent()).await() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { Unit }
+            return@withLock CaptureStatus(RegistrationStatus.NEEDS_SETUP).also {
+                CaptureHealth.registration(it.registration)
+            }
+        }
+        if (!force && sorted == lastApplied) return@withLock CaptureStatus(
+            if (sorted.isEmpty()) RegistrationStatus.NO_OFFICES else RegistrationStatus.ACTIVE, sorted.size)
+        CaptureHealth.registration(RegistrationStatus.REGISTERING)
+        try {
+            client.removeGeofences(pendingIntent()).await()
+            // Initial trigger zero avoids treating "already inside at registration" as
+            // an observed entry. The first credited entry must be a real transition.
+            sorted.forEach { office ->
+                val boundary = Geofence.Builder()
+                    .setRequestId(office.officeId)
+                    .setCircularRegion(office.latitude, office.longitude, office.radiusMeters)
+                    .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
+                    .setExpirationDuration(Geofence.NEVER_EXPIRE)
+                    .build()
+                client.addGeofences(GeofencingRequest.Builder().setInitialTrigger(0)
+                    .addGeofence(boundary).build(), pendingIntent()).await()
+            }
+            lastApplied = sorted
+            CaptureStatus(if (sorted.isEmpty()) RegistrationStatus.NO_OFFICES else RegistrationStatus.ACTIVE, sorted.size).also {
+                CaptureHealth.registration(it.registration, it.registeredCount)
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) {
+            lastApplied = null
+            // A partially added set is not a healthy registration. Clear it if possible.
+            try { client.removeGeofences(pendingIntent()).await() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { Unit }
+            CaptureStatus(RegistrationStatus.FAILED).also { CaptureHealth.registration(it.registration) }
+        }
+    }
+
+    private fun pendingIntent(): PendingIntent {
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+        // Google Play services must fill transition extras on S+, hence mutable. The
+        // intent still names one non-exported receiver in this package.
+        val intent = Intent(application, GeofenceTransitionReceiver::class.java)
+            .setPackage(application.packageName).setAction(ACTION)
+        return PendingIntent.getBroadcast(application, 0, intent, flags)
+    }
+
+    companion object {
+        const val ACTION = "dev.hamstercage.action.GEOFENCE_TRANSITION"
+    }
+}
