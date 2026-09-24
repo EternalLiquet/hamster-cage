@@ -6,6 +6,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -14,6 +15,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import dev.hamstercage.capture.CoverageLedger
+import dev.hamstercage.capture.CaptureStatus
+import dev.hamstercage.capture.RegistrationStatus
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.StorageState
@@ -101,21 +105,33 @@ class PrivacyScreenTest {
             RawEvent("before-delete", office.id, Transition.ENTER, entered), entered)),
             emptyList(), emptyList(), Policy()))
         val fresh = StorageState.Ready(AppSnapshot(listOf(office), emptyList(), emptyList(), emptyList(), Policy()))
+        val oldCoverage = CoverageLedger(historyStartDate = entered.atZone(Policy().zoneId).toLocalDate().minusDays(30),
+            lastObservationAt = entered, recoveryBoundaryAt = entered.minusSeconds(1),
+            registration = RegistrationStatus.ACTIVE, policyZoneId = Policy().zoneId)
         val reset = MutableStateFlow<PrivacyResetState>(PrivacyResetState.Idle(0))
-        val releaseFreshQuery = CompletableDeferred<Unit>()
+        val releaseFreshRoom = CompletableDeferred<Unit>()
+        val releaseFreshCoverage = CompletableDeferred<Unit>()
         var subscriptions = 0
-        val paired = privacyVisibleStorage(reset) {
-            flow {
+        var coverageSubscriptions = 0
+        val paired = privacyVisibleStorage(reset, freshStorage = {
+            flow<StorageState> {
                 subscriptions++
                 if (subscriptions == 1) emit(old)
-                else { releaseFreshQuery.await(); emit(fresh) }
+                else { releaseFreshRoom.await(); emit(fresh) }
             }
-        }
+        }, freshCoverage = {
+            flow {
+                coverageSubscriptions++
+                if (coverageSubscriptions == 1) emit(oldCoverage)
+                else { releaseFreshCoverage.await(); emit(CoverageLedger()) }
+            }
+        })
         compose.setContent {
             val presentation by paired.collectAsState(
                 initial = PrivacyStorageState(PrivacyResetState.Unavailable, StorageState.Unavailable))
             HamsterApp(TimeSource { now }, storageState = presentation.storage,
-                privacyState = presentation.reset, trackingReady = true)
+                privacyState = presentation.reset, coverage = presentation.coverage,
+                captureStatus = CaptureStatus(RegistrationStatus.ACTIVE))
         }
         compose.onNodeWithText("In Synthetic office").performScrollTo().assertIsDisplayed()
         compose.runOnIdle { reset.value = PrivacyResetState.Pending(1) }
@@ -124,9 +140,13 @@ class PrivacyScreenTest {
         compose.runOnIdle { reset.value = PrivacyResetState.Idle(1) }
         compose.onNodeWithText("Opening your local record…").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
-        releaseFreshQuery.complete(Unit)
+        releaseFreshRoom.complete(Unit)
+        compose.onNodeWithText("Opening your local record…").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
+        releaseFreshCoverage.complete(Unit)
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Office state unknown").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Office state unknown").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("today_balance").performScrollTo().assertTextContains("Unknown")
         compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
     }
 }
