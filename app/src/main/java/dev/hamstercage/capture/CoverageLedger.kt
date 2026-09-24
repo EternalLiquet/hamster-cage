@@ -21,7 +21,19 @@ data class CoverageLedger(
     fun processStarted(now: Instant, zone: ZoneId): CoverageLedger =
         if (lastHealthyAt == null && outageStartedAt == null) this else outage(now, zone)
 
-    fun outage(now: Instant, zone: ZoneId): CoverageLedger = outage(lastHealthyAt ?: now, now, zone)
+    fun outage(now: Instant, zone: ZoneId): CoverageLedger {
+        val current = inZone(now, zone)
+        return current.outage(current.lastHealthyAt ?: now, now, zone)
+    }
+
+    /** Date-only confidence cannot be rebased losslessly after a policy timezone edit. */
+    private fun inZone(now: Instant, zone: ZoneId): CoverageLedger = when {
+        policyZoneId == null || policyZoneId == zone -> copy(policyZoneId = zone)
+        else -> copy(historyStartDate = null, unknownDates = emptySet(), reviewedDates = emptySet(),
+            lastObservationAt = null, outageStartedAt = outageStartedAt ?: lastHealthyAt ?: now,
+            outageRecordedThrough = null, recoveryBoundaryAt = null,
+            registration = RegistrationStatus.FAILED, policyZoneId = zone)
+    }
 
     /** A receiver may know an outage instant before it can safely read policy timezone. */
     fun unlocatedOutage(now: Instant): CoverageLedger = copy(
@@ -46,14 +58,15 @@ data class CoverageLedger(
 
     fun registrationSucceeded(now: Instant, zone: ZoneId, hasOffices: Boolean): CoverageLedger {
         if (!hasOffices) return outage(now, zone).copy(registration = RegistrationStatus.NO_OFFICES)
-        val recovered = if (outageStartedAt != null) outage(now, zone) else this
+        val current = inZone(now, zone)
+        val recovered = if (current.outageStartedAt != null) current.outage(now, zone) else current
         // A registration request alone is not evidence that any observation was delivered.
-        val firstObservedDay = lastObservationAt?.atZone(zone)?.toLocalDate()
-        return recovered.copy(historyStartDate = historyStartDate ?: firstObservedDay,
-            unknownDates = if (historyStartDate == null && firstObservedDay != null)
+        val firstObservedDay = current.lastObservationAt?.atZone(zone)?.toLocalDate()
+        return recovered.copy(historyStartDate = current.historyStartDate ?: firstObservedDay,
+            unknownDates = if (current.historyStartDate == null && firstObservedDay != null)
                 recovered.unknownDates + firstObservedDay else recovered.unknownDates,
             lastHealthyAt = now, outageStartedAt = null, outageRecordedThrough = null,
-            recoveryBoundaryAt = if (outageStartedAt != null) now else recoveryBoundaryAt ?: now,
+            recoveryBoundaryAt = if (current.outageStartedAt != null) now else current.recoveryBoundaryAt ?: now,
             registration = RegistrationStatus.ACTIVE, policyZoneId = zone)
     }
 

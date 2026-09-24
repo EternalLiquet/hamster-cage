@@ -68,7 +68,8 @@ fun HamsterApp(
     val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD)
     val snapshot = (storageState as? StorageState.Ready)?.snapshot
     val displayZone = snapshot?.policy?.zoneId ?: zoneId
-    val effectiveTrackingReady = coverage?.presenceConfirmed(now, displayZone) ?: trackingReady
+    val effectiveTrackingReady = if (coverage == null) trackingReady else
+        captureStatus.registration == RegistrationStatus.ACTIVE && coverage.presenceConfirmed(now, displayZone)
     HamsterTheme {
         Scaffold(bottomBar = {
             if (LocalDensity.current.fontScale >= CageStyle.LargeFontThreshold) {

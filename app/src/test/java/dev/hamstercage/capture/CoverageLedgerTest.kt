@@ -83,4 +83,19 @@ class CoverageLedgerTest {
         assertEquals(LocalDate.parse("2025-03-09"), observed.historyStartDate)
         assertTrue(LocalDate.parse("2025-03-09") in observed.unreviewedUnknownDates)
     }
+
+    @Test fun changingPolicyZoneInvalidatesOldDateConfidence() {
+        val event = at("2025-03-10T03:30:00Z")
+        val indianapolis = CoverageLedger().registrationSucceeded(event.minusSeconds(60), zone, true)
+            .observed(event).review(LocalDate.parse("2025-03-09"))
+        assertEquals(LocalDate.parse("2025-03-09"), indianapolis.historyStartDate)
+        val utc = ZoneId.of("UTC")
+        val changed = indianapolis.registrationSucceeded(event.plusSeconds(60), utc, true)
+        assertEquals(null, changed.historyStartDate)
+        assertTrue(changed.reviewedDates.isEmpty())
+        assertFalse(changed.presenceConfirmed(event.plusSeconds(61), utc))
+        val observedAgain = changed.observed(event.plusSeconds(62))
+        assertEquals(LocalDate.parse("2025-03-10"), observedAgain.historyStartDate)
+        assertTrue(LocalDate.parse("2025-03-10") in observedAgain.unreviewedUnknownDates)
+    }
 }
