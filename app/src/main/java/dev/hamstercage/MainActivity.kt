@@ -6,6 +6,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import dev.hamstercage.data.HamsterRepository
+import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.SystemTimeSource
 import dev.hamstercage.ui.HamsterApp
 
@@ -16,6 +20,10 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
-        setContent { HamsterApp(timeSource = SystemTimeSource()) }
+        val repository = HamsterRepository.get(this)
+        setContent {
+            val storageState by repository.state.collectAsState(initial = StorageState.Loading)
+            HamsterApp(timeSource = SystemTimeSource(), storageState = storageState)
+        }
     }
 }
