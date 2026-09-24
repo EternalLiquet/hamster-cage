@@ -9,7 +9,7 @@ The computer-runnable acceptance journey uses the real `MainActivity`, Room/Data
 python3 scripts/verify_offline_journey.py --serial emulator-5554
 ```
 
-Early API37 integration evidence in `evidence/issue-33/pre-privacy-journey.json` records process 9395 → 9508 and retained offices/events/correction/holiday. This preliminary run precedes the final privacy integration and is not final-head Product MVP sign-off. Final exact source, CI/device results and remaining criteria must be recorded in the focused PR before issue closure.
+The full API37 host journey passed at source `1b286418038b9432194b4933fc685dd89e84adff`, after privacy integration. The [receipt](evidence/issue-33/offline-journey.json) records process 12275 → 12388 retaining two offices, four synthetic events, a correction, target/timezone, WFH and holiday; confirmed deletion ran in process 12454 and reopened empty in process 12524 with offices/base policy retained. Wi-Fi/mobile data were disabled and fine location remained denied throughout. The earlier pre-privacy receipt remains explicitly preliminary. Current-head CI and independent verification/review remain required; this local run does not establish physical-phone acceptance.
 
 ## Engine acceptance coverage
 

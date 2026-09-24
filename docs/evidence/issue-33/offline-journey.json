@@ -1,0 +1,20 @@
+{
+  "pid": 12275,
+  "evaluation": "2026-09-24T06:57:17.010564Z",
+  "events": 4,
+  "offices": 2,
+  "corrections": 1,
+  "excludedDate": "2026-09-24",
+  "reopenedPid": 12388,
+  "freshProcessVerified": true,
+  "deletedPid": 12454,
+  "confirmedDeletionVerified": true,
+  "afterDeleteReopenedPid": 12524,
+  "deletedRestartVerified": true,
+  "sourceSha": "1b286418038b9432194b4933fc685dd89e84adff",
+  "api": "37",
+  "serial": "emulator-5554",
+  "networking": "Wi-Fi and mobile data disabled during journey",
+  "locationPermission": "Fine location denied; correction still saved",
+  "physicalDevice": false
+}

@@ -59,7 +59,8 @@ class OfflineJourneyHostTest {
         val receipt = File(context.filesDir, "synthetic-offline-journey.json")
         if (action == "exercise") {
             val initial = snapshot()
-            assertTrue("Use a fresh synthetic installation", initial.offices.isEmpty() && initial.events.isEmpty() && initial.corrections.isEmpty() && initial.manualSessions.isEmpty())
+            assertTrue("Use a fresh synthetic installation", initial.offices.isEmpty() && initial.events.isEmpty() && initial.corrections.isEmpty() && initial.manualSessions.isEmpty() &&
+                initial.policy.excludedDates.isEmpty() && initial.policy.wfhDates.isEmpty())
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 awaitText("Office state unknown")
                 nav("Offices")
