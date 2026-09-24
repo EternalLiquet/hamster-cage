@@ -1,0 +1,72 @@
+package dev.hamstercage.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import dev.hamstercage.offices.OfficeMapProjection
+import dev.hamstercage.offices.OfficeMapTile
+
+/** Four viewport tiles, a tappable pin and the actual saved boundary radius. */
+@Composable
+fun OfficeMapReview(tile: OfficeMapTile?, latitude: Double, longitude: Double, radiusMeters: Float,
+    onMovePin: (Double, Double) -> Unit) {
+    if (tile == null) {
+        Text("Map not ready. Wait for it to load, retry on a connection, or use Advanced coordinates. No office has been saved.",
+            style = MaterialTheme.typography.bodyMedium)
+        return
+    }
+    Column {
+        Box(Modifier.size(280.dp).semantics {
+            contentDescription = "Office map with pin and boundary. Use the Move pin buttons below to adjust it, or tap the map."
+        }) {
+            Image(tile.bitmap.asImageBitmap(), contentDescription = "OpenStreetMap office area", contentScale = ContentScale.FillBounds,
+                modifier = Modifier.matchParentSize())
+            Canvas(Modifier.matchParentSize().pointerInput(tile) {
+                detectTapGestures { point ->
+                    val (lat, lon) = OfficeMapProjection.pointAt(tile, point.x / size.width, point.y / size.height)
+                    onMovePin(lat, lon)
+                }
+            }) {
+                val (x, y) = OfficeMapProjection.viewportFractions(tile, latitude, longitude)
+                val center = Offset(x * size.width, y * size.height)
+                val radius = OfficeMapProjection.radiusPixels(latitude, radiusMeters, tile.zoom) * size.width / tile.bitmap.width
+                drawCircle(Color(0x8835674D), radius, center)
+                drawCircle(Color(0xFF174B37), radius, center, style = Stroke(width = 3.dp.toPx()))
+                drawCircle(Color(0xFF9A2C24), 8.dp.toPx(), center)
+                drawCircle(Color.White, 8.dp.toPx(), center, style = Stroke(width = 2.dp.toPx()))
+            }
+        }
+        Text("© OpenStreetMap contributors", modifier = Modifier.fillMaxWidth().background(Color.White),
+            color = Color.Black, style = MaterialTheme.typography.labelSmall)
+        val step = (radiusMeters.coerceIn(50f, 5000f) / 2).toInt()
+        listOf(
+            Triple("north", step.toDouble(), 0.0),
+            Triple("south", -step.toDouble(), 0.0),
+            Triple("east", 0.0, step.toDouble()),
+            Triple("west", 0.0, -step.toDouble()),
+        ).forEach { (direction, north, east) ->
+            CageButton("Move pin $direction $step meters", onClick = {
+                val (nextLat, nextLon) = OfficeMapProjection.moveByMeters(latitude, longitude, north, east)
+                onMovePin(nextLat, nextLon)
+            }, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}

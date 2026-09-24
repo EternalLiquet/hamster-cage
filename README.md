@@ -1,12 +1,12 @@
 # Hamster Cage
 
-Hamster Cage is a local Android attendance preview for tracking time at configured offices. Its four offline destinations cover office setup and staged location permission, a live dashboard with week and rolling targets, daily history with append-only corrections, and policy, calendar and privacy controls. Attendance is reconstructed from local source facts with explicit unknown coverage; it does not assume presence across missing events. The Product MVP is still in progress, and the [status ledger](docs/MVP_STATUS.md) records accepted features and remaining gates.
+Hamster Cage is a local Android attendance preview for tracking time at configured offices. Its four destinations cover office setup and staged location permission, a live dashboard with week and rolling targets, daily history with append-only corrections, and policy, calendar and privacy controls. Attendance is reconstructed from local source facts with explicit unknown coverage; it does not assume presence across missing events. The Product MVP is still in progress, and the [status ledger](docs/MVP_STATUS.md) records accepted features and remaining gates.
 
 Product, security, synchronization, UX source material, and visual references are maintained in the private [project-source repository](https://github.com/EternalLiquet/gpt-projects-files/tree/master/hamster-cage). Development follows the phased [roadmap](docs/ROADMAP.md).
 
 ## Privacy
 
-The phone holds the working record in app-private storage. The preview has no INTERNET permission, account, backend, analytics, export or sync, and generic cloud/device-transfer backup is excluded. Settings distinguishes confirmed attendance/calendar deletion from a full Android app-data reset. Deleting or uninstalling the app can permanently lose local history. Optional private sync belongs to later work outside this MVP.
+The phone holds the working record in app-private storage. The earlier version-code-2 preview has no INTERNET permission. Issue #77 adds a narrow, user-driven exception for office setup: a submitted address may reach the device's geocoding provider, and opening map review loads OpenStreetMap tiles for the viewed area. [Office setup and provider disclosure](docs/OFFICE_LOCATION_SETUP.md) explains the choices and offline fallback. Attendance facts, policy, routine capture, calculations and history remain local and usable offline. There is no account, attendance backend, analytics, export or sync, and generic cloud/device-transfer backup is excluded. Settings distinguishes confirmed attendance/calendar deletion from a full Android app-data reset. Deleting or uninstalling the app can permanently lose local history. Optional private sync belongs to later work outside this MVP.
 
 ## Build and install
 

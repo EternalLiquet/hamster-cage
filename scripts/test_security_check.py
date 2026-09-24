@@ -10,6 +10,7 @@ import unittest
 SOURCE = Path(__file__).resolve().parent
 XML = SOURCE.parent / "app/src/main/res/xml"
 SAFE_MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<uses-permission android:name="android.permission.INTERNET" />
 <application android:allowBackup="false" android:usesCleartextTraffic="false"
 android:dataExtractionRules="@xml/data_extraction_rules"
 android:fullBackupContent="@xml/backup_rules" /></manifest>'''
@@ -45,11 +46,16 @@ class SecurityAuditTest(unittest.TestCase):
             script, _, _ = self.fixture(Path(directory))
             self.run_modes(script, True, "PASS:")
 
-    def test_forbidden_network_permission_rejected_under_optimization(self):
+    def test_reviewed_network_permission_is_allowed_without_cleartext(self):
         with tempfile.TemporaryDirectory() as directory:
-            unsafe = SAFE_MANIFEST.replace("<application", '<uses-permission android:name="android.permission.INTERNET" /><application')
-            script, _, _ = self.fixture(Path(directory), unsafe)
-            self.run_modes(script, False, "network permission")
+            reviewed = SAFE_MANIFEST
+            script, _, _ = self.fixture(Path(directory), reviewed)
+            self.run_modes(script, True, "PASS:")
+            target = Path(directory) / "app/build/intermediates/merged_manifests/debug/processDebugManifest/AndroidManifest.xml"
+            target.write_text(reviewed.replace('android:usesCleartextTraffic="false"', 'android:usesCleartextTraffic="true"'), encoding="utf-8")
+            self.run_modes(script, False, "Cleartext traffic")
+            target.write_text(reviewed.replace('<uses-permission android:name="android.permission.INTERNET" />', ''), encoding="utf-8")
+            self.run_modes(script, False, "requires exactly one INTERNET permission")
 
     def test_malformed_manifest_rejected_under_optimization(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -143,7 +149,38 @@ class SecurityAuditTest(unittest.TestCase):
                 source = Path(directory) / "app/src/main/java/synthetic/Tracking.kt"
                 source.parent.mkdir(parents=True)
                 source.write_text("client." + call, encoding="utf-8")
-                self.run_modes(script, False, "Continuous or direct location collection")
+                expected = "One-shot location must stay in reviewed office setup" if call.startswith("getCurrentLocation") else "Continuous or cached location collection"
+                self.run_modes(script, False, expected)
+
+    def test_network_calls_outside_office_setup_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script, _, _ = self.fixture(Path(directory))
+            source = Path(directory) / "app/src/main/java/synthetic/Tracking.kt"
+            source.parent.mkdir(parents=True)
+            source.write_text('URL("https://example.test/visit")', encoding="utf-8")
+            self.run_modes(script, False, "Network calls must stay in reviewed office lookup/map setup")
+
+    def test_office_tile_provider_must_be_exact_https_host_without_redirects(self):
+        for code, expected in [
+            ('URL("https://unreviewed.example/visit").openConnection()\ninstanceFollowRedirects = false', "reviewed HTTPS provider"),
+            ('URL("https://tile.openstreetmap.org/16/1/1.png").openConnection()', "must not follow redirects"),
+        ]:
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
+                script, _, _ = self.fixture(Path(directory))
+                source = Path(directory) / "app/src/main/java/dev/hamstercage/offices/OfficeLocationServices.kt"
+                source.parent.mkdir(parents=True)
+                source.write_text(code, encoding="utf-8")
+                self.run_modes(script, False, expected)
+
+    def test_office_lookup_rejects_cleartext_and_continuous_location(self):
+        for code, expected in [('URL("http://example.test/map")', "Office lookup/map must not use cleartext HTTP"),
+                               ("requestLocationUpdates(request, callback)", "Continuous or cached location collection")]:
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
+                script, _, _ = self.fixture(Path(directory))
+                source = Path(directory) / "app/src/main/java/dev/hamstercage/offices/OfficeLocationServices.kt"
+                source.parent.mkdir(parents=True)
+                source.write_text(code, encoding="utf-8")
+                self.run_modes(script, False, expected)
 
     def test_provider_must_neither_export_nor_grant_data(self):
         for attributes in ['android:exported="true" android:permission="android.permission.DUMP"',
