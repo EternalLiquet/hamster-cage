@@ -49,7 +49,7 @@ class CaptureIntegrationTest {
             assertEquals(receipt, database.dao().events().first().let { Instant.ofEpochMilli(it.receivedAt) })
 
             val exits = GeofenceObservation.records(listOf("a", "b"), Transition.EXIT,
-                Location("synthetic").apply { time = receipt.plusSeconds(1800).toEpochMilli() }, receipt.plusSeconds(1802))
+                Location("synthetic").apply { time = receipt.minusSeconds(2).plusSeconds(1800).toEpochMilli() }, receipt.plusSeconds(1802))
             repository.appendRawEvents(exits)
             val ready = repository.state.first { it is StorageState.Ready } as StorageState.Ready
             assertEquals(4, ready.snapshot.events.size)
