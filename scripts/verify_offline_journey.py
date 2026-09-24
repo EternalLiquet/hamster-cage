@@ -10,9 +10,16 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "dev.hamstercage.preview"
+
+
+def offline_device_state(airplane: str, wifi: str, connectivity: str) -> bool:
+    return airplane == "1" and wifi == "0" and re.search(
+        r"(?m)^Active default network:\s*none\s*$", connectivity
+    ) is not None
 
 
 def main():
@@ -36,13 +43,24 @@ def main():
     adb("install", "-r", str(ROOT / "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"))
     wifi = adb("shell", "settings", "get", "global", "wifi_on").strip()
     data = adb("shell", "settings", "get", "global", "mobile_data").strip()
+    airplane = adb("shell", "settings", "get", "global", "airplane_mode_on").strip()
     try:
+        adb("shell", "cmd", "connectivity", "airplane-mode", "enable")
         adb("shell", "svc", "wifi", "disable")
         adb("shell", "svc", "data", "disable")
-        if adb("shell", "settings", "get", "global", "wifi_on").strip() != "0":
-            raise RuntimeError("Wi-Fi did not turn off; offline evidence is unavailable")
-        if adb("shell", "settings", "get", "global", "mobile_data").strip() != "0":
-            raise RuntimeError("Mobile data did not turn off; offline evidence is unavailable")
+        # On some emulators mobile_data remains 1 in settings even after the radio
+        # disconnects. Require airplane mode, Wi-Fi off and no default network.
+        deadline = time.monotonic() + 15
+        while True:
+            if offline_device_state(
+                adb("shell", "settings", "get", "global", "airplane_mode_on").strip(),
+                adb("shell", "settings", "get", "global", "wifi_on").strip(),
+                adb("shell", "dumpsys", "connectivity"),
+            ):
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Airplane mode/Wi-Fi/default network did not become offline; evidence is unavailable")
+            time.sleep(0.5)
         check("exercise")
         adb("shell", "am", "force-stop", PACKAGE)
         check("restart")
@@ -56,13 +74,15 @@ def main():
             raise RuntimeError("Confirmed deletion did not remain deleted in a different process")
         receipt.update(sourceSha=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                        api=adb("shell", "getprop", "ro.build.version.sdk").strip(),
-                       serial=args.serial, networking="Wi-Fi and mobile data disabled during journey",
+                       serial=args.serial, networking="Airplane mode on, Wi-Fi off, no active default network during journey",
                        locationPermission="Fine location denied; correction still saved", physicalDevice=False)
         output = ROOT / "app/build/reports/offline-journey"
         output.mkdir(parents=True, exist_ok=True)
         (output / "RESULT.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
         print("PASS: real Activity office/capture-fixture/correction/calendar flow, offline and denied-location operation, Activity recreation, fresh-process persistence and confirmed privacy deletion/restart")
     finally:
+        if airplane != "1":
+            adb("shell", "cmd", "connectivity", "airplane-mode", "disable")
         if wifi == "1":
             adb("shell", "svc", "wifi", "enable")
         if data == "1":

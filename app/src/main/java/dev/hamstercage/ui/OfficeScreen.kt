@@ -32,6 +32,7 @@ import dev.hamstercage.offices.OfficeMapTile
 import dev.hamstercage.offices.OfficePlace
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -47,6 +48,9 @@ data class OfficeActions(
     val requestForeground: () -> Unit = {},
     val openDeviceSettings: () -> Unit = {},
 )
+
+private data class MapRequest(val latitude: Double, val longitude: Double, val radiusMeters: Float, val epoch: Int)
+private data class LoadedMap(val request: MapRequest, val tile: OfficeMapTile)
 
 @Composable
 fun OfficeScreen(state: StorageState, actions: OfficeActions) {
@@ -75,16 +79,20 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
     var reviewing by rememberSaveable { mutableStateOf(false) }
     var confirmed by rememberSaveable { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
-    var mapTile by remember { mutableStateOf<OfficeMapTile?>(null) }
+    var loadedMap by remember { mutableStateOf<LoadedMap?>(null) }
     var tileEpoch by remember { mutableStateOf(0) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
+    var mapForeground by remember { mutableStateOf(true) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
                 currentJob?.cancel(); currentJob = null; locating = false
                 searchJob?.cancel(); searchJob = null; searching = false; searchEpoch++
+                mapForeground = false; loadedMap = null
+            } else if (event == Lifecycle.Event.ON_START) {
+                mapForeground = true
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -99,7 +107,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         searchJob?.cancel(); searching = false; locating = false
         latitude = place.latitude.toString(); longitude = place.longitude.toString()
         selectedLabel = place.label; reviewing = true; confirmed = false
-        results = emptyList(); error = null; status = null; mapTile = null; tileEpoch++
+        results = emptyList(); error = null; status = null; loadedMap = null; tileEpoch++
     }
 
     fun populate(draft: OfficeDraft) {
@@ -111,7 +119,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         error = null; status = null
         address = ""; results = emptyList(); searchEpoch++
         selectedLabel = if (draft.latitude.isNotBlank()) "Saved office location" else null
-        reviewing = false; confirmed = selectedLabel != null; advanced = false; mapTile = null
+        reviewing = false; confirmed = selectedLabel != null; advanced = false; loadedMap = null
     }
 
     fun startEditing(office: Office) {
@@ -141,11 +149,22 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         }
     }
 
-    LaunchedEffect(editing, reviewing, latitude, longitude, radius, tileEpoch) {
-        val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull()
-        if (editing && reviewing && lat != null && lon != null && lat in -85.0..85.0 && lon in -180.0..180.0) {
-            mapTile = try { actions.tile(lat, lon, radius.toFloatOrNull()?.coerceIn(50f, 5000f) ?: 150f) } catch (failure: CancellationException) { throw failure }
+    fun currentMapRequest(): MapRequest? {
+        if (!editing || !reviewing || !mapForeground) return null
+        val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull(); val meters = radius.toFloatOrNull()
+        if (lat == null || lon == null || meters == null || lat !in -85.0511..85.0511 || lon !in -180.0..180.0 || meters !in 50f..5000f) return null
+        return MapRequest(lat, lon, meters, tileEpoch)
+    }
+
+    val requestedMap = currentMapRequest()
+    LaunchedEffect(requestedMap) {
+        loadedMap = null
+        if (requestedMap != null) {
+            delay(350) // Only a settled radius or pin starts the four viewed-tile requests.
+            val tile = try { actions.tile(requestedMap.latitude, requestedMap.longitude, requestedMap.radiusMeters) }
+            catch (failure: CancellationException) { throw failure }
             catch (_: Exception) { null }
+            if (requestedMap == currentMapRequest()) loadedMap = tile?.let { LoadedMap(requestedMap, it) }
         }
     }
 
@@ -182,7 +201,8 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
             CageButton(if (searching) "Searching…" else "Search address", onClick = {
                 val query = address.trim(); val epoch = ++searchEpoch
                 searchJob?.cancel(); currentJob?.cancel(); locating = false
-                searching = true; error = null; results = emptyList()
+                searching = true; confirmed = false; reviewing = false; loadedMap = null
+                error = null; results = emptyList()
                 searchJob = scope.launch {
                     try {
                         val found = actions.search(query)
@@ -197,7 +217,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
             }, modifier = Modifier.testTag("searchAddressButton"))
             results.forEach { place -> CageButton("Select ${place.label}", onClick = { currentJob?.cancel(); select(place) }) }
             CageButton(if (locating) "Finding current location…" else "Use my current location", onClick = {
-                val epoch = ++searchEpoch; locating = true; error = null
+                val epoch = ++searchEpoch; locating = true; confirmed = false; reviewing = false; loadedMap = null; error = null
                 searchJob?.cancel(); searching = false; results = emptyList()
                 currentJob?.cancel()
                 currentJob = scope.launch {
@@ -215,32 +235,34 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
             CageButton("Allow precise foreground location", onClick = actions.requestForeground)
             CageButton("Open device location settings", onClick = actions.openDeviceSettings)
             selectedLabel?.let { Text("Selected: $it", style = MaterialTheme.typography.bodyMedium) }
-            OutlinedTextField(radius, { radius = it; confirmed = false; reviewing = true }, label = { Text("Radius (meters)") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(radius, { radius = it; confirmed = false; reviewing = true; loadedMap = null }, label = { Text("Radius (meters)") },
+                modifier = Modifier.fillMaxWidth().testTag("officeRadius"), singleLine = true)
             if (reviewing) {
                 val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull()
                 if (lat != null && lon != null) {
-                    OfficeMapReview(mapTile, lat, lon, radius.toFloatOrNull()?.coerceIn(50f, 5000f) ?: 150f) { newLat, newLon ->
-                        latitude = newLat.toString(); longitude = newLon.toString(); confirmed = false
+                    OfficeMapReview(loadedMap?.takeIf { it.request == currentMapRequest() }?.tile,
+                        lat, lon, radius.toFloatOrNull()?.coerceIn(50f, 5000f) ?: 150f) { newLat, newLon ->
+                        latitude = newLat.toString(); longitude = newLon.toString(); confirmed = false; loadedMap = null
                     }
                 }
-                if (mapTile == null) CageButton("Retry map", onClick = { tileEpoch++ })
+                if (loadedMap?.request != currentMapRequest()) CageButton("Retry map", onClick = { loadedMap = null; tileEpoch++ })
                 CageButton("Confirm pin and radius", onClick = {
-                    if (mapTile == null && selectedLabel != "Manual coordinates") error = "Map unavailable. Retry on a connection or use Advanced manual coordinates."
-                    else if (radius.toFloatOrNull()?.let { it in 50f..5000f } != true) error = "Radius must be between 50 and 5000 meters."
+                    if (radius.toFloatOrNull()?.let { it in 50f..5000f } != true) error = "Radius must be between 50 and 5000 meters."
+                    else if (selectedLabel != "Manual coordinates" && loadedMap?.request != currentMapRequest())
+                        error = "Wait for the current pin and radius map, or use Advanced manual coordinates."
                     else { confirmed = true; reviewing = false; error = null }
                 })
             }
             CageButton(if (advanced) "Hide Advanced" else "Advanced: coordinates and walking grace", onClick = { advanced = !advanced })
             if (advanced) {
-                OutlinedTextField(latitude, { latitude = it; confirmed = false; reviewing = false }, label = { Text("Latitude (degrees)") },
+                OutlinedTextField(latitude, { latitude = it; confirmed = false; reviewing = false; loadedMap = null }, label = { Text("Latitude (degrees)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(longitude, { longitude = it; confirmed = false; reviewing = false }, label = { Text("Longitude (degrees)") },
+                OutlinedTextField(longitude, { longitude = it; confirmed = false; reviewing = false; loadedMap = null }, label = { Text("Longitude (degrees)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)
                 CageButton("Review manual coordinates", onClick = {
                     val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull()
                     if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) error = "Enter valid latitude and longitude."
-                    else { selectedLabel = "Manual coordinates"; reviewing = true; confirmed = false; mapTile = null; tileEpoch++; error = null }
+                    else { selectedLabel = "Manual coordinates"; reviewing = true; confirmed = false; loadedMap = null; tileEpoch++; error = null }
                 })
                 OutlinedTextField(entryGrace, { entryGrace = it }, label = { Text("Entry grace (minutes)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)

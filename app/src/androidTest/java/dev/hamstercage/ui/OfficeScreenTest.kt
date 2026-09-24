@@ -130,6 +130,7 @@ class OfficeScreenTest {
         compose.onNodeWithText("Select Synthetic B").performScrollTo().performClick()
         compose.onNodeWithText("Save office").performScrollTo().performClick()
         assertEquals(null, saved.get())
+        compose.waitUntil(5_000) { tileAttempts.get() == 1 }
         compose.onNodeWithText("Retry map").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("© OpenStreetMap contributors").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
@@ -188,5 +189,109 @@ class OfficeScreenTest {
         compose.onNodeWithText("Save office").performScrollTo().performClick()
         compose.waitUntil(5_000) { saved.get() != null }
         assertEquals(0.0, saved.get()!!.latitude, 0.000001)
+    }
+
+    @Test fun changedRadiusCannotConfirmOldMapBeforeNewViewportLoads() {
+        val snapshot = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
+        val saved = AtomicReference<Office?>(null)
+        val secondTile = CompletableDeferred<OfficeMapTile>()
+        val loads = AtomicInteger()
+        val tile = OfficeMapTile(Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888), 16,
+            OfficeMapProjection.reviewOrigin(0.0, 0.0, 16).first, OfficeMapProjection.reviewOrigin(0.0, 0.0, 16).second)
+        compose.setContent {
+            HamsterTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "new" }, { null },
+                        { office, _ -> saved.set(office) },
+                        search = { listOf(OfficePlace("Synthetic center", 0.0, 0.0)) },
+                        tile = { _, _, _ -> if (loads.incrementAndGet() == 1) tile else secondTile.await() }))
+                }
+            }
+        }
+        compose.onNode(hasText("Add office") and hasClickAction()).performClick()
+        compose.onNodeWithTag("officeName").performTextReplacement("Synthetic office")
+        compose.onNodeWithTag("officeAddress").performTextReplacement("synthetic place")
+        compose.onNodeWithTag("searchAddressButton").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Select Synthetic center").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Select Synthetic center").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("© OpenStreetMap contributors").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("officeRadius").performScrollTo().performTextReplacement("5000")
+        compose.waitUntil(5_000) { loads.get() >= 2 }
+        compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        val wideZoom = OfficeMapProjection.reviewZoom(0.0, 5000f)
+        val (wideX, wideY) = OfficeMapProjection.reviewOrigin(0.0, 0.0, wideZoom)
+        secondTile.complete(OfficeMapTile(Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888), wideZoom, wideX, wideY))
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("© OpenStreetMap contributors").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        compose.waitUntil(5_000) { saved.get() != null }
+        assertEquals(5000f, saved.get()!!.radiusMeters, 0f)
+    }
+
+    @Test fun replacementLookupCannotSaveOldConfirmedCenter() {
+        val office = Office("office-a", "Synthetic office", 0.0, 0.0)
+        val snapshot = AppSnapshot(listOf(office), emptyList(), emptyList(), emptyList(), Policy())
+        val saved = AtomicReference<Office?>(null)
+        val pendingSearch = CompletableDeferred<List<OfficePlace>>()
+        val pendingFix = CompletableDeferred<OfficeFix>()
+        compose.setContent {
+            HamsterTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "new" }, { 1L },
+                        { changed, _ -> saved.set(changed) }, search = { pendingSearch.await() }, current = { pendingFix.await() }))
+                }
+            }
+        }
+        compose.onNodeWithTag("edit-office-a").performClick()
+        compose.onNodeWithTag("officeAddress").performTextReplacement("new synthetic place")
+        compose.onNodeWithTag("searchAddressButton").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        compose.onNodeWithText("Use my current location").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        pendingFix.complete(OfficeFix(OfficePlace("Synthetic current", 1.0, 1.0), 10f))
+    }
+
+    @Test fun accessiblePinMoveWaitsForNewCenteredMap() {
+        val snapshot = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
+        val saved = AtomicReference<Office?>(null)
+        val secondTile = CompletableDeferred<OfficeMapTile>()
+        val loads = AtomicInteger()
+        val zoom = OfficeMapProjection.reviewZoom(0.0, 150f)
+        val (x, y) = OfficeMapProjection.reviewOrigin(0.0, 0.0, zoom)
+        val tile = OfficeMapTile(Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888), zoom, x, y)
+        compose.setContent {
+            HamsterTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "new" }, { null },
+                        { office, _ -> saved.set(office) },
+                        search = { listOf(OfficePlace("Synthetic center", 0.0, 0.0)) },
+                        tile = { _, _, _ -> if (loads.incrementAndGet() == 1) tile else secondTile.await() }))
+                }
+            }
+        }
+        compose.onNode(hasText("Add office") and hasClickAction()).performClick()
+        compose.onNodeWithTag("officeName").performTextReplacement("Synthetic office")
+        compose.onNodeWithTag("officeAddress").performTextReplacement("synthetic place")
+        compose.onNodeWithTag("searchAddressButton").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Select Synthetic center").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Select Synthetic center").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Move pin east 75 meters").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Move pin east 75 meters").performScrollTo().performClick()
+        compose.waitUntil(5_000) { loads.get() >= 2 }
+        compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        val moved = OfficeMapProjection.moveByMeters(0.0, 0.0, 0.0, 75.0)
+        val (movedX, movedY) = OfficeMapProjection.reviewOrigin(moved.first, moved.second, zoom)
+        secondTile.complete(OfficeMapTile(Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888), zoom, movedX, movedY))
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Move pin east 75 meters").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        compose.waitUntil(5_000) { saved.get() != null }
+        assertEquals(moved.second, saved.get()!!.longitude, 0.00001)
     }
 }

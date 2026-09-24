@@ -22,6 +22,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -37,9 +40,14 @@ data class OfficePlace(val label: String, val latitude: Double, val longitude: D
 data class OfficeFix(val place: OfficePlace, val accuracyMeters: Float)
 data class OfficeMapTile(val bitmap: Bitmap, val zoom: Int, val x: Int, val y: Int)
 
+internal fun currentRequestFailure(failure: Exception): IllegalStateException = if (failure is SecurityException)
+    IllegalStateException("Precise foreground location was revoked. Grant it in Settings, then retry; or search an address.")
+else IllegalStateException("Current location service is unavailable. Retry outdoors, check Play Services, or search an address.")
+
 /** Network access is limited to a user-submitted address or a selected map viewport. */
 class OfficeLocationServices(private val context: Context) {
     private val legacySearchLock = Mutex()
+    private val tileRequestLock = Mutex()
     private val activeSearch = AtomicLong(0)
     private val nextSearch = AtomicLong(1)
 
@@ -98,6 +106,10 @@ class OfficeLocationServices(private val context: Context) {
                 }
             } catch (_: TimeoutCancellationException) {
                 throw IllegalStateException("Current location timed out. Retry outdoors or search an address.")
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                throw currentRequestFailure(failure)
             } ?: throw IllegalStateException("No current fix. Move into open sky and retry, or search an address.")
             if (!fix.hasAccuracy() || !fix.accuracy.isFinite() || fix.accuracy > 100f)
                 throw IllegalStateException("Location is too approximate for an office boundary. Retry outdoors or search an address.")
@@ -109,20 +121,22 @@ class OfficeLocationServices(private val context: Context) {
         } finally { cancellation.cancel() }
     }
 
-    suspend fun tile(latitude: Double, longitude: Double, radiusMeters: Float): OfficeMapTile? = withContext(Dispatchers.IO) {
+    suspend fun tile(latitude: Double, longitude: Double, radiusMeters: Float): OfficeMapTile? = tileRequestLock.withLock { withContext(Dispatchers.IO) {
         val zoom = OfficeMapProjection.reviewZoom(latitude, radiusMeters)
         val (x, y) = OfficeMapProjection.reviewOrigin(latitude, longitude, zoom)
+        if (!OfficeMapProjection.reviewFits(latitude, longitude, radiusMeters, zoom)) return@withContext null
         val map = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(map)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG)
         for (row in 0..1) for (column in 0..1) {
-            val tileX = x + column
+            currentCoroutineContext().ensureActive()
+            val tileX = Math.floorMod(x + column, 1 shl zoom)
             val tileY = y + row
-            val bitmap = loadTile(zoom, tileX, tileY) ?: return@withContext null
+            val bitmap = loadTile(zoom, tileX, tileY) ?: run { map.recycle(); return@withContext null }
             canvas.drawBitmap(bitmap, null, android.graphics.Rect(column * 256, row * 256, (column + 1) * 256, (row + 1) * 256), paint)
         }
         OfficeMapTile(map, zoom, x, y)
-    }
+    } }
 
     private fun loadTile(zoom: Int, x: Int, y: Int): Bitmap? {
         val directory = File(context.cacheDir, "office-map-tiles").apply { mkdirs() }
@@ -163,6 +177,12 @@ class OfficeLocationServices(private val context: Context) {
 }
 
 object OfficeMapProjection {
+    fun moveByMeters(latitude: Double, longitude: Double, northMeters: Double, eastMeters: Double): Pair<Double, Double> {
+        val movedLatitude = (latitude + northMeters / 111_320.0).coerceIn(-85.0511, 85.0511)
+        val eastDegrees = eastMeters / (111_320.0 * kotlin.math.cos(Math.toRadians(latitude)).coerceAtLeast(0.08))
+        val movedLongitude = ((longitude + eastDegrees + 180) % 360 + 360) % 360 - 180
+        return movedLatitude to movedLongitude
+    }
     fun world(lat: Double, lon: Double, zoom: Int): Pair<Double, Double> {
         val scale = (1 shl zoom).toDouble()
         val radians = Math.toRadians(lat.coerceIn(-85.0511, 85.0511))
@@ -175,8 +195,15 @@ object OfficeMapProjection {
     fun reviewOrigin(latitude: Double, longitude: Double, zoom: Int): Pair<Int, Int> {
         val (worldX, worldY) = world(latitude, longitude, zoom)
         val largestOrigin = (1 shl zoom) - 2
-        return kotlin.math.floor(worldX - 0.5).toInt().coerceIn(0, largestOrigin) to
+        return kotlin.math.floor(worldX - 0.5).toInt() to
             kotlin.math.floor(worldY - 0.5).toInt().coerceIn(0, largestOrigin)
+    }
+    fun reviewFits(latitude: Double, longitude: Double, radiusMeters: Float, zoom: Int): Boolean {
+        val (originX, originY) = reviewOrigin(latitude, longitude, zoom)
+        val (worldX, worldY) = world(latitude, longitude, zoom)
+        val x = (worldX - originX) / 2; val y = (worldY - originY) / 2
+        val radius = radiusPixels(latitude, radiusMeters, zoom) / 512
+        return x - radius > 0 && x + radius < 1 && y - radius > 0 && y + radius < 1
     }
     fun tileX(lon: Double, zoom: Int) = (((lon + 180) / 360 * (1 shl zoom)).toInt()).coerceIn(0, (1 shl zoom) - 1)
     fun tileY(lat: Double, zoom: Int): Int {
@@ -193,7 +220,8 @@ object OfficeMapProjection {
     fun pointAt(tile: OfficeMapTile, xFraction: Float, yFraction: Float): Pair<Double, Double> {
         val scale = (1 shl tile.zoom).toDouble()
         val tilesAcross = tile.bitmap.width / 256.0
-        val lon = (tile.x + xFraction.coerceIn(0f, 1f) * tilesAcross) / scale * 360 - 180
+        val worldX = (tile.x + xFraction.coerceIn(0f, 1f) * tilesAcross) % scale
+        val lon = ((worldX + scale) % scale) / scale * 360 - 180
         val n = Math.PI * (1 - 2 * (tile.y + yFraction.coerceIn(0f, 1f) * tilesAcross) / scale)
         val lat = Math.toDegrees(kotlin.math.atan(kotlin.math.sinh(n)))
         return lat to lon

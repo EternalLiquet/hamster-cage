@@ -29,13 +29,13 @@ import dev.hamstercage.offices.OfficeMapTile
 fun OfficeMapReview(tile: OfficeMapTile?, latitude: Double, longitude: Double, radiusMeters: Float,
     onMovePin: (Double, Double) -> Unit) {
     if (tile == null) {
-        Text("Map unavailable. Retry on a connection or use Advanced coordinates. No office has been saved.",
+        Text("Map not ready. Wait for it to load, retry on a connection, or use Advanced coordinates. No office has been saved.",
             style = MaterialTheme.typography.bodyMedium)
         return
     }
     Column {
         Box(Modifier.size(280.dp).semantics {
-            contentDescription = "Office map. Tap to move the pin; the circle shows the saved boundary radius."
+            contentDescription = "Office map with pin and boundary. Use the Move pin buttons below to adjust it, or tap the map."
         }) {
             Image(tile.bitmap.asImageBitmap(), contentDescription = "OpenStreetMap office area", contentScale = ContentScale.FillBounds,
                 modifier = Modifier.matchParentSize())
@@ -56,5 +56,17 @@ fun OfficeMapReview(tile: OfficeMapTile?, latitude: Double, longitude: Double, r
         }
         Text("© OpenStreetMap contributors", modifier = Modifier.fillMaxWidth().background(Color.White),
             color = Color.Black, style = MaterialTheme.typography.labelSmall)
+        val step = (radiusMeters.coerceIn(50f, 5000f) / 2).toInt()
+        listOf(
+            Triple("north", step.toDouble(), 0.0),
+            Triple("south", -step.toDouble(), 0.0),
+            Triple("east", 0.0, step.toDouble()),
+            Triple("west", 0.0, -step.toDouble()),
+        ).forEach { (direction, north, east) ->
+            CageButton("Move pin $direction $step meters", onClick = {
+                val (nextLat, nextLon) = OfficeMapProjection.moveByMeters(latitude, longitude, north, east)
+                onMovePin(nextLat, nextLon)
+            }, modifier = Modifier.fillMaxWidth())
+        }
     }
 }
