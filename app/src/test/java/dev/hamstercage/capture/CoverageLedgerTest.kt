@@ -17,6 +17,8 @@ class CoverageLedgerTest {
         val restarted = at("2025-03-11T15:00:00Z")
         val recovered = restarted.plusSeconds(60)
         val healthy = CoverageLedger().registrationSucceeded(first, zone, true).observed(first.plusSeconds(2))
+        assertEquals(LocalDate.parse("2025-03-09"), healthy.historyStartDate)
+        assertTrue(LocalDate.parse("2025-03-09") in healthy.unreviewedUnknownDates)
         assertTrue(healthy.presenceConfirmed(first.plusSeconds(3), zone))
 
         val gap = healthy.processStarted(restarted, zone)
@@ -70,5 +72,15 @@ class CoverageLedgerTest {
             .processStarted(later, zone).registrationSucceeded(later, zone, true)
         assertEquals(null, uncertain.historyStartDate)
         assertFalse(uncertain.presenceConfirmed(later, zone))
+    }
+
+    @Test fun firstObservedTransitionStartsPolicyLocalCoverageImmediately() {
+        val registered = at("2025-03-10T03:20:00Z")
+        val firstEvent = at("2025-03-10T03:30:00Z")
+        val ledger = CoverageLedger().registrationSucceeded(registered, zone, true)
+        assertEquals(null, ledger.historyStartDate)
+        val observed = ledger.observed(firstEvent)
+        assertEquals(LocalDate.parse("2025-03-09"), observed.historyStartDate)
+        assertTrue(LocalDate.parse("2025-03-09") in observed.unreviewedUnknownDates)
     }
 }

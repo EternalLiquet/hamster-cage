@@ -26,6 +26,7 @@ private val THROUGH = longPreferencesKey("outage_through_day")
 private val BOUNDARY = longPreferencesKey("recovery_boundary_ms")
 private val OBSERVED = longPreferencesKey("last_observation_ms")
 private val REGISTRATION = stringPreferencesKey("registration")
+private val POLICY_ZONE = stringPreferencesKey("policy_zone")
 
 /** App-private, atomic capture confidence metadata, separate from immutable Room facts. */
 internal object CoverageStore {
@@ -49,7 +50,8 @@ internal object CoverageStore {
         return CoverageLedger(date(p[START]), p[UNKNOWN].orEmpty().map(LocalDate::parse).toSet(),
             p[REVIEWED].orEmpty().map(LocalDate::parse).toSet(), instant(p[HEALTHY]),
             instant(p[OUTAGE]), date(p[THROUGH]), instant(p[BOUNDARY]), instant(p[OBSERVED]),
-            p[REGISTRATION]?.let(RegistrationStatus::valueOf) ?: RegistrationStatus.UNKNOWN)
+            p[REGISTRATION]?.let(RegistrationStatus::valueOf) ?: RegistrationStatus.UNKNOWN,
+            p[POLICY_ZONE]?.let(java.time.ZoneId::of))
     }
 
     private fun encode(p: androidx.datastore.preferences.core.MutablePreferences, value: CoverageLedger) {
@@ -64,5 +66,6 @@ internal object CoverageStore {
         set(BOUNDARY, value.recoveryBoundaryAt?.toEpochMilli())
         set(OBSERVED, value.lastObservationAt?.toEpochMilli())
         p[REGISTRATION] = value.registration.name
+        if (value.policyZoneId == null) p.remove(POLICY_ZONE) else p[POLICY_ZONE] = value.policyZoneId.id
     }
 }

@@ -15,6 +15,7 @@ data class CoverageLedger(
     val recoveryBoundaryAt: Instant? = null,
     val lastObservationAt: Instant? = null,
     val registration: RegistrationStatus = RegistrationStatus.UNKNOWN,
+    val policyZoneId: ZoneId? = null,
 ) {
     /** A new process cannot assume an old OS registration survived a force-stop. */
     fun processStarted(now: Instant, zone: ZoneId): CoverageLedger =
@@ -35,12 +36,12 @@ data class CoverageLedger(
         if (firstDate.plusDays(3660) < through) return copy(
             historyStartDate = null, unknownDates = emptySet(), reviewedDates = emptySet(),
             lastObservationAt = null, outageStartedAt = first, outageRecordedThrough = through,
-            recoveryBoundaryAt = null, registration = RegistrationStatus.FAILED,
+            recoveryBoundaryAt = null, registration = RegistrationStatus.FAILED, policyZoneId = zone,
         )
         val newlyAffected = dates(firstDate, through)
         return copy(unknownDates = unknownDates + newlyAffected, reviewedDates = reviewedDates - newlyAffected,
             outageStartedAt = first, outageRecordedThrough = through, recoveryBoundaryAt = null,
-            registration = RegistrationStatus.FAILED)
+            registration = RegistrationStatus.FAILED, policyZoneId = zone)
     }
 
     fun registrationSucceeded(now: Instant, zone: ZoneId, hasOffices: Boolean): CoverageLedger {
@@ -53,14 +54,19 @@ data class CoverageLedger(
                 recovered.unknownDates + firstObservedDay else recovered.unknownDates,
             lastHealthyAt = now, outageStartedAt = null, outageRecordedThrough = null,
             recoveryBoundaryAt = if (outageStartedAt != null) now else recoveryBoundaryAt ?: now,
-            registration = RegistrationStatus.ACTIVE)
+            registration = RegistrationStatus.ACTIVE, policyZoneId = zone)
     }
 
-    fun observed(at: Instant): CoverageLedger = copy(
+    fun observed(at: Instant): CoverageLedger {
+        val firstObservedDay = if (historyStartDate == null) policyZoneId?.let { at.atZone(it).toLocalDate() } else null
+        return copy(
+        historyStartDate = historyStartDate ?: firstObservedDay,
+        unknownDates = if (firstObservedDay == null) unknownDates else unknownDates + firstObservedDay,
         lastObservationAt = if (lastObservationAt == null || at > lastObservationAt) at else lastObservationAt,
         lastHealthyAt = if (registration == RegistrationStatus.ACTIVE && outageStartedAt == null &&
             (lastHealthyAt == null || at > lastHealthyAt)) at else lastHealthyAt,
     )
+    }
 
     fun presenceConfirmed(now: Instant, zone: ZoneId): Boolean =
         registration == RegistrationStatus.ACTIVE && outageStartedAt == null &&
