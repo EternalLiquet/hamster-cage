@@ -27,7 +27,7 @@ class ShellSmokeTest {
         destinations.forEach { (label, description) ->
             compose.onNode(hasText(label) and hasClickAction()).performClick()
             if (label == "Dashboard")
-                compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals(description)
+                compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals(description).assertIsDisplayed()
             else compose.onNodeWithText(description, substring = true).performScrollTo().assertIsDisplayed()
         }
     }

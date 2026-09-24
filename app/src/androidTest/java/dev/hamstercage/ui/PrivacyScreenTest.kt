@@ -146,7 +146,7 @@ class PrivacyScreenTest {
         compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
         releaseFreshCoverage.complete(Unit)
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Office state unknown").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown")
+        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown").assertIsDisplayed()
         compose.onNodeWithTag("today_balance").performScrollTo().assertTextContains("Unknown")
         compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
     }

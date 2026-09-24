@@ -38,7 +38,7 @@ class CoverageNoticeTest {
             }
         }
         compose.onNodeWithText("Attendance coverage needs review").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown")
+        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown").assertIsDisplayed()
     }
 
     @Test fun currentRegistrationFailureOverridesStaleConfirmedCoverage() {
@@ -57,7 +57,7 @@ class CoverageNoticeTest {
                     coverage = stale, captureStatus = CaptureStatus(RegistrationStatus.FAILED))
             }
         }
-        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown")
+        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown").assertIsDisplayed()
         compose.onNodeWithText("Office detection unavailable").performScrollTo().assertIsDisplayed()
     }
 
@@ -77,7 +77,7 @@ class CoverageNoticeTest {
                     coverage = stale, captureStatus = CaptureStatus(RegistrationStatus.ACTIVE, deliveryFailure = true))
             }
         }
-        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown")
+        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown").assertIsDisplayed()
         compose.onNodeWithText("Attendance capture needs attention").performScrollTo().assertIsDisplayed()
     }
 }
