@@ -73,6 +73,13 @@ class HistoryDeletionTest {
             assertTrue(retained.isEmpty())
             assertFalse(coveragePresent || healthPresent)
             assertEquals(PrivacyResetState.Idle(1), journal.read())
+            journal.markRetiredThrough(0)
+            scope.cancel()
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            journal = PrivacyResetJournal(PreferenceDataStoreFactory.create(scope = scope) {
+                context.preferencesDataStoreFile(name)
+            })
+            assertEquals(0L, journal.retiredThrough())
         } finally {
             scope.cancel()
             context.preferencesDataStoreFile(name).delete()

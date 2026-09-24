@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import dev.hamstercage.capture.FenceRetirementLedger
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +20,7 @@ private val Context.privacyResetPreferences by preferencesDataStore("privacy_res
 private val VERSION = intPreferencesKey("version")
 private val GENERATION = longPreferencesKey("generation")
 private val PENDING = booleanPreferencesKey("pending_history_delete")
+private val RETIRED_THROUGH = longPreferencesKey("retired_fence_generation_through")
 
 sealed interface PrivacyResetState {
     val generation: Long
@@ -60,10 +62,27 @@ internal class PrivacyResetJournal(private val preferences: DataStore<Preference
         }
     }
 
+    suspend fun retiredThrough(): Long = preferences.data.map { saved ->
+        decode(saved) // An unreadable or unsupported journal cannot authorize registration.
+        saved[RETIRED_THROUGH] ?: -1L
+    }.first()
+
+    suspend fun markRetiredThrough(generation: Long) {
+        preferences.edit { mutable ->
+            val current = decode(mutable)
+            require(generation >= 0 && generation < current.generation) { "Invalid retired fence generation" }
+            val previous = mutable[RETIRED_THROUGH] ?: -1L
+            require(generation == previous + 1) { "Fence retirement sequence changed" }
+            mutable[RETIRED_THROUGH] = generation
+        }
+    }
+
     private fun decode(preferences: Preferences): PrivacyResetState {
         require((preferences[VERSION] ?: 1) == 1) { "Unsupported privacy reset version" }
         val generation = preferences[GENERATION] ?: 0L
         require(generation >= 0) { "Invalid privacy reset generation" }
+        val retired = preferences[RETIRED_THROUGH] ?: -1L
+        require(retired >= -1L && retired < generation) { "Invalid fence retirement cursor" }
         return if (preferences[PENDING] == true) PrivacyResetState.Pending(generation)
         else PrivacyResetState.Idle(generation)
     }
@@ -75,4 +94,9 @@ internal object PrivacyResetStore {
     suspend fun read(context: Context): PrivacyResetState = journal(context).read()
     suspend fun begin(context: Context): PrivacyResetState.Pending = journal(context).begin()
     suspend fun complete(context: Context, generation: Long) = journal(context).complete(generation)
+    fun fenceRetirement(context: Context): FenceRetirementLedger = object : FenceRetirementLedger {
+        private val journal = journal(context)
+        override suspend fun retiredThrough(): Long = journal.retiredThrough()
+        override suspend fun markRetiredThrough(generation: Long) = journal.markRetiredThrough(generation)
+    }
 }

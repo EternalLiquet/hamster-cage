@@ -31,7 +31,7 @@ class GeofenceRegistrarFailureTest {
     @Test fun historyDeletionGenerationSeparatesOldQueuedCallbacks() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val operations = FailingRemoval().apply { fail = false }
-        val registrar = GeofenceRegistrar(context, operations = operations)
+        val registrar = GeofenceRegistrar(context, operations = operations, retirement = MemoryRetirement())
         val old = registrar.pendingIntent(0)
         val afterDelete = registrar.pendingIntent(1)
         try {
@@ -49,7 +49,8 @@ class GeofenceRegistrarFailureTest {
     @Test fun laterResetRetriesFenceLeftByEarlierFailedRemoval() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val operations = FailingRemoval().apply { fail = false }
-        val registrar = GeofenceRegistrar(context, operations = operations)
+        val retirement = MemoryRetirement()
+        val registrar = GeofenceRegistrar(context, operations = operations, retirement = retirement)
         val stale = registrar.pendingIntent(0)
         val firstReset = registrar.pendingIntent(1)
         val secondReset = registrar.pendingIntent(2)
@@ -60,13 +61,30 @@ class GeofenceRegistrarFailureTest {
             assertEquals(listOf(stale), operations.removed)
 
             operations.failedIntent = null
+            // A new registrar simulates process restart with only the durable cursor.
+            val restarted = GeofenceRegistrar(context, operations = operations, retirement = retirement)
             assertEquals(RegistrationStatus.NEEDS_SETUP,
-                registrar.synchronize(emptyList(), ready = false, generation = 2).registration)
+                restarted.synchronize(emptyList(), ready = false, generation = 2).registration)
             assertEquals(listOf(stale, stale, firstReset, secondReset), operations.removed)
+            assertEquals(1L, retirement.through)
+
+            operations.removed.clear()
+            assertEquals(RegistrationStatus.NEEDS_SETUP,
+                restarted.synchronize(emptyList(), ready = false, generation = 2).registration)
+            assertEquals(listOf(secondReset), operations.removed)
         } finally {
             stale.cancel()
             firstReset.cancel()
             secondReset.cancel()
+        }
+    }
+
+    private class MemoryRetirement : FenceRetirementLedger {
+        var through = -1L
+        override suspend fun retiredThrough(): Long = through
+        override suspend fun markRetiredThrough(generation: Long) {
+            assertEquals(through + 1, generation)
+            through = generation
         }
     }
 

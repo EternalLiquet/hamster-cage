@@ -11,6 +11,7 @@ import com.google.android.gms.location.GeofencingClient
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
 import dev.hamstercage.offices.OfficeRegistrationIntent
+import dev.hamstercage.privacy.PrivacyResetStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.sync.Mutex
@@ -21,6 +22,7 @@ class GeofenceRegistrar(
     context: Context,
     private val client: GeofencingClient = LocationServices.getGeofencingClient(context.applicationContext),
     private val operations: FenceOperations = PlayServicesFenceOperations(context.applicationContext, client),
+    private val retirement: FenceRetirementLedger = PrivacyResetStore.fenceRetirement(context.applicationContext),
 ) {
     private val application = context.applicationContext
     private val lock = Mutex()
@@ -86,12 +88,12 @@ class GeofenceRegistrar(
     }
 
     private suspend fun removeCurrentAndPrevious(generation: Long) {
-        // A failed removal at an earlier generation must still be retried after
-        // another history delete. The journal generation is durable, while the
-        // registrar's in-memory last-applied generation is not.
-        var prior = 0L
+        // The durable cursor bounds the healthy path while retaining every
+        // failed older removal for retry, including after process restart.
+        var prior = retirement.retiredThrough() + 1
         while (prior < generation) {
             operations.remove(pendingIntent(prior))
+            retirement.markRetiredThrough(prior)
             prior++
         }
         operations.remove(pendingIntent(generation))
@@ -118,6 +120,12 @@ class GeofenceRegistrar(
 interface FenceOperations {
     suspend fun remove(intent: PendingIntent)
     suspend fun add(request: GeofencingRequest, intent: PendingIntent)
+}
+
+/** Persisted after each successful prior-generation removal, never for the live generation. */
+interface FenceRetirementLedger {
+    suspend fun retiredThrough(): Long
+    suspend fun markRetiredThrough(generation: Long)
 }
 
 private class PlayServicesFenceOperations(private val context: Context, private val client: GeofencingClient) : FenceOperations {
