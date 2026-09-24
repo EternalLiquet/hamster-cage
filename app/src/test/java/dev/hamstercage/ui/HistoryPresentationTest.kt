@@ -99,4 +99,24 @@ class HistoryPresentationTest {
         assertTrue("REVIEW" in page[1].badges)
         assertEquals(0.0, page[1].summary.creditedMinutes, 0.001)
     }
+
+    @Test fun olderMalformedEndDateRemainsReachableByPaging() {
+        val source = input().copy(historyStartDate = null, manualSessions = listOf(
+            ManualSession("bad", office.id, now.minusSeconds(3600), now.minusSeconds(30 * 86400L), now)))
+        assertEquals(today.minusDays(30), earliestHistoryDate(source))
+        val older = historyDays(source, AttendanceEngine.derive(source), 28).single { it.date == today.minusDays(30) }
+        assertTrue("REVIEW" in older.badges)
+    }
+
+    @Test fun conflictingRawIdMarksEveryRetainedCopyDate() {
+        val source = input().copy(events = listOf(
+            RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(3600)),
+            RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(86400 + 3600)),
+        ))
+        val result = AttendanceEngine.derive(source)
+        assertTrue(result.reviews.any { it.reason == ReviewReason.CONFLICTING_EVENT_ID })
+        val page = historyDays(source, result)
+        assertTrue("REVIEW" in page[0].badges)
+        assertTrue("REVIEW" in page[1].badges)
+    }
 }

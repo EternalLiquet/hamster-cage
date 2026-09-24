@@ -11,7 +11,7 @@ data class HistoryDay(val date: LocalDate, val summary: PeriodSummary, val badge
 fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: Int = 0): List<HistoryDay> {
     require(offsetDays >= 0)
     val last = input.now.atZone(input.policy.zoneId).toLocalDate().minusDays(offsetDays.toLong())
-    val eventsById = input.events.associateBy { it.id }
+    val eventsById = input.events.groupBy { it.id }
     return (0 until HISTORY_PAGE_DAYS).map { offset ->
         val date = last.minusDays(offset.toLong())
         val start = date.atStartOfDay(input.policy.zoneId).toInstant()
@@ -20,7 +20,7 @@ fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: In
         val sessions = result.sessions.filter { session ->
             val effectiveStart = session.start
             (effectiveStart != null && effectiveStart < end && (session.end ?: input.now) > start) ||
-                session.sourceEventIds.any { onDay(eventsById[it]?.at) } ||
+                session.sourceEventIds.any { id -> eventsById[id].orEmpty().any { onDay(it.at) } } ||
                 onDay(session.start) || onDay(session.end)
         }
         val summary = AttendanceEngine.daily(input, result, date)
@@ -32,7 +32,7 @@ fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: In
         val review = result.reviews.any { item ->
             item.reason != ReviewReason.DUPLICATE_EVENT && (
                 sessions.any { item.sessionId in it.correctionTargetIds } ||
-                    item.sourceEventIds.any { onDay(eventsById[it]?.at) } || retainedSourceOnDay(item.sessionId))
+                    item.sourceEventIds.any { id -> eventsById[id].orEmpty().any { onDay(it.at) } } || retainedSourceOnDay(item.sessionId))
         }
         val badges = buildList {
             input.policy.excludedDates.find { it.date == date }?.let {
@@ -54,8 +54,17 @@ fun earliestHistoryDate(input: AttendanceInput): LocalDate {
         yield(input.now.atZone(zone).toLocalDate().minusDays((HISTORY_PAGE_DAYS - 1).toLong()))
         input.historyStartDate?.let { yield(it) }
         input.events.forEach { yield(it.at.atZone(zone).toLocalDate()) }
-        input.manualSessions.forEach { yield(it.start.atZone(zone).toLocalDate()) }
-        input.corrections.forEach { yield(it.start.atZone(zone).toLocalDate()) }
+        input.manualSessions.forEach {
+            yield(it.start.atZone(zone).toLocalDate())
+            it.end?.let { end -> yield(end.atZone(zone).toLocalDate()) }
+            yield(it.createdAt.atZone(zone).toLocalDate())
+        }
+        input.corrections.forEach {
+            yield(it.start.atZone(zone).toLocalDate())
+            it.end?.let { end -> yield(end.atZone(zone).toLocalDate()) }
+            yield(it.createdAt.atZone(zone).toLocalDate())
+        }
+        yieldAll(input.unknownDates)
         input.policy.excludedDates.forEach { yield(it.date) }
         yieldAll(input.policy.wfhDates)
     }
