@@ -73,5 +73,6 @@ private fun readSettings(prefs: Preferences): PolicySettings {
         prefs[GAP] ?: 10, prefs[MAX_OPEN] ?: 16,
     )
     settings.toPolicy()
+    require(settings.expectedWeekdays.isNotEmpty()) { "Choose at least one expected weekday." }
     return settings
 }

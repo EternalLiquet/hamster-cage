@@ -1,6 +1,9 @@
 package dev.hamstercage.data
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.hamstercage.domain.*
@@ -17,6 +20,38 @@ import org.junit.Test
 
 class PolicyIntegrationTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @Test fun legacyAndVersionedEmptyWeekdaysFailClosedWithoutReplacingPersistedBytes() = runBlocking {
+        for (version in listOf<Int?>(null, 1)) {
+            val name = "empty-weekdays-${UUID.randomUUID()}"
+            val file = context.preferencesDataStoreFile(name)
+            var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            var preferences = PreferenceDataStoreFactory.create(scope = scope) { file }
+            val database = HamsterDatabase.open(context, "$name.db")
+            try {
+                preferences.edit {
+                    it[stringSetPreferencesKey("expected_weekdays")] = emptySet()
+                    version?.let { value -> it[intPreferencesKey("policy_schema_version")] = value }
+                }
+                scope.cancel(); scope.coroutineContext[Job]?.join()
+                val original = file.readBytes()
+                scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+                preferences = PreferenceDataStoreFactory.create(
+                    migrations = listOf(LegacyPolicyMigration), scope = scope,
+                ) { file }
+                val repository = HamsterRepository(database, preferences, TimeSource { Instant.parse("2026-09-23T16:00:00Z") })
+                assertEquals(StorageState.Unavailable, withTimeout(10_000) { repository.state.first() })
+                var rejected = false
+                try { repository.savePolicy(PolicySettings()) } catch (_: IllegalArgumentException) { rejected = true }
+                assertTrue("Invalid saved policy must not be overwritten", rejected)
+                scope.cancel(); scope.coroutineContext[Job]?.join()
+                assertArrayEquals(original, file.readBytes())
+            } finally {
+                database.close(); scope.cancel(); scope.coroutineContext[Job]?.join()
+                context.deleteDatabase("$name.db"); file.delete()
+            }
+        }
+    }
 
     @Test fun validationAndStaleEditsAreAtomicAndRestartKeepsExplicitZone() = runBlocking {
         val name = "policy-${UUID.randomUUID()}"
