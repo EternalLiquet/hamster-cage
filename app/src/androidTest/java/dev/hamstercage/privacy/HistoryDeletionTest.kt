@@ -63,6 +63,13 @@ class HistoryDeletionTest {
                 scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
                 val reopened = PrivacyResetJournal(PreferenceDataStoreFactory.create(scope = scope) { file })
                 assertEquals(PrivacyResetState.Unavailable, reopened.read())
+                var deleted = false
+                try {
+                    HistoryDeletionProtocol(reopened, Mutex(),
+                        deleteFacts = { deleted = true }, resetCoverage = {}, resetHealth = {})
+                        .run(beginIfNeeded = false)
+                } catch (_: IllegalStateException) { Unit }
+                assertFalse("Malformed $partial must not delete source facts", deleted)
                 var rejected = false
                 try { reopened.begin() } catch (_: Exception) { rejected = true }
                 assertTrue("Partial $partial cannot authorize another reset", rejected)

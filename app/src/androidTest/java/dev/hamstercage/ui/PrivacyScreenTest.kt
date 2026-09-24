@@ -9,14 +9,26 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import dev.hamstercage.data.AppSnapshot
+import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.StorageState
+import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.Policy
+import dev.hamstercage.domain.RawEvent
 import dev.hamstercage.domain.TimeSource
+import dev.hamstercage.domain.Transition
 import dev.hamstercage.privacy.PrivacyResetState
+import dev.hamstercage.privacy.PrivacyStorageState
+import dev.hamstercage.privacy.privacyVisibleStorage
 import java.time.Instant
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -79,5 +91,42 @@ class PrivacyScreenTest {
         }
         compose.onNodeWithText("History deletion pending").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Office state unknown").assertDoesNotExist()
+    }
+
+    @Test fun idleAfterDeleteWaitsForFreshRoomQueryBeforeShowingAttendance() {
+        val now = Instant.parse("2025-03-10T20:00:00Z")
+        val office = Office("synthetic", "Synthetic office", 0.0, 0.0)
+        val entered = now.minusSeconds(60)
+        val old = StorageState.Ready(AppSnapshot(listOf(office), listOf(RecordedEvent(
+            RawEvent("before-delete", office.id, Transition.ENTER, entered), entered)),
+            emptyList(), emptyList(), Policy()))
+        val fresh = StorageState.Ready(AppSnapshot(listOf(office), emptyList(), emptyList(), emptyList(), Policy()))
+        val reset = MutableStateFlow<PrivacyResetState>(PrivacyResetState.Idle(0))
+        val releaseFreshQuery = CompletableDeferred<Unit>()
+        var subscriptions = 0
+        val paired = privacyVisibleStorage(reset) {
+            flow {
+                subscriptions++
+                if (subscriptions == 1) emit(old)
+                else { releaseFreshQuery.await(); emit(fresh) }
+            }
+        }
+        compose.setContent {
+            val presentation by paired.collectAsState(
+                initial = PrivacyStorageState(PrivacyResetState.Unavailable, StorageState.Unavailable))
+            HamsterApp(TimeSource { now }, storageState = presentation.storage,
+                privacyState = presentation.reset, trackingReady = true)
+        }
+        compose.onNodeWithText("In Synthetic office").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle { reset.value = PrivacyResetState.Pending(1) }
+        compose.onNodeWithText("History deletion pending").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
+        compose.runOnIdle { reset.value = PrivacyResetState.Idle(1) }
+        compose.onNodeWithText("Opening your local record…").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
+        releaseFreshQuery.complete(Unit)
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Office state unknown").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Office state unknown").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
     }
 }

@@ -12,6 +12,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import dev.hamstercage.capture.CaptureController
@@ -29,6 +30,8 @@ import dev.hamstercage.location.backgroundPermissionAction
 import dev.hamstercage.privacy.PrivacyController
 import dev.hamstercage.privacy.PrivacyResetState
 import dev.hamstercage.privacy.PrivacyResetStore
+import dev.hamstercage.privacy.PrivacyStorageState
+import dev.hamstercage.privacy.privacyVisibleStorage
 import dev.hamstercage.ui.HamsterApp
 import dev.hamstercage.ui.OfficeActions
 import dev.hamstercage.ui.CorrectionActions
@@ -53,8 +56,13 @@ class MainActivity : ComponentActivity() {
         val privacy = PrivacyController.get(this)
         CaptureController.get(this)
         setContent {
-            val storageState by repository.state.collectAsState(initial = StorageState.Loading)
-            val privacyState by privacy.state.collectAsState(initial = PrivacyResetState.Unavailable)
+            val visible = remember(repository, privacy) {
+                privacyVisibleStorage(privacy.state) { repository.state }
+            }
+            val presentation by visible.collectAsState(
+                initial = PrivacyStorageState(PrivacyResetState.Unavailable, StorageState.Unavailable))
+            val storageState = presentation.storage
+            val privacyState = presentation.reset
             val captureStatus by CaptureHealth.state.collectAsState()
             val coverage by CoverageStore.state(this).collectAsState(initial = CoverageLedger())
             val editingGeneration = (privacyState as? PrivacyResetState.Idle)?.generation
