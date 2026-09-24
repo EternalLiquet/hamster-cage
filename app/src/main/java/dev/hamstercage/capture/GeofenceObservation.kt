@@ -18,15 +18,19 @@ internal object GeofenceObservation {
             Geofence.GEOFENCE_TRANSITION_EXIT -> Transition.EXIT
             else -> throw IllegalArgumentException("Unsupported geofence transition.")
         }
-        val ids = event.triggeringGeofences?.map { it.requestId }?.distinct().orEmpty()
-        require(ids.isNotEmpty() && ids.all { it.isNotBlank() && it.length <= 200 }) { "Invalid geofence IDs." }
+        val triggers = event.triggeringGeofences?.take(MAX_OFFICES + 1).orEmpty()
+        val ids = triggers.map { it.requestId }.distinct()
+        require(triggers.size <= MAX_OFFICES && ids.isNotEmpty() && ids.all { it.isNotBlank() && it.length <= 200 }) {
+            "Invalid geofence IDs."
+        }
         return records(ids, transition, event.triggeringLocation, receivedAt)
     }
 
     internal fun records(
         officeIds: List<String>, transition: Transition, location: Location?, receivedAt: Instant,
     ): List<RecordedEvent> {
-        require(officeIds.isNotEmpty() && officeIds.all { it.isNotBlank() && it.length <= 200 })
+        require(officeIds.isNotEmpty() && officeIds.size <= MAX_OFFICES &&
+            officeIds.all { it.isNotBlank() && it.length <= 200 })
         val observedAt = location?.time?.takeIf { it > 0 && it <= receivedAt.toEpochMilli() }?.let(Instant::ofEpochMilli)
         val eventAt = observedAt ?: receivedAt
         return officeIds.distinct().map { officeId ->
@@ -40,4 +44,6 @@ internal object GeofenceObservation {
 
     private fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private const val MAX_OFFICES = 100
 }

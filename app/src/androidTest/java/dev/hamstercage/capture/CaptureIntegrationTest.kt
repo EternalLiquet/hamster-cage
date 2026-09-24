@@ -83,4 +83,13 @@ class CaptureIntegrationTest {
         catch (_: IllegalArgumentException) { rejected = true }
         assertTrue(rejected)
     }
+
+    @Test fun oversizedOrMalformedTransitionBatchIsRejectedBeforePersistence() {
+        for (ids in listOf(List(101) { "office-$it" }, listOf(""), listOf("a".repeat(201)))) {
+            var rejected = false
+            try { GeofenceObservation.records(ids, Transition.ENTER, null, receipt) }
+            catch (_: IllegalArgumentException) { rejected = true }
+            assertTrue(rejected)
+        }
+    }
 }
