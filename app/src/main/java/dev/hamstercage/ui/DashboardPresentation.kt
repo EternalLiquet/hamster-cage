@@ -25,12 +25,17 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
         !trackingReady -> "Office state unknown"
         review -> "Needs review"
         open.size == 1 -> if (open.single().manualSessionId != null) "Manual session active" else
-            "In ${input.offices.single { it.id == open.single().officeId }.name}"
+            "In ${dashboardOfficeName(input.offices.single { it.id == open.single().officeId }.name)}"
         latest?.transition == Transition.EXIT && latest.at.atZone(input.policy.zoneId).toLocalDate() == today -> "Outside office"
         else -> "Office state unknown"
     }
     return DashboardPresence(label, review, open.mapNotNull { it.start }.minOrNull(), open.any { it.manualSessionId != null || it.correctionId != null })
 }
+
+/** User-controlled labels cannot inject directional/control characters into presence text. */
+internal fun dashboardOfficeName(name: String): String = name
+    .filter { !it.isISOControl() && Character.getType(it) != Character.FORMAT.toInt() }
+    .take(120).ifBlank { "configured office" }
 
 /** Display completed credited minutes; round a remaining deficit up so it never reads as met early. */
 fun minutesText(value: Double): String {
