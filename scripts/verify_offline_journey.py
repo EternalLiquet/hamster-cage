@@ -27,7 +27,7 @@ def main():
         return subprocess.check_output([args.adb, "-s", args.serial, *command], text=True, encoding="utf-8", errors="replace")
 
     def check(action):
-        output = adb("shell", "am", "instrument", "-w", "-e", "class", "dev.hamstercage.ui.OfflineJourneyHostTest",
+        output = adb("shell", "am", "instrument", "-w", "-e", "class", "dev.hamstercage.ui.OfflineJourneyHostTest#completeOfflineJourneyAndFreshProcessReopen",
                      "-e", "offlineJourneyAction", action, PACKAGE + ".test/androidx.test.runner.AndroidJUnitRunner")
         if "OK (1 test)" not in output or "FAILURES" in output:
             raise RuntimeError("Synthetic journey failed; source data was not erased.\n" + output)
