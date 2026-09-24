@@ -46,7 +46,7 @@ class DayDetailTest {
     @Test fun missingBoundaryReviewExplainsWhyNoCreditWasInvented() {
         val input = AttendanceInput(listOf(office), listOf(RawEvent("exit", office.id, Transition.EXIT, now.minusSeconds(3600))), now = now)
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
-            DayDetailScreen(input, AttendanceEngine.derive(input), day) {}
+            DayDetailScreen(input, AttendanceEngine.derive(input), day, back = {})
         } } }
         compose.onNodeWithTag("detail_credit").assertTextEquals("Recorded credit: 0m")
         compose.onAllNodesWithText(reviewExplanation(ReviewReason.MISSING_ENTER))[0].performScrollTo().assertIsDisplayed()

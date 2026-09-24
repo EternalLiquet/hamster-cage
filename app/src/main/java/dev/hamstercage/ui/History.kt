@@ -17,17 +17,28 @@ import java.time.format.DateTimeFormatter
 import java.time.LocalDate
 
 @Composable
-fun HistoryScreen(input: AttendanceInput, result: AttendanceResult) {
+fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionActions: CorrectionActions? = null) {
     var offsetDays by rememberSaveable { mutableIntStateOf(0) }
     var selectedDay by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var addingManual by rememberSaveable { mutableStateOf(false) }
+    if (correctionActions != null && (editingSessionId != null || addingManual)) {
+        val session = result.sessions.find { it.id == editingSessionId }
+        if (addingManual || session != null) {
+            CorrectionEditor(input, session, correctionActions) { editingSessionId = null; addingManual = false }
+            return
+        }
+    }
     selectedDay?.let { day ->
-        DayDetailScreen(input, result, LocalDate.parse(day), back = { selectedDay = null })
+        DayDetailScreen(input, result, LocalDate.parse(day), back = { selectedDay = null },
+            edit = if (correctionActions == null) null else { session -> editingSessionId = session.id })
         return
     }
     val days = remember(input, result, offsetDays) { historyDays(input, result, offsetDays) }
     val earliest = remember(input) { earliestHistoryDate(input) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Text("Every total comes from your local record.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+        if (correctionActions != null) OutlinedButton(onClick = { addingManual = true }) { Text("Add manual attendance") }
         Text("${days.last().date} – ${days.first().date} · ${input.policy.zoneId.id}", Modifier.testTag("history_range"), style = MaterialTheme.typography.bodyMedium)
         if (input.events.isEmpty() && input.manualSessions.isEmpty())
             Notice("No attendance recorded yet", "Expected days still appear below. Unknown coverage is not proof that you were absent.")
