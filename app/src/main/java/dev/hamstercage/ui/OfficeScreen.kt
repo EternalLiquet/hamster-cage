@@ -10,9 +10,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -37,9 +39,9 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
     val scope = rememberCoroutineScope()
     var editing by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
-    var expectedVersion by rememberSaveable { mutableStateOf<Long?>(null) }
-    var loadingVersion by rememberSaveable { mutableStateOf(false) }
-    var saving by rememberSaveable { mutableStateOf(false) }
+    var expectedVersion by remember { mutableStateOf<Long?>(null) }
+    var loadingVersion by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
     var name by rememberSaveable { mutableStateOf("") }
     var latitude by rememberSaveable { mutableStateOf("") }
     var longitude by rememberSaveable { mutableStateOf("") }
@@ -63,20 +65,25 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         editing = true
         editingId = office.id
         expectedVersion = null
-        loadingVersion = true
         populate(OfficeDraft.from(office))
-        scope.launch {
+    }
+
+    LaunchedEffect(editing, editingId) {
+        val officeId = editingId
+        if (editing && officeId != null) {
+            loadingVersion = true
+            expectedVersion = null
             try {
-                val version = actions.version(office.id)
-                if (editing && editingId == office.id) {
+                val version = actions.version(officeId)
+                if (editing && editingId == officeId) {
                     expectedVersion = version
                     if (version == null) error = "Office changed. Reopen the list and try again."
                 }
             } catch (failure: CancellationException) { throw failure }
             catch (_: Exception) {
-                if (editing && editingId == office.id) error = "Office could not be loaded. Try again."
+                if (editing && editingId == officeId) error = "Office could not be loaded. Try again."
             } finally {
-                if (editing && editingId == office.id) loadingVersion = false
+                if (editing && editingId == officeId) loadingVersion = false
             }
         }
     }
@@ -160,7 +167,7 @@ private fun OfficeRow(office: Office, onEdit: (Office) -> Unit) {
             Tag(if (office.enabled) "ENABLED" else "DISABLED")
             Tag(if (office.countsTowardAttendance) "COUNTS" else "NOT CREDITED")
         }
-        MetricRow("Radius", "${office.radiusMeters.toInt()} m")
+        MetricRow("Radius", "${office.radiusMeters} m")
         MetricRow("Entry grace", "${office.entryGraceMinutes} min")
         MetricRow("Exit grace", "${office.exitGraceMinutes} min")
         CageButton("Edit ${office.name}", onClick = { onEdit(office) },
