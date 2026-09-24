@@ -1,6 +1,6 @@
 # Product MVP status
 
-Product MVP is **not complete**. Delivery ends at Phase 5, with one issue per PR, independent implementation/verification/review, exact-head CI and serialized merges. PR #50 stays a draft/reference and is never merged wholesale. No scheduled tasks or post-MVP work.
+Product MVP is **not complete**. Delivery ends at Phase 5, with one issue per PR, independent implementation/verification/review, exact-head CI and serialized merges. PR #50 stays a draft/reference and is never merged wholesale. No scheduled tasks or post-MVP work. AGENTS.md records the requested Sol model levels, compact handoffs and exact-head CI reuse.
 
 Phases 0, 2, 3 and 4 are complete: issues #10–15 / [epic #1](https://github.com/EternalLiquet/hamster-cage/issues/1#issuecomment-5807277962), #21–24 / [epic #3](https://github.com/EternalLiquet/hamster-cage/issues/3#issuecomment-5808769199), #25–28 / [epic #4](https://github.com/EternalLiquet/hamster-cage/issues/4), and #29–32 / [epic #5](https://github.com/EternalLiquet/hamster-cage/issues/5#issuecomment-5809838797) closed after independent gates. Phase 1 physical/UI-closed capture criteria and Phase 5 integration remain open. Update the relevant issue row below instead of prepending duplicate checkpoints; keep detailed evidence in the linked PR/contract.
 
