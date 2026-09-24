@@ -208,6 +208,19 @@ class AttendanceEngineTest {
         assertEquals(at("12:25"), result.intervals.last().start)
         assertMinutes(330.0, input(events, policy = Policy(shortGapMinutes = 19)))
     }
+    @Test fun zeroCreditVisitBlocksGapBridgeAcrossItsArrivalWindow() {
+        val events = listOf(enter("a", "09:00"), exit("b", "09:10"),
+            enter("c", "09:11"), exit("d", "09:12"),
+            enter("e", "09:13"), exit("f", "09:20"))
+        val data = input(events, policy = Policy(shortGapMinutes = 10))
+        val result = AttendanceEngine.derive(data)
+        assertEquals(3, result.sessions.size)
+        assertEquals(events, data.events)
+        assertEquals(7.0, result.intervals.sumOf { it.minutes }, 0.0)
+        assertEquals(listOf(at("09:05") to at("09:10"), at("09:18") to at("09:20")),
+            result.intervals.map { it.start to it.end })
+        assertTrue(result.intervals.none { it.reconciledGap })
+    }
     @Test fun repeatedEnterPreservesEarliestAndFlagsLowConfidence() {
         val data = input(listOf(enter("1", "09:00"), enter("2", "10:00"), exit("3", "15:00")))
         assertMinutes(355.0, data)

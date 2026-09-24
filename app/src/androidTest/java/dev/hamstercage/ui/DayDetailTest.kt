@@ -37,6 +37,8 @@ class DayDetailTest {
         compose.onNodeWithTag("detail_observed").performScrollTo().assertTextEquals("Device-observed time: 1h 0m")
         compose.onNodeWithText("Original bounds: 2026-09-23T14:00:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Effective bounds: 2026-09-23T14:30:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Device-observed in-zone time: 1h 0m").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Effective session duration: 30m after correction.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Source event: in").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Source event: out").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Synthetic correction").performScrollTo().assertIsDisplayed()

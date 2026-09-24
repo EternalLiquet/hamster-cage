@@ -160,15 +160,21 @@ object AttendanceEngine {
         }
         // Reconcile only the observed gap between visits at the same office. The next
         // visit's arrival window remains uncredited even when that gap is short.
-        val bySession = effective.associateBy { it.id }
-        val reconciled = credited.groupBy { bySession.getValue(it.sessionIds.first()).officeId }.values
-            .flatMap { officeIntervals ->
-                val ordered = officeIntervals.sortedBy { bySession.getValue(it.sessionIds.single()).start }
+        val creditBySession = credited.associateBy { it.sessionIds.single() }
+        val reconciled = effective.groupBy { it.officeId }.values.flatMap { officeSessions ->
+                val officeIntervals = officeSessions.mapNotNull { creditBySession[it.id] }
+                // Include visits that earned no credit in adjacency. Reconcile only
+                // between two positive-credit visits; a brief uncredited visit blocks
+                // both neighboring gaps and cannot be skipped as a continuity bridge.
+                val ordered = officeSessions.sortedWith(compareBy<Session> { it.start ?: it.end }.thenBy { it.id })
                 val gapCredits = ordered.zipWithNext().mapNotNull { (before, after) ->
-                    val nextEntry = bySession.getValue(after.sessionIds.single()).start!!
-                    if (before.end >= nextEntry || Duration.between(before.end, nextEntry) >
+                    val previousCredit = creditBySession[before.id]
+                    val nextCredit = creditBySession[after.id]
+                    val nextEntry = after.start
+                    if (previousCredit == null || nextCredit == null || nextEntry == null ||
+                        previousCredit.end >= nextEntry || Duration.between(previousCredit.end, nextEntry) >
                         Duration.ofMinutes(input.policy.shortGapMinutes.toLong())) null
-                    else CreditedInterval(before.end, nextEntry, before.sessionIds + after.sessionIds, reconciledGap = true)
+                    else CreditedInterval(previousCredit.end, nextEntry, setOf(before.id, after.id), reconciledGap = true)
                 }
                 union(officeIntervals + gapCredits)
             }
