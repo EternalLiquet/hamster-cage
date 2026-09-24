@@ -64,8 +64,24 @@ fun todayLeaveText(estimate: DepartureEstimate, trackingReady: Boolean, now: Ins
         else "Confirm office detection to see a leave time"
     DepartureStatus.NOT_IN_OFFICE -> "Start an eligible office session to see a leave time"
     DepartureStatus.OVERLAPPING_SESSIONS -> "Review overlapping active sessions in History"
-    DepartureStatus.NEEDS_REVIEW -> "Review today's uncertain observations in History"
-    DepartureStatus.UNREACHABLE_IN_WINDOW -> "Today's target cannot be reached in this session"
-    DepartureStatus.OUTSIDE_WINDOW -> "Today's projection is outside the day"
+    DepartureStatus.NEEDS_REVIEW -> when {
+        ReviewReason.FUTURE_EVENT in estimate.reviewReasons ->
+            "An office observation is in the future. Check the device clock, then review History"
+        ReviewReason.STALE_OPEN_SESSION in estimate.reviewReasons ->
+            "The open session exceeds its safe length. Review its bounds in History"
+        estimate.reviewReasons.any { it in setOf(ReviewReason.MISSING_ENTER, ReviewReason.REPEATED_ENTER, ReviewReason.ZERO_LENGTH_SESSION) } ->
+            "Office entry and exit boundaries conflict. Review the session in History"
+        estimate.reviewReasons.any { it in setOf(ReviewReason.INVALID_CORRECTION, ReviewReason.ORPHAN_CORRECTION) } ->
+            "An attendance correction is unresolved. Review it in History"
+        estimate.reviewReasons.any { it in setOf(ReviewReason.INVALID_MANUAL_SESSION, ReviewReason.CONFLICTING_MANUAL_SESSION_ID) } ->
+            "Manual session bounds conflict. Review them in History"
+        ReviewReason.UNKNOWN_OFFICE in estimate.reviewReasons ->
+            "An observation names an unknown office. Review office setup and History"
+        else -> "Conflicting attendance evidence blocks today's estimate. Review History"
+    }
+    DepartureStatus.UNREACHABLE_IN_WINDOW ->
+        "Not enough time remains before today's boundary or the session limit. Review the target in Settings or session in History"
+    DepartureStatus.OUTSIDE_WINDOW ->
+        "Device time is outside this target window. Check the clock and policy timezone in Settings"
     DepartureStatus.INCOMPLETE_HISTORY -> "Review missing coverage in History"
 }

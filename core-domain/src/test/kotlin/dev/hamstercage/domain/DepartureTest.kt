@@ -116,6 +116,21 @@ class DepartureTest {
         assertEquals(DepartureStatus.ESTIMATED, estimate(tomorrow.copy(now = at("00:35", day.plusDays(1)))).status)
     }
 
+    @Test fun unrelatedPriorDayOrphanAndInvalidEventDoNotBlockToday() {
+        val yesterday = day.minusDays(1)
+        val data = input(listOf(
+            RawEvent("old-invalid", "missing-office", Transition.EXIT, at("10:00", yesterday)),
+            enter(),
+        )).copy(corrections = listOf(Correction("old-orphan", "session:absent",
+            at("09:00", yesterday), at("10:00", yesterday), at("11:00", yesterday))))
+        assertEquals(DepartureStatus.ESTIMATED, estimate(data).status)
+        assertSuppressed(DepartureStatus.NEEDS_REVIEW, estimate(data, TargetWindow.ROLLING_30))
+        val currentInvalid = data.copy(events = data.events + RawEvent("future", "a", Transition.EXIT, at("17:00")))
+        val blocked = estimate(currentInvalid)
+        assertSuppressed(DepartureStatus.NEEDS_REVIEW, blocked)
+        assertTrue(ReviewReason.FUTURE_EVENT in blocked.reviewReasons)
+    }
+
     @Test fun repeatedEnterAmbiguityPrecedesTargetMet() {
         val result = estimate(input(listOf(enter(), enter("10:00", "repeat")), now = at("16:00")))
         assertEquals(0.0, result.remainingMinutes, 0.0)

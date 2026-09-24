@@ -14,6 +14,8 @@ data class DepartureEstimate(
     val remainingMinutes: Double,
     val creditedTargetAt: Instant? = null,
     val estimatedExitAt: Instant? = null,
+    /** Reasons that block a projection; empty for a bounded estimate. */
+    val reviewReasons: Set<ReviewReason> = emptySet(),
 ) {
     val targetName: String get() = when (target) {
         TargetWindow.TODAY -> "Today"

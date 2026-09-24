@@ -64,5 +64,12 @@ class DashboardPresentationTest {
         assertEquals("You can leave now", message(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600))))))
         val overlapping = data(listOf(enter(), enter("bin", "b"))).copy(offices = listOf(office, office.copy(id = "b")))
         assertEquals("Review overlapping active sessions in History", message(overlapping))
+        val future = data(listOf(enter(), RawEvent("future", "a", Transition.EXIT, now.plusSeconds(60))))
+        assertTrue(message(future).contains("Check the device clock"))
+        val stale = data(listOf(enter())).copy(now = now.plusSeconds(24 * 3600))
+        assertTrue(message(stale).contains("safe length"))
+        val unreachable = data(listOf(RawEvent("late", "a", Transition.ENTER, Instant.parse("2026-09-24T03:58:00Z"))))
+            .copy(now = Instant.parse("2026-09-24T03:59:00Z"))
+        assertTrue(message(unreachable).contains("Review the target in Settings"))
     }
 }
