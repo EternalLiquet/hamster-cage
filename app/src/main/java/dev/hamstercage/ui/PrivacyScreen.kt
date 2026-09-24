@@ -1,0 +1,120 @@
+package dev.hamstercage.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import dev.hamstercage.data.StorageState
+import dev.hamstercage.privacy.PrivacyResetState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+
+data class PrivacyActions(
+    val deleteHistory: suspend () -> Unit,
+    val retryPending: suspend () -> Unit,
+    val resetAllAppData: () -> Boolean,
+)
+
+private enum class DeleteChoice { HISTORY, ALL }
+
+/** Confirmation scope is intentionally not saved over Activity recreation. */
+@Composable
+fun PrivacyScreen(state: StorageState, reset: PrivacyResetState, actions: PrivacyActions) {
+    val scope = rememberCoroutineScope()
+    var choice by remember { mutableStateOf<DeleteChoice?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val available = state is StorageState.Ready && reset is PrivacyResetState.Idle
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
+        Panel {
+            Text("Privacy and local data", style = MaterialTheme.typography.titleLarge)
+            Text("Attendance and office boundaries stay on this device. The app has no account, analytics or network access. Automatic cloud and device-transfer backup are disabled; uninstalling or losing the device can lose this record.",
+                style = MaterialTheme.typography.bodyMedium)
+            Text("No export or sync is available in this preview. Deletion cannot recover records from an external backup because this app makes none.",
+                style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+            message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            when (reset) {
+                is PrivacyResetState.Pending -> {
+                    Text("History deletion is unfinished. Saved attendance is hidden while cleanup retries; do not treat the old record as current.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = {
+                        busy = true; message = null
+                        scope.launch {
+                            try { actions.retryPending(); message = "Attendance and calendar history deleted." }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) { message = "Deletion is still pending. Reopen the app to retry." }
+                            finally { busy = false }
+                        }
+                    }, enabled = !busy, modifier = Modifier.testTag("privacy_retry")) { Text("Retry deletion") }
+                }
+                PrivacyResetState.Unavailable -> Text("Privacy reset state could not be read. Attendance is hidden to avoid showing an incomplete deletion. Reopen the app or reset all app data.",
+                    style = MaterialTheme.typography.bodyMedium)
+                is PrivacyResetState.Idle -> Unit
+            }
+            if (choice == null && available) {
+                Button(onClick = { choice = DeleteChoice.HISTORY; message = null }, enabled = !busy,
+                    modifier = Modifier.testTag("privacy_delete_history")) { Text("Delete attendance and calendar history") }
+                TextButton(onClick = { choice = DeleteChoice.ALL; message = null }, enabled = !busy,
+                    modifier = Modifier.testTag("privacy_reset_all")) { Text("Reset all app data") }
+            }
+        }
+        if (choice != null) Panel(warm = true) {
+            when (choice) {
+                DeleteChoice.HISTORY -> {
+                    Text("Delete attendance and calendar history?", style = MaterialTheme.typography.titleMedium)
+                    Text("This removes all raw transitions, manual sessions, corrections, excluded dates and notes, WFH labels, coverage and active attendance totals. Offices and base policy settings stay. New observations can be recorded after setup recovers.",
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+                DeleteChoice.ALL -> {
+                    Text("Reset all app data?", style = MaterialTheme.typography.titleMedium)
+                    Text("Android will clear every app-private database and preference, including attendance, calendar, offices, policy and capture health. The app will close; reopen it to start fresh. This cannot be undone.",
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+                null -> Unit
+            }
+            Button(onClick = {
+                when (choice) {
+                    DeleteChoice.HISTORY -> {
+                        busy = true; message = null
+                        scope.launch {
+                            try { actions.deleteHistory(); message = "Attendance and calendar history deleted."; choice = null }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) { message = "Deletion is unfinished. Saved attendance is hidden; reopen the app or retry deletion."; choice = null }
+                            finally { busy = false }
+                        }
+                    }
+                    DeleteChoice.ALL -> {
+                        busy = true; message = null
+                        try {
+                            if (!actions.resetAllAppData()) message = "Android could not reset app data. Your saved data was kept."
+                        } catch (_: Exception) { message = "Android could not reset app data. Your saved data was kept." }
+                        finally { busy = false; choice = null }
+                    }
+                    null -> Unit
+                }
+            }, enabled = !busy && (choice == DeleteChoice.ALL || available),
+                modifier = Modifier.testTag("privacy_confirm")) {
+                Text(if (choice == DeleteChoice.HISTORY) "Delete history now" else "Reset all data and close")
+            }
+            TextButton(onClick = { choice = null; message = null }, enabled = !busy,
+                modifier = Modifier.testTag("privacy_cancel")) { Text("Cancel; keep all data") }
+        }
+        if (reset == PrivacyResetState.Unavailable) {
+            Panel(warm = true) {
+                Text("If the reset record cannot be recovered, you may still choose a full Android app-data reset.", style = MaterialTheme.typography.bodyMedium)
+                Button(onClick = { choice = DeleteChoice.ALL }, enabled = !busy) { Text("Review full reset") }
+            }
+        }
+    }
+}

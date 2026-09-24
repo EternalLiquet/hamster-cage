@@ -77,6 +77,12 @@ internal interface HamsterDao {
     @Query("DELETE FROM excluded_dates WHERE date = :date") suspend fun removeExclusion(date: String)
     @Query("SELECT * FROM day_labels ORDER BY date") suspend fun labels(): List<DayLabelRecord>
     @Upsert suspend fun upsertLabel(record: DayLabelRecord)
+    // Called only by the explicit privacy reset transaction; ordinary editing remains append-only.
+    @Query("DELETE FROM raw_events") suspend fun deleteAllEvents()
+    @Query("DELETE FROM corrections") suspend fun deleteAllCorrections()
+    @Query("DELETE FROM manual_sessions") suspend fun deleteAllManualSessions()
+    @Query("DELETE FROM excluded_dates") suspend fun deleteAllExclusions()
+    @Query("DELETE FROM day_labels") suspend fun deleteAllLabels()
 }
 
 @Database(entities = [OfficeRecord::class, EventRecord::class, CorrectionRecord::class,

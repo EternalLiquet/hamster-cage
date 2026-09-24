@@ -146,6 +146,16 @@ class HamsterRepository internal constructor(
     suspend fun removeExclusion(date: LocalDate) = dao.removeExclusion(date.toString())
     suspend fun setWfh(date: LocalDate, enabled: Boolean) = dao.upsertLabel(DayLabelRecord(date.toString(), enabled, clock.now().toEpochMilli()))
 
+    /** Explicit privacy action only. All attendance and calendar facts commit or roll back together. */
+    internal suspend fun deleteAttendanceAndCalendarHistory(beforeCommit: suspend () -> Unit = {}) = database.withTransaction {
+        dao.deleteAllEvents()
+        dao.deleteAllCorrections()
+        dao.deleteAllManualSessions()
+        dao.deleteAllExclusions()
+        dao.deleteAllLabels()
+        beforeCommit()
+    }
+
     private fun validBounds(start: Instant, end: Instant?, createdAt: Instant) {
         val now = clock.now()
         require(end == null || end > start) { "End must follow start." }
