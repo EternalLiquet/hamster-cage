@@ -8,6 +8,14 @@ Both new OS instrumentation checks pass on API37: installed network/backup/compo
 
 
 
+
+
+## Departure estimates #23 checkpoint
+
+The pure estimator names all five target contexts and keeps estimated exit time separate from accrued credit. It uses prior unioned credit and office exit grace, suppresses predictions for missing history, relevant ambiguous/malformed bounds or competing open offices, and checks those conditions before apparent target satisfaction. Projections stop at the target window and configured safe open-session horizon. No source fact or historical aggregate is changed.
+
+Eighteen focused departure tests and the 62 existing domain tests pass. They cover target names, prior credit, met/unmet states, overlap, grace, leave-now projections, exclusions/WFH, rolling/week boundaries, correction resolution, clock anomalies, midnight and DST. Departure #23 merged via PR #58 at c384b7b3b5b891db0f5527face8ca7cd1fdcdc48 after independent verification/review and passing current-head CI. See [departure contract](DEPARTURE_ESTIMATES.md); UI/tracking-health integration remains separate.
+
 ## Calendar metrics #21 checkpoint
 
 The pure domain slice adds today/week/rolling 30/90-date summaries, explicit full-week projection, policy-local day boundaries and denominator/coverage accounting. Exclusions reduce requirement while preserving actual credit; WFH does not reduce requirement. Missing weekend/holiday coverage is explicitly unknown, and no expected-day denominator is shortened to the install date. A zero denominator has an undefined average. Raw daily totals remain separate from corrections/manual/grace credit.

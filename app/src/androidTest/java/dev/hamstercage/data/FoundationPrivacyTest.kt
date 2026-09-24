@@ -49,7 +49,6 @@ class FoundationPrivacyTest {
 
     @Test
     @SdkSuppress(minSdkVersion = 34) // Android 14 added separate stdout/stderr shell descriptors.
-    @androidx.annotation.RequiresApi(34)
     fun actualRoomAndPolicyFilesArePrivateAndShellCannotReadThem() = runBlocking {
         val name = "privacy-${UUID.randomUUID()}"
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
