@@ -13,10 +13,10 @@ Product MVP ends at Phase 5. Deliver each feature and Security Pass as one focus
 
 The complete acceptance criteria remain in the [issue backlog](https://github.com/EternalLiquet/hamster-cage/issues) and [project board](https://github.com/users/EternalLiquet/projects/3). Features are implemented in dependency order; independent ready issues may use separate worktrees.
 
-Issue #10 established the native app shell, four offline navigation destinations, testable time source, and documented module boundaries. Issue #11 adds the owner-selected hamster-at-computer launcher artwork and accessible shared visual system. Persistence belongs to #12; attendance derivation to #13; expanded CI and security automation to #14. Placeholder pages do not establish feature acceptance.
+Phase 0 is complete: #10–15 established the native shell, selected hamster-at-computer launcher artwork, accessible design, Room/DataStore persistence, framework-free attendance reconstruction, reproducible CI and a foundation Security Pass. Dashboard, History and Settings page MVPs have closed their feature and Security Pass issues. Offices/capture physical and UI-closed delivery, plus the integrated installable Product MVP, retain explicit open criteria; see [current evidence](MVP_STATUS.md). A scoped merge or preview build does not itself close those criteria.
 
 The Product MVP must configure eligible offices, capture local immutable ENTER/EXIT facts, explain credited intervals, support corrections and calendar policy, and produce a traceable installable APK. Missing history must remain explicit. All feature and security acceptance criteria must be evidenced before their issues close. Phone geofencing, reboot recovery, permissions, and battery behavior need physical-device evidence.
 
 Notifications, widgets, homelab sync, exports, and release reliability enhancements are Phases 6–8 and are outside this implementation scope. Do not create scheduled continuation tasks.
 
-Authoritative product and security sources remain in the [private project-source directory](https://github.com/EternalLiquet/gpt-projects-files/tree/master/hamster-cage). Reference artwork is private planning material and is not bundled in the shell.
+Authoritative product and security sources remain in the [private project-source directory](https://github.com/EternalLiquet/gpt-projects-files/tree/master/hamster-cage). Private visual-reference artwork is planning material and is not bundled in the app; the selected launcher asset has its own public provenance and acceptance evidence.

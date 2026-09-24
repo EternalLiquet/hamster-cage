@@ -1,0 +1,106 @@
+{
+  "sourceSha": "f28785d11762cde6af8d71978d3c35e7e6a1f6d4",
+  "artifacts": [
+    {
+      "variant": "debug",
+      "sha256": "80148397024497c2456c3cbc9dc916f0a03c3d25aba7b750208de6dcecdef210",
+      "package": "dev.hamstercage.preview",
+      "versionCode": 2,
+      "internet": false,
+      "backupDisabled": true,
+      "compiledExclusionsVerified": true,
+      "components": [
+        {
+          "type": "activity",
+          "name": "dev.hamstercage.ui.OfficeTestActivity",
+          "exported": "false"
+        },
+        {
+          "type": "receiver",
+          "name": "dev.hamstercage.capture.GeofenceTransitionReceiver",
+          "exported": "false"
+        },
+        {
+          "type": "receiver",
+          "name": "dev.hamstercage.capture.CaptureRecoveryReceiver",
+          "exported": "true"
+        },
+        {
+          "type": "activity",
+          "name": "dev.hamstercage.MainActivity",
+          "exported": "true"
+        },
+        {
+          "type": "service",
+          "name": "androidx.room.MultiInstanceInvalidationService",
+          "exported": "false"
+        },
+        {
+          "type": "provider",
+          "name": "androidx.startup.InitializationProvider",
+          "exported": "false"
+        },
+        {
+          "type": "activity",
+          "name": "com.google.android.gms.common.api.GoogleApiActivity",
+          "exported": "false"
+        },
+        {
+          "type": "receiver",
+          "name": "androidx.profileinstaller.ProfileInstallReceiver",
+          "exported": "true"
+        }
+      ],
+      "signing": "development key"
+    },
+    {
+      "variant": "release",
+      "sha256": "d6cfe719f8f9d01ff3ae489f93b60ca33ad9d3cfeb53a44ccbb2d36786a6bc9b",
+      "package": "dev.hamstercage",
+      "versionCode": 2,
+      "internet": false,
+      "backupDisabled": true,
+      "compiledExclusionsVerified": true,
+      "components": [
+        {
+          "type": "receiver",
+          "name": "dev.hamstercage.capture.GeofenceTransitionReceiver",
+          "exported": "false"
+        },
+        {
+          "type": "receiver",
+          "name": "dev.hamstercage.capture.CaptureRecoveryReceiver",
+          "exported": "true"
+        },
+        {
+          "type": "activity",
+          "name": "dev.hamstercage.MainActivity",
+          "exported": "true"
+        },
+        {
+          "type": "service",
+          "name": "androidx.room.MultiInstanceInvalidationService",
+          "exported": "false"
+        },
+        {
+          "type": "provider",
+          "name": "androidx.startup.InitializationProvider",
+          "exported": "false"
+        },
+        {
+          "type": "activity",
+          "name": "com.google.android.gms.common.api.GoogleApiActivity",
+          "exported": "false"
+        },
+        {
+          "type": "receiver",
+          "name": "androidx.profileinstaller.ProfileInstallReceiver",
+          "exported": "true"
+        }
+      ],
+      "signing": "unsigned; inspected only"
+    }
+  ],
+  "physicalDeviceTested": false,
+  "status": "preliminary; final dependencies and independent gates pending"
+}

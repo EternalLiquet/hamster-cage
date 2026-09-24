@@ -2,6 +2,8 @@
 
 Scope: the merged shell, selected launcher/design, source storage, reconstruction engine and CI (#10–14). This pass adds no collection. Phase 1 capture/permissions and later features require their own Security Passes. Product MVP is not complete.
 
+The table below records the Phase 0 baseline, not the integrated app. Later capture adds location/boot permissions, the protected exported recovery receiver and a non-exported geofence callback/PendingIntent; current inventories are in [Capture Security](CAPTURE_SECURITY.md) and [Product Security](PRODUCT_SECURITY.md). Storage later migrates to schema 2 for append-only correction ordering.
+
 ## Data and reachable surfaces
 
 | Surface | Inventory and actual control |
