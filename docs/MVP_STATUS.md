@@ -15,10 +15,10 @@ Implementation branch: `feat/local-first-mvp`. This is a preview in integration,
 ## Verification evidence so far
 
 - Full Gradle run passed 47 domain tests and 3 coverage regression tests (50 total).
-- Android APK and instrumentation APK both compiled. Lint identified an API26 theme incompatibility and an outdated transitive Fragment version; fixes are being verified.
+- Android APK and instrumentation APK both compiled. Android lint passed after fixing an API26 theme incompatibility and updating the outdated transitive Fragment dependency.
 - Independent review drove fixes for overlapping manual evidence, partial/ongoing coverage gaps, stale registration after interruption and capture-error acknowledgement. Manual and device evidence now reconstruct independently before union.
-- OSV audited 96 resolved runtime dependencies with no known vulnerabilities; rerun after the Fragment compatibility update. Gitleaks passed in GitHub Actions.
-- Manifest audit identified WorkManager's unused foreground-service permission/component; both were removed and the rebuilt manifest must pass before delivery.
+- OSV audited 96 resolved runtime dependencies with no known vulnerabilities, including after the Fragment compatibility update. Gitleaks and CodeQL passed in GitHub Actions on an earlier implementation head; latest head must pass independently.
+- Manifest audit drove removal of WorkManager's unused foreground-service permission/component and the externally launchable Compose PreviewActivity. The instrumentation-only host activity is nonexported.
 - Seven persistence/Compose instrumentation tests compiled; CI emulator execution is configured but not yet verified. Compiling tests is not running them.
 - Final lint/manifest audit, exact-head CI, emulator installation and physical-device checks remain pending until actual evidence is recorded below.
 
