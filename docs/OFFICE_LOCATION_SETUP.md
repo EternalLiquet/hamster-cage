@@ -1,0 +1,16 @@
+# Office location setup contract (#77)
+
+Issue #77 makes office creation usable without typing coordinates. The normal flow is **Name → Search address or Use my current location → review pin and radius → Save office**. Implementation is under independent verification; this document records the owner-approved scope and evidence required before acceptance. Manual coordinates and separate entry/exit grace remain under Advanced.
+
+## Search, map and privacy
+
+- Address search starts only when the user submits text. Android's [Geocoder](https://developer.android.com/reference/android/location/Geocoder) processes the typed query through the device's geocoding implementation, which may contact a network service. Search does not require location permission. Results are best effort: show enough identity to choose among matches, and never silently save the first result. A late result cannot replace a newer selection.
+- Opening map review requests only the visible [OpenStreetMap raster tiles](https://operations.osmfoundation.org/policies/tiles/) over HTTPS. The tile service receives the viewed map area and ordinary network metadata. Show visible © OpenStreetMap contributors attribution, use a stable app-identifying User-Agent, honor cache headers (or retain tiles for at least seven days if headers cannot be interpreted), and avoid background prefetch or offline map downloads.
+- **Use my current location** is an explicit, cancellable foreground one-shot request through the existing Play Services location dependency. Show progress, freshness and accuracy; denied or approximate permission, location off, timeout, stale fix and poor accuracy require an actionable retry, Settings or manual alternative. It must not require background permission or continuously upload fixes.
+- Address text and viewed map area are the only office-setup data that may leave the app through these user actions. The app does not send attendance facts, policy or saved office history to either provider. Saving an office stores its center and radius locally; routine geofence capture, calculations, History and Settings continue without the lookup service or network.
+
+When search or tiles are unavailable, keep existing offices and attendance usable. Offer clear retry, current location where available, and validated Advanced manual entry. Do not present a blank map as a confirmed center. Review and explicit Save are required before adding or replacing an office center; cancel/back preserves existing configuration and immutable attendance facts.
+
+## Evidence still required
+
+The focused #77 PR must verify bounded queries and visible tiles, cache/attribution/User-Agent behavior, permission and offline fallbacks, stale-result rejection, one-shot cancellation/accuracy, edit preservation, radius/defaults and geofence reconciliation. A verifier must exercise the complete create/edit flow in a running app with synthetic locations, small screen, keyboard, 200% text and TalkBack. A version-code-3 pre-PR APK installed and launched over version 2 on an Android API 36 phone; that checkpoint did not verify office setup behavior. The exact artifact and signing identity are in the [install guide](BUILD_AND_INSTALL.md). No physical-phone office-flow or actual OS geofence result is claimed here; #16/#18–20/#33/#35 and epics #2/#6 retain their open gates.

@@ -23,7 +23,7 @@ The owner authorizes autonomous implementation through Phase 5, branches, pushes
 ## Invariants
 
 - Kotlin/Compose; framework-free `core-domain`; Room source facts and DataStore preferences.
-- Fully local operation. No INTERNET permission, public backend, analytics or continuous GPS in MVP.
+- Attendance facts, policy, routine capture, calculations and history stay local and usable offline. Issue #77 authorizes bounded, user-driven online address search and map confirmation for office setup, including `INTERNET` permission if required. Review and disclose the provider and address/map-area data sent; never send attendance history. No public attendance backend, analytics, continuous GPS or continuous location upload.
 - Raw events immutable; corrections append; every credited minute explainable. Never fabricate raw events for an observed transition.
 - Interval union prevents double credit. Holidays remove expected days; WFH does not. Time stored as Instant; policy timezone determines days. Missing history is explicit, never falsely zero or full coverage.
 - Real coordinates, personal attendance, credentials, signing keys and sensitive logs never enter Git or public issues.
