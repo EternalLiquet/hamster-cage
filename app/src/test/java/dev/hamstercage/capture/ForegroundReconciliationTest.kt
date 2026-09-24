@@ -5,7 +5,9 @@ import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.Policy
 import dev.hamstercage.domain.RawEvent
+import dev.hamstercage.domain.ReviewReason
 import dev.hamstercage.domain.Transition
+import dev.hamstercage.ui.dashboardPresence
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -44,10 +46,12 @@ class ForegroundReconciliationTest {
 
     @Test fun observationOpensOnlyAtFixTimeAndRepeatedEnterDoesNotOpenAgain() {
         val fresh = snapshot()
-        assertNull(canOpenFromObservation(fresh, observed, observed.plusSeconds(1)))
-        val entered = snapshot(listOf(event("reconcile", Transition.ENTER, observed)))
+        val coverage = CoverageLedger().registrationSucceeded(observed.minusSeconds(10), Policy().zoneId, true)
+        assertNull(canOpenFromObservation(fresh, office.id, coverage, observed, observed.plusSeconds(1)))
+        val entered = snapshot(listOf(event("reconcile", Transition.PRESENCE, observed)))
         assertEquals(ReconcileOutcome.ALREADY_PRESENT,
-            canOpenFromObservation(entered, observed.plusSeconds(2), observed.plusSeconds(2)))
+            canOpenFromObservation(entered, office.id, coverage.observed(observed),
+                observed.plusSeconds(2), observed.plusSeconds(2)))
         val session = entered.derive(observed.plusSeconds(180)).sessions.single()
         assertEquals(observed, session.start)
         assertEquals(0.0, entered.derive(observed.plusSeconds(180)).intervals.sumOf { it.minutes }, 0.0)
@@ -57,15 +61,47 @@ class ForegroundReconciliationTest {
     }
 
     @Test fun laterExitMakesOldFixUnsafeAndNormalTransitionsDoNotOverlap() {
+        val coverage = CoverageLedger().registrationSucceeded(observed.minusSeconds(10), Policy().zoneId, true)
         val exited = snapshot(listOf(event("enter", Transition.ENTER, observed),
             event("exit", Transition.EXIT, observed.plusSeconds(30))))
         assertEquals(ReconcileOutcome.STALE,
-            canOpenFromObservation(exited, observed, observed.plusSeconds(31)))
-        assertNull(canOpenFromObservation(exited, observed.plusSeconds(40), observed.plusSeconds(40)))
-        val repeated = snapshot(listOf(event("reconcile", Transition.ENTER, observed),
+            canOpenFromObservation(exited, office.id, coverage, observed, observed.plusSeconds(31)))
+        assertNull(canOpenFromObservation(exited, office.id, coverage,
+            observed.plusSeconds(40), observed.plusSeconds(40)))
+        val repeated = snapshot(listOf(event("reconcile", Transition.PRESENCE, observed),
             event("geofence-enter", Transition.ENTER, observed.plusSeconds(5)),
             event("geofence-exit", Transition.EXIT, observed.plusSeconds(90))))
         assertEquals(1, repeated.derive(observed.plusSeconds(100)).sessions.size)
+    }
+
+    @Test fun retainedPreOutageEnterIsSplitWithoutBackdatedOrOverlappingCredit() {
+        val oldAt = observed.minusSeconds(1_200)
+        val zone = Policy().zoneId
+        val recovered = CoverageLedger(lastHealthyAt = oldAt, lastObservationAt = oldAt,
+            registration = RegistrationStatus.ACTIVE, policyZoneId = zone)
+            .outage(observed.minusSeconds(600), zone)
+            .registrationSucceeded(observed.minusSeconds(30), zone, true)
+        val old = event("old-enter", Transition.ENTER, oldAt)
+        val before = snapshot(listOf(old))
+        val now = observed.plusSeconds(360)
+        assertEquals(false, recovered.presenceConfirmed(now, zone))
+        assertNull(canOpenFromObservation(before, office.id, recovered, observed, now))
+        val after = snapshot(listOf(old, event("current-fix", Transition.PRESENCE, observed)))
+        val result = after.derive(now)
+        assertEquals(2, result.sessions.size)
+        val former = result.sessions.single { it.id == "session:old-enter" }
+        val current = result.sessions.single { it.id == "session:current-fix" }
+        assertEquals(observed, former.end)
+        assertEquals(true, ReviewReason.UNCONFIRMED_GAP in former.reviewReasons)
+        assertEquals(observed, current.start)
+        assertEquals(true, current.isOpen)
+        assertEquals(listOf(observed.plusSeconds(300)), result.intervals.map { it.start })
+        assertEquals(1.0, result.intervals.single().minutes, 0.0)
+        assertEquals(true, recovered.observed(observed).presenceConfirmed(now, zone))
+        assertEquals("In Synthetic office", dashboardPresence(after.input(now), result, true).label)
+        assertEquals(true, dashboardPresence(after.input(now), result, true).needsReview)
+        assertEquals(ReconcileOutcome.ALREADY_PRESENT,
+            canOpenFromObservation(after, office.id, recovered.observed(observed), now, now))
     }
 
     @Test fun cachedPreRegistrationFixCannotClaimVisiblePresenceButPostBoundaryFixCan() {
@@ -87,7 +123,8 @@ class ForegroundReconciliationTest {
     }
 
     private fun event(id: String, transition: Transition, at: Instant) = RecordedEvent(
-        RawEvent(id, office.id, transition, at), at, at, "FOREGROUND_LOCATION_RECONCILIATION")
+        RawEvent(id, office.id, transition, at), at, at,
+        if (transition == Transition.PRESENCE) "FOREGROUND_LOCATION_RECONCILIATION" else "PLAY_SERVICES_GEOFENCE")
 
     private fun snapshot(events: List<RecordedEvent> = emptyList()) =
         AppSnapshot(listOf(office), events, emptyList(), emptyList(), Policy())

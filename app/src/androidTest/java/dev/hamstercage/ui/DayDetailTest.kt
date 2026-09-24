@@ -23,7 +23,7 @@ class DayDetailTest {
     private val day = LocalDate.of(2026, 9, 23)
     private val office = Office("synthetic", "Synthetic office", 0.0, 0.0)
     @Test fun foregroundPresenceIsAuditedAsCurrentFixWithoutClaimingPhysicalEntry() {
-        val raw = RawEvent("fix", office.id, Transition.ENTER, now.minusSeconds(600))
+        val raw = RawEvent("fix", office.id, Transition.PRESENCE, now.minusSeconds(600))
         val input = AttendanceInput(listOf(office), listOf(raw), now = now)
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
             DayDetailScreen(input, AttendanceEngine.derive(input), day, {},

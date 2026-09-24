@@ -21,11 +21,15 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
     val eligibleIds = input.offices.filter { it.enabled && it.countsTowardAttendance }.map { it.id }.toSet()
     val open = result.sessions.filter { it.isOpen && it.officeId in eligibleIds }
     val review = result.reviews.any { it.reason !in setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT) } || open.size > 1
+    // An old interval closed for review by a fresh presence observation does not
+    // make the newly observed current office ambiguous. Keep its review notice.
+    val liveReview = result.reviews.any { it.reason !in setOf(ReviewReason.OPEN_SESSION,
+        ReviewReason.DUPLICATE_EVENT, ReviewReason.UNCONFIRMED_GAP) } || open.size > 1
     val today = input.now.atZone(input.policy.zoneId).toLocalDate()
     val latest = input.events.filter { it.officeId in eligibleIds && it.at <= input.now }.maxByOrNull { it.at }
     val label = when {
         !trackingReady -> "Office state unknown"
-        review -> "Needs review"
+        liveReview -> "Needs review"
         open.size == 1 -> if (open.single().manualSessionId != null) "Manual session active" else
             "In ${dashboardOfficeName(input.offices.single { it.id == open.single().officeId }.name)}"
         latest?.transition == Transition.EXIT && latest.at.atZone(input.policy.zoneId).toLocalDate() == today -> "Outside office"

@@ -53,9 +53,17 @@ internal fun decidePresence(offices: List<Office>, latitude: Double, longitude: 
         ReconcileOutcome.UNCERTAIN_BOUNDARY to null else ReconcileOutcome.OUTSIDE to null
 }
 
-internal fun canOpenFromObservation(snapshot: AppSnapshot, observedAt: Instant, now: Instant): ReconcileOutcome? {
+internal fun canOpenFromObservation(snapshot: AppSnapshot, officeId: String, coverage: CoverageLedger,
+    observedAt: Instant, now: Instant): ReconcileOutcome? {
     if (snapshot.events.any { it.at > observedAt }) return ReconcileOutcome.STALE
-    if (snapshot.derive(now).sessions.any { it.isOpen }) return ReconcileOutcome.ALREADY_PRESENT
+    val open = snapshot.derive(now).sessions.filter { it.isOpen }
+    if (open.isEmpty()) return null
+    if (open.size != 1 || open.single().officeId != officeId)
+        return ReconcileOutcome.OVERLAPPING_OFFICES
+    if (open.single().manualSessionId != null ||
+        coverage.presenceConfirmed(now, snapshot.policy.zoneId)) return ReconcileOutcome.ALREADY_PRESENT
+    // An unconfirmed old raw ENTER may span an outage. A PRESENCE fact splits
+    // that old interval for review and starts a new observed interval now.
     return null
 }
 
@@ -122,9 +130,10 @@ class ForegroundReconciliation(private val context: Context,
             if (office == null) return@withLock outcome
             // A queued transition later than this sample, or any current open session,
             // supersedes the sampled location. The write gate serializes receiver writes.
-            canOpenFromObservation(state.snapshot, observedAt, now)?.let { return@withLock it }
+            canOpenFromObservation(state.snapshot, office.id, coverage, observedAt, now)
+                ?.let { return@withLock it }
             repository.appendRawEvents(listOf(RecordedEvent(
-                RawEvent(HamsterRepository.newId(), office.id, Transition.ENTER, observedAt),
+                RawEvent(HamsterRepository.newId(), office.id, Transition.PRESENCE, observedAt),
                 now, observedAt, "FOREGROUND_LOCATION_RECONCILIATION")))
             CoverageStore.change(application) { it.observed(observedAt) }
             ReconcileOutcome.CONFIRMED

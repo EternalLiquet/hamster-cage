@@ -45,6 +45,8 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             Text("${office(session.officeId)} · ${evidenceId(session.id)}", style = MaterialTheme.typography.titleMedium)
             val original = detail.originalSessions.find { it.id == session.id }
             Text("Original bounds: ${at(original?.start)} → ${at(original?.end)}")
+            if (original?.reviewReasons?.contains(ReviewReason.UNCONFIRMED_GAP) == true)
+                Text("The listed end is the next presence check, not an observed EXIT. This earlier segment earns no credit until corrected.")
             if (session.correctionId != null && !session.correctionReverted) original?.reviewReasons?.forEach {
                 Text("Original evidence: ${reviewExplanation(it)} The applied correction supplies effective bounds.")
             }

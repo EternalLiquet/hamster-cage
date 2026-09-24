@@ -26,7 +26,8 @@ data class Office(
     }
 }
 
-enum class Transition { ENTER, EXIT }
+/** PRESENCE is a current observation, not a claim that entry happened at that instant. */
+enum class Transition { ENTER, EXIT, PRESENCE }
 data class RawEvent(val id: String, val officeId: String, val transition: Transition, val at: Instant)
 /** User-entered evidence is a complete interval, never synthetic geofence transitions. */
 data class ManualSession(
@@ -70,7 +71,7 @@ data class Correction(
     val appendSequence: Long = 0,
 )
 enum class Confidence { HIGH, MEDIUM, LOW, MANUAL }
-enum class ReviewReason { DUPLICATE_EVENT, REPEATED_ENTER, MISSING_ENTER, OPEN_SESSION, STALE_OPEN_SESSION, INVALID_CORRECTION, ORPHAN_CORRECTION, UNKNOWN_OFFICE, FUTURE_EVENT, CONFLICTING_EVENT_ID, INVALID_EVENT, ZERO_LENGTH_SESSION, INVALID_MANUAL_SESSION, CONFLICTING_MANUAL_SESSION_ID }
+enum class ReviewReason { DUPLICATE_EVENT, REPEATED_ENTER, MISSING_ENTER, OPEN_SESSION, STALE_OPEN_SESSION, UNCONFIRMED_GAP, INVALID_CORRECTION, ORPHAN_CORRECTION, UNKNOWN_OFFICE, FUTURE_EVENT, CONFLICTING_EVENT_ID, INVALID_EVENT, ZERO_LENGTH_SESSION, INVALID_MANUAL_SESSION, CONFLICTING_MANUAL_SESSION_ID }
 data class ReviewItem(val reason: ReviewReason, val sourceEventIds: Set<String> = emptySet(), val sessionId: String? = null)
 data class Session(
     val id: String,

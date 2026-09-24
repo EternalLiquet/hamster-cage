@@ -57,7 +57,11 @@ object AttendanceEngine {
             observations.groupBy { it.event.at }.values.forEach { simultaneous ->
                 // Close a preceding visit before starting another at a simultaneous boundary.
                 // Without a preceding visit, ENTER+EXIT remains a zero-length observation.
-                val ordered = if (open != null) simultaneous.sortedByDescending { it.event.transition } else simultaneous
+                val ordered = if (open != null) simultaneous.sortedWith(compareBy<Observation> {
+                    when (it.event.transition) { Transition.EXIT -> 0; Transition.PRESENCE -> 1; Transition.ENTER -> 2 }
+                }.thenBy { it.event.id }) else simultaneous.sortedWith(compareBy<Observation> {
+                    when (it.event.transition) { Transition.ENTER -> 0; Transition.PRESENCE -> 1; Transition.EXIT -> 2 }
+                }.thenBy { it.event.id })
                 ordered.forEach { observation ->
                     ids += observation.ids
                     if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
@@ -66,6 +70,17 @@ object AttendanceEngine {
                         Transition.EXIT -> {
                             if (open == null) flags += ReviewReason.MISSING_ENTER
                             addSession(observation)
+                        }
+                        Transition.PRESENCE -> {
+                            if (open != null) {
+                                // The old visit has no observed EXIT. The new fix gives a
+                                // safe split time, never proof of the intervening minutes.
+                                ids.removeAll(observation.ids)
+                                flags += ReviewReason.UNCONFIRMED_GAP
+                                addSession(observation)
+                                ids += observation.ids
+                            }
+                            open = observation
                         }
                     }
                 }
@@ -151,7 +166,8 @@ object AttendanceEngine {
             val office = offices.getValue(session.officeId)
             val start = session.start
             if (start == null || !office.enabled || !office.countsTowardAttendance ||
-                ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons) null
+                ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons ||
+                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons) null
             else {
                 val end = minOf(session.end ?: input.now, input.now)
                 val creditStart = start.plusSeconds(office.entryGraceMinutes * 60L)
