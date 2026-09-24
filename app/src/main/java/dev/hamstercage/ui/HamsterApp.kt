@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import dev.hamstercage.domain.TimeSource
 import dev.hamstercage.domain.AttendanceEngine
 import dev.hamstercage.capture.CaptureStatus
+import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.capture.RegistrationStatus
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.data.StorageState
@@ -56,6 +57,7 @@ fun HamsterApp(
     timeSource: TimeSource, zoneId: ZoneId = ZoneId.systemDefault(),
     storageState: StorageState = StorageState.Loading,
     captureStatus: CaptureStatus = CaptureStatus(),
+    coverage: CoverageLedger? = null,
     locationSetup: LocationSetup = LocationSetup(), backgroundOptionLabel: String = "Allow all the time",
     setupError: String? = null, requestForeground: () -> Unit = {}, requestBackground: () -> Unit = {},
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
@@ -71,6 +73,8 @@ fun HamsterApp(
         selected == Destination.HISTORY || selected == Destination.SETTINGS)
     val snapshot = (storageState as? StorageState.Ready)?.snapshot
     val displayZone = snapshot?.policy?.zoneId ?: zoneId
+    val effectiveTrackingReady = if (coverage == null) trackingReady else
+        captureStatus.registration == RegistrationStatus.ACTIVE && coverage.presenceConfirmed(now, displayZone)
     HamsterTheme {
         Scaffold(bottomBar = {
             if (LocalDensity.current.fontScale >= CageStyle.LargeFontThreshold) {
@@ -142,12 +146,21 @@ fun HamsterApp(
                 if (selected == Destination.DASHBOARD || selected == Destination.HISTORY) {
                     when {
                         snapshot != null -> {
-                            val input = remember(snapshot, now) { snapshot.input(now) }
+                            val input = remember(snapshot, now, coverage) {
+                                snapshot.input(now).copy(historyStartDate = coverage?.historyStartDate,
+                                    unknownDates = coverage?.unreviewedUnknownDates.orEmpty())
+                            }
                             val result = remember(input) { AttendanceEngine.derive(input) }
                             if (selected == Destination.HISTORY) HistoryScreen(input, result, correctionActions)
-                            else DashboardScreen(input, result, trackingReady,
-                                openOffices = { selectedName = Destination.OFFICES.name },
-                                openHistory = { selectedName = Destination.HISTORY.name })
+                            else {
+                                DashboardScreen(input, result, effectiveTrackingReady,
+                                    openOffices = { selectedName = Destination.OFFICES.name },
+                                    openHistory = { selectedName = Destination.HISTORY.name })
+                                if (coverage?.unreviewedUnknownDates?.isNotEmpty() == true)
+                                    Notice("Attendance coverage needs review",
+                                        "Detection was unavailable for one or more dates. Recorded time remains, but missing time is unknown.",
+                                        "Review history", { selectedName = Destination.HISTORY.name })
+                            }
                         }
                         storageState == StorageState.Loading -> Text("Opening your local record…")
                         else -> Unit // The sanitized storage failure notice above remains the only data state.

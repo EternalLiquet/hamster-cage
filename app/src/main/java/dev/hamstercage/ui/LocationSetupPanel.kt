@@ -31,6 +31,8 @@ fun LocationSetupPanel(
         Tag(setup.status, warm = !setup.prerequisitesReady)
         Text("Office detection uses configured office boundaries, not a continuous travel history. Location is optional; browsing, corrections and settings remain available.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+        Text("If you force-stop the app, Android pauses boundary detection. Open Hamster Cage again to request recovery; any uncertain time needs review.",
+            style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         when {
             !setup.fineLocation -> {
                 Text(if (setup.coarseLocation) "Approximate access cannot reliably identify an office boundary. Choose precise location to prepare automatic detection."

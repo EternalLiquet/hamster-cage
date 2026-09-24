@@ -42,9 +42,14 @@ class FoundationPrivacyTest {
         assertTrue(info.providers.orEmpty().all { !it.exported && !it.grantUriPermissions })
         assertTrue(info.activities.orEmpty().filter { it.exported }.all { it.name == "dev.hamstercage.MainActivity" })
         assertTrue(info.services.orEmpty().none { it.exported })
-        assertTrue(info.receivers.orEmpty().filter { it.exported }.all {
-            it.name == "androidx.profileinstaller.ProfileInstallReceiver" && it.permission == "android.permission.DUMP"
-        })
+        val exported = info.receivers.orEmpty().filter { it.exported }
+        assertEquals(setOf("androidx.profileinstaller.ProfileInstallReceiver",
+            "dev.hamstercage.capture.CaptureRecoveryReceiver"), exported.map { it.name }.toSet())
+        assertTrue(exported.all { receiver -> when (receiver.name) {
+            "androidx.profileinstaller.ProfileInstallReceiver" -> receiver.permission == "android.permission.DUMP"
+            "dev.hamstercage.capture.CaptureRecoveryReceiver" -> receiver.permission == null
+            else -> false
+        } })
     }
 
     @Test
