@@ -27,7 +27,8 @@ class ApkInventoryTest(unittest.TestCase):
         for name in ("assets/attendance.db", "res/raw/record.DB-wal", "res/raw/record.db-journal",
                      "res/raw/record.sqlite-wal", "res/raw/record.sqlite-shm", "res/raw/record.sqlite3-journal",
                      "res/raw/policy.preferences_pb",
-                     "assets/backup.json", "res/raw/signing.JKS", "private.key", "capture.log",
+                     "assets/backup.json", "res/raw/backup.json", "res/raw-night/backup.json",
+                     "res/raw/signing.JKS", "private.key", "capture.log",
                      "visual-reference/hamster.png", "assets/unknown.bin"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 audit(fixture((name,)))
