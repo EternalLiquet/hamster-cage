@@ -24,7 +24,9 @@ class ApkInventoryTest(unittest.TestCase):
                                           "assets/dexopt/baseline.prof", "assets/dexopt/baseline.profm"))))
 
     def test_private_payloads_and_unreviewed_assets_are_rejected(self):
-        for name in ("assets/attendance.db", "res/raw/record.DB-wal", "res/raw/policy.preferences_pb",
+        for name in ("assets/attendance.db", "res/raw/record.DB-wal", "res/raw/record.db-journal",
+                     "res/raw/record.sqlite-wal", "res/raw/record.sqlite-shm", "res/raw/record.sqlite3-journal",
+                     "res/raw/policy.preferences_pb",
                      "assets/backup.json", "res/raw/signing.JKS", "private.key", "capture.log",
                      "visual-reference/hamster.png", "assets/unknown.bin"):
             with self.subTest(name=name), self.assertRaises(ValueError):

@@ -16,7 +16,7 @@ This pass covers the integrated phases 0–5 application and the APK delivered b
 
 ## Packaged-data regression gate
 
-`scripts/apk_inventory.py` inspects the actual APK ZIP, not the source tree. It rejects private database/preferences/key/log/reference paths, unexpected assets, ambiguous paths, duplicate entries and archive corruption. Only optional Android baseline-profile assets are pre-approved. Adversarial archive tests include database/WAL, preferences, key and log payloads, arbitrary seed JSON, reference artwork paths and duplicate/traversal entries; assertions remain enforced under Python optimization. This gate supplements the existing manifest/backup, source, secret and signature checks. Pixel content and arbitrary hardcoded data still require source/asset review.
+`scripts/apk_inventory.py` inspects the actual APK ZIP, not the source tree. It rejects private database/preferences/key/log/reference paths, unexpected assets, ambiguous paths, duplicate entries and archive corruption. Only optional Android baseline-profile assets are pre-approved. Adversarial archive tests include database files and their WAL/SHM/rollback journals under `.db`, `.sqlite` and `.sqlite3`, preferences, key and log payloads, arbitrary seed JSON, reference artwork paths and duplicate/traversal entries; assertions remain enforced under Python optimization. Independent review identified omitted SQLite sidecar suffixes; the guard and fixtures were repaired before final sign-off. This gate supplements the existing manifest/backup, source, secret and signature checks. Pixel content and arbitrary hardcoded data still require source/asset review.
 
 ## Evidence and remaining gates
 

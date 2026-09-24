@@ -11,7 +11,7 @@ import sys
 import zipfile
 
 ALLOWED_ASSETS = {"assets/dexopt/baseline.prof", "assets/dexopt/baseline.profm"}
-PRIVATE_FILE = re.compile(r"\.(?:db(?:-wal|-shm)?|sqlite3?|preferences_pb|keystore|jks|key|pem|p12|pfx|hprof|log)$", re.I)
+PRIVATE_FILE = re.compile(r"\.(?:(?:db|sqlite3?)(?:-wal|-shm|-journal)?|preferences_pb|keystore|jks|key|pem|p12|pfx|hprof|log)$", re.I)
 
 
 def audit(apk):
