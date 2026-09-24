@@ -110,7 +110,7 @@ def audit(root, variant="debug"):
         require("fallbackToDestructiveMigration" not in code, f"Destructive migration in {path}")
         require(not re.search(r"\b(?:Log\.(?:[vdiew]|wtf|println)|print(?:ln)?|printStackTrace)\s*\(", code),
                 f"Unreviewed runtime logging in {path}")
-        require(not re.search(r"\b(?:requestLocationUpdates|requestSingleUpdate|startLocationUpdates)\s*\(", code),
+        require(not re.search(r"\b(?:requestLocationUpdates|requestSingleUpdate|startLocationUpdates|getCurrentLocation|getLastLocation)\s*\(", code),
                 f"Continuous or direct location collection needs explicit review: {path}")
     require(not list((root / "app/src").rglob("*.jpg")), "Reference artwork must not be bundled")
 

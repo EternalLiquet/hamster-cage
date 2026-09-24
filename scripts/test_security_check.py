@@ -136,12 +136,14 @@ class SecurityAuditTest(unittest.TestCase):
                 self.run_modes(script, allowed, "PASS:" if allowed else "Geofence transition receiver")
 
     def test_direct_location_collection_requires_review(self):
-        with tempfile.TemporaryDirectory() as directory:
-            script, _, _ = self.fixture(Path(directory))
-            source = Path(directory) / "app/src/main/java/synthetic/Tracking.kt"
-            source.parent.mkdir(parents=True)
-            source.write_text("client.requestLocationUpdates(request, callback)", encoding="utf-8")
-            self.run_modes(script, False, "Continuous or direct location collection")
+        for call in ("requestLocationUpdates(request, callback)", "getCurrentLocation(priority, token)",
+                     "getLastLocation()"):
+            with self.subTest(call=call), tempfile.TemporaryDirectory() as directory:
+                script, _, _ = self.fixture(Path(directory))
+                source = Path(directory) / "app/src/main/java/synthetic/Tracking.kt"
+                source.parent.mkdir(parents=True)
+                source.write_text("client." + call, encoding="utf-8")
+                self.run_modes(script, False, "Continuous or direct location collection")
 
     def test_provider_must_neither_export_nor_grant_data(self):
         for attributes in ['android:exported="true" android:permission="android.permission.DUMP"',
