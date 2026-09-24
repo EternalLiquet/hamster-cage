@@ -12,8 +12,8 @@ android {
         applicationId = "dev.hamstercage"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-shell"
+        versionCode = 2
+        versionName = "0.1.0-preview"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {

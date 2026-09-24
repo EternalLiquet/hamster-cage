@@ -1,18 +1,31 @@
-# Build and install the shell
+# Build and install the local MVP preview
 
-The Phase 0 shell supports Android 8.0 / API 26 and later. The current four destinations share the accessible design system and selected hamster launcher identity; capture, storage and attendance calculations arrive in their own issue PRs.
+The installable preview is `dev.hamstercage.preview`, version `0.1.0-preview-debug` (version code 2), for Android 8.0 / API 26 and later. It is a **debuggable, development-signed APK**, separate from `dev.hamstercage`; it is not a production-signed release. The app itself has no INTERNET permission, account, sync, analytics, export or automatic backup. Uninstalling or losing a device can permanently lose its local record.
 
-## Toolchain
+## Download and verify one exact build
 
-- JDK 17, selected using `JAVA_HOME`.
-- Android SDK command-line tools, platform `android-36`, build tools `35.0.0`, and platform tools.
-- `ANDROID_HOME` pointing to the SDK, or an untracked `local.properties` containing `sdk.dir`.
-- Gradle 8.11.1 via the committed wrapper, with distribution SHA-256 verification; Android Gradle Plugin 8.10.1 and Kotlin 2.1.20 are pinned in the version catalog.
-- Python 3 for the manifest/privacy audit.
+1. Open the successful **Android build and checks** Actions run for the independently verified source commit. Download `hamster-cage-preview-<full source SHA>` from its artifacts and unzip it. CI keeps artifacts for 14 days. A later run, even at the same source, may use a different debug signing key.
+2. Keep all four files together: `hamster-cage-preview.apk`, `SHA256SUMS`, `BUILD.txt` and `SIGNATURE.txt`. Confirm that `BUILD.txt` names the intended full source SHA, package, version code/name, debug build, APK SHA-256 and public signing-certificate SHA-256. The artifact name and `BUILD.txt` must identify the same commit.
+3. In that extracted directory, run `sha256sum --check SHA256SUMS` (or compare PowerShell `Get-FileHash -Algorithm SHA256 .\hamster-cage-preview.apk` with both `SHA256SUMS` and `BUILD.txt`). A mismatch means stop: do not install the APK. Optionally run Android build-tools `apksigner verify --print-certs hamster-cage-preview.apk` and compare the signer certificate SHA-256 digest with `BUILD.txt` and `SIGNATURE.txt`.
 
-Accept Android SDK licenses with `sdkmanager --licenses`, then install `sdkmanager "platforms;android-36" "build-tools;35.0.0" "platform-tools"`. A first build downloads dependencies. The installed application does not need network access.
+The [CI workflow](../.github/workflows/android.yml) checks out the exact PR head or master commit, tests it, builds the debug APK, verifies its signature, and publishes the APK with those metadata files. `scripts/artifact_provenance.py` refuses a dirty checkout, an unexpected variant, mismatched checksum or missing signing digest. This preview artifact is not pinned as a permanent public release; use the run and source SHA cited in the completed #34 evidence before installing. Never rely on a PR number alone to identify APK bytes.
 
-From a clean checkout:
+## Install or update
+
+For a clean install, use a fresh emulator/device or confirm that `dev.hamstercage.preview` has no valuable data. Android's file manager can open the verified APK after you allow installs from that specific app, or use ADB:
+
+```sh
+adb install hamster-cage-preview.apk
+adb shell am start -W -n dev.hamstercage.preview/dev.hamstercage.MainActivity
+```
+
+For an existing preview installation, first preserve its data by leaving it installed. Compare the installed package and signing certificate with the proposed APK. An in-place update requires the same package, the same signing key and a nondecreasing version code; use `adb install -r hamster-cage-preview.apk` only when those conditions hold. Version code 2 can update version code 1 from the **same local debug key** and retain its private data. GitHub-hosted runners or a different development machine can produce a different key, so their APK may fail with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Stop at that error. Do not uninstall a populated preview just to force an update: there is no supported export/sync recovery path.
+
+If installing through a file manager, turn its “install unknown apps” permission off after the install. Grant precise foreground location when you choose automatic office detection; Android asks for background location separately. You can deny either and still browse or edit local attendance. Enter offices on the device; never post real coordinates or attendance in public issue evidence.
+
+## Rebuild locally
+
+Use JDK 17, Android SDK platform 36, build-tools 35.0.0, platform-tools and the committed Gradle 8.11.1 wrapper. Set `JAVA_HOME` and `ANDROID_HOME` (or untracked `local.properties` with `sdk.dir`). From a clean checkout:
 
 ```sh
 python3 scripts/verify_wrapper.py
@@ -22,34 +35,13 @@ python3 scripts/security_check.py
 python3 scripts/dependency_audit.py
 ```
 
-See [CI checks](CI.md) for scanner limits, wrapper integrity and manual dependency upgrades. Successful Android CI runs publish `hamster-cage-preview-<source SHA>` containing the APK, `SHA256SUMS`, source/package/version metadata and signing-certificate digest. Verify the checksum before installing; hosted debug keys may differ between runs.
+The local APK is `app/build/outputs/apk/debug/app-debug.apk`. On PowerShell use `.\gradlew.bat` and `python`. The wrapper validates its distribution checksum. The dependency audit queries OSV; an unavailable audit service is not a pass. CI also runs CodeQL, Gitleaks and API 35 instrumentation. GitHub dependency review remains unavailable while the repository Dependency Graph is disabled. Local and hosted debug signing identities can differ; always record the **actual** APK SHA-256, source SHA, version, package, build type and certificate digest together. Production signing is not configured, and `assembleRelease` is not an installable signed product release.
 
-On Windows PowerShell use `.\gradlew.bat` and `python` with the same arguments. Domain tests can run separately using `./gradlew :core-domain:test` without an emulator or Android framework.
+## First-morning smoke
 
-## Install and test
+1. Confirm the installed package/version, open Dashboard, Offices, History and Settings offline, and confirm there is no existing attendance after a clean install. Missing pre-install history must show as unknown, never a complete zero.
+2. Configure a synthetic office first. Check denial, precise foreground grant and the separate background-location step. Registration only means boundary requests were accepted; it does not prove that a transition was delivered.
+3. With synthetic facts, check that history explains credited intervals, corrections append, calendar exclusions/WFH and policy settings survive a process restart, and unknown coverage stays explicit. Avoid real coordinates in screenshots or logs.
+4. On a same-key update, confirm those synthetic offices/policy facts remain. After a separately confirmed history delete, confirm attendance/calendar facts disappear while offices/base policy remain; full reset intentionally clears all app data.
 
-Start an Android emulator or connect an authorized phone with USB debugging:
-
-```sh
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -W -n dev.hamstercage.preview/dev.hamstercage.MainActivity
-./gradlew :app:connectedDebugAndroidTest
-```
-
-Open Dashboard, Offices, History, and Settings with device networking disabled. The instrumentation suite exercises all destinations, Activity recreation, 200% navigation text and touch targets, and installed adaptive/themed launcher resources. Repeat at a 360dp screen width for small-screen review. The [design evidence](evidence/issue-11/README.md) includes actual emulator screenshots and separately labeled mask fixtures. These are shell checks; they do not prove geofence or battery behavior.
-
-The APK uses package `dev.hamstercage.preview`, version `0.1.0-shell-debug`, build type **debug**, and the local Android development signing key. It is not a production-signed release. Another machine's debug key cannot update it in place. `assembleRelease` produces an unsigned release artifact until a separate secure signing process is configured. Never commit signing keys.
-
-Before sharing an APK, record its source commit (`git rev-parse HEAD`) and SHA-256 (`sha256sum app/build/outputs/apk/debug/app-debug.apk`, or PowerShell `Get-FileHash -Algorithm SHA256`). Keep those values with its version, package, build type and signing caveat. Phase 5 owns the final Product MVP artifact.
-
-## Boundaries
-
-`core-domain` is a Kotlin/JVM module with no Android, Compose, storage, or network dependencies. `TimeSource` supplies an explicit evaluation instant and derives dates in a supplied timezone.
-
-`app/data` contains platform adapters implementing domain contracts; the shell's `SystemTimeSource` wraps an injectable `java.time.Clock`. Room/DataStore are intentionally added with storage issue #12.
-
-`app/ui` contains Compose navigation and presentation, depending only on the time contract. `MainActivity` composes the platform adapter and UI. Its single exported launcher Activity is the only application entry point. The shell declares no location, network or shared-storage permissions, and no capture receivers, services, or analytics.
-
-The merged manifest also contains AndroidX's nonexported initialization provider, its signature-protected dynamic-receiver permission, and the profile installer receiver protected by the OS `DUMP` permission. These library components are included in the manifest audit; the shell has no user-granted permissions or runtime permission prompts.
-
-`scripts/security_check.py` inspects the merged debug manifest and backup exclusions after assembly, including components contributed by dependencies. Issue #14 extends CI and security tooling; each later feature adds its own meaningful tests.
+An emulator install/update smoke supports packaging and local persistence only. **No physical-phone geofence delivery, UI-closed background behavior, reboot/force-stop recovery, battery/OEM behavior or manufacturer backup/device-transfer behavior has been verified.** Those are separate open acceptance gates; this debug APK does not establish production release security.
