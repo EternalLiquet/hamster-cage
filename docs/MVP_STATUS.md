@@ -21,12 +21,12 @@ Phase 0 is complete: issues #10–15 and [epic #1](https://github.com/EternalLiq
 | #22 Dashboard | Scoped merge [#61](https://github.com/EternalLiquet/hamster-cage/pull/61) | Verified d727d0d; merge bb0bfe4; Seven presentation and eight focused API37 UI/lifecycle/navigation checks pass at 074b874, with exact-head hosted gates. Actual API37 process restart passed: different PID, credit 13m to 14m, honest unknown state; production source 074b874 with helper af9a7ad. Office setup is integrated; keep open until #18/#19 readiness/coverage is evidenced. [Contract](DASHBOARD.md). |
 | #23 Departure | Merged [#58](https://github.com/EternalLiquet/hamster-cage/pull/58) | Verified d758b58; merge c384b7b; 18 departure plus 62 existing domain tests, five named targets, ambiguity before satisfaction, union/grace/window/horizon checks. [Contract](DEPARTURE_ESTIMATES.md). |
 | #24 Dashboard Security Pass | Open | Requires completed dashboard and estimates. |
-| #25 History | Merged [#62](https://github.com/EternalLiquet/hamster-cage/pull/62) | Verified 5380cad; merge 2a8ffb6; ten presentation tests and API35/37 live Room/DataStore correction/policy, 200%-text, paging and timezone checks pass with exact-head gates. Issue closed. [Contract](HISTORY.md). |
+| #25 History | Merged [#62](https://github.com/EternalLiquet/hamster-cage/pull/62) | Verified 5380cad; merge 2a8ffb6; ten presentation cases plus API35/37 history, live Room/DataStore correction/policy refresh, 200% text, paging/timezone and exact-head gates pass. Issue closed. [Contract](HISTORY.md). |
 | #26 Explanations | Open | Raw/effective bounds and credited interval explanations remain. |
 | #27 Corrections | Open | Preview, confirm, append-only correction and revert remain. |
 | #28 History Security Pass | Open | Requires history/correction surfaces. |
 | #29 Policy | Merged [#64](https://github.com/EternalLiquet/hamster-cage/pull/64) | Verified 62bdc896; merge 21f09f2; four JVM and seven API35 policy behavior/UI checks, legacy/schema1 fail-closed byte preservation, restart/travel/DST recomputation and exact-head gates pass. Issue closed. [Contract](POLICY_SETTINGS.md). |
-| #30 Calendar controls | Open | Exclusions and WFH controls remain. |
+| #30 Calendar controls | Merged [#65](https://github.com/EternalLiquet/hamster-cage/pull/65) | Verified 13d1201; merge 16beaa6; two JVM and four hosted API35 calendar CRUD/reopen/failure/restoration checks and exact-head gates pass. Issue closed. [Contract](CALENDAR_CONTROLS.md). |
 | #31 Privacy controls | Open | Local data explanation/deletion controls remain. |
 | #32 Settings Security Pass | Open | Requires policy/calendar/privacy controls. |
 | #33 Integrated journeys | Open | Full offline journeys, lifecycle/process/migration/failure evidence remains. |

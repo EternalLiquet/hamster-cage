@@ -27,6 +27,7 @@ import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.location.backgroundPermissionAction
 import dev.hamstercage.ui.HamsterApp
 import dev.hamstercage.ui.OfficeActions
+import dev.hamstercage.ui.CalendarActions
 
 class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
@@ -57,7 +58,8 @@ class MainActivity : ComponentActivity() {
                     newId = HamsterRepository::newId,
                     version = repository::officeVersion,
                     save = repository::saveOffice,
-                ), savePolicy = { settings, expected -> repository.savePolicy(settings, expected) })
+                ), savePolicy = { settings, expected -> repository.savePolicy(settings, expected) },
+                calendarActions = CalendarActions(repository::saveExclusion, repository::removeExclusion, repository::setWfh))
         }
     }
 
