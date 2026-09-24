@@ -1,0 +1,11 @@
+# Departure estimate contract (#23)
+
+`AttendanceEngine.departure` returns an explicitly named Today, Week through today, Full week, Rolling 30 days or Rolling 90 days target. It uses that window's current denominator and unioned accrued credit, including previous visits. The full-week option includes projected requirements; the other windows end today.
+
+An unambiguous eligible open session continues at one credited minute per elapsed minute. The credited target instant is distinct from the estimated raw/geofence exit instant, which subtracts that office's exit grace and never precedes now. Grace can allow leaving now while accrued credit has not yet reached the target. Neither timestamp adds future aggregate credit or changes a source fact.
+
+Missing coverage suppresses an estimate. Relevant malformed, repeated, stale or missing boundaries, unresolved invalid input and multiple eligible open offices require review, even when provisional credit appears sufficient. A benign duplicate observation does not suppress the estimate. A clean already-satisfied target requests zero additional time and has no predicted exit timestamp. Without an open eligible session, an unmet target has no exit prediction.
+
+A projection cannot borrow credit beyond the selected window or continue past the policy's safe open-session duration. Full-week projections can cross midnight where both bounds allow it. Calculations use elapsed instants and policy-local date boundaries, including DST, rather than assuming 24 hours per date. Tracking health remains an additional UI integration gate in #19/#22; this pure estimator cannot infer permission or geofence delivery health.
+
+Focused tests cover the five named targets, met/unmet targets, prior credit, unioned overlaps, independent grace, leave-now behavior, holidays/WFH, rolling and weekly boundaries, missing history, anomalies before apparent satisfaction, correction resolution, midnight and DST. UI display and actual geofence behavior are separate acceptance work; no phone checks are claimed here.
