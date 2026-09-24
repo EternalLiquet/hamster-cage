@@ -14,3 +14,8 @@ fun correctionBounds(start: String, end: String, now: Instant): CorrectionBounds
     require(from <= now && (until == null || until <= now)) { "Attendance bounds cannot be in the future." }
     return CorrectionBounds(from, until)
 }
+
+internal fun nextCorrectionSequence(current: Long): Long {
+    require(current in 0 until Long.MAX_VALUE) { "Correction order is unavailable. Your existing facts were kept." }
+    return current + 1
+}
