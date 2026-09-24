@@ -25,12 +25,12 @@ def audit(apk):
         for entry in entries:
             name = entry.filename
             normalized = name.lower()
-            if entry.orig_filename != name or name.startswith("/") or "\\" in name or ":" in name or any(part in {".", ".."} for part in name.split("/")):
-                raise ValueError("Ambiguous archive path needs review")
+            if entry.orig_filename != name or "\\" in name or ":" in name or any(part in {"", ".", ".."} for part in name.split("/")):
+                raise ValueError("Ambiguous archive path or directory entry needs review")
             if PRIVATE_FILE.search(normalized) or any(x in normalized for x in ("visual-reference", "gpt-projects-files")):
                 raise ValueError("Private data, key, log or reference path in APK")
             unreviewed_payload = normalized.startswith("assets/") or re.match(r"^res/raw(?:-[^/]+)?/", normalized)
-            if unreviewed_payload and not normalized.endswith("/") and name not in ALLOWED_ASSETS:
+            if unreviewed_payload and name not in ALLOWED_ASSETS:
                 raise ValueError("Unreviewed packaged asset or raw resource")
         if archive.testzip() is not None:
             raise ValueError("Invalid archive checksum")

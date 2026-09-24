@@ -34,7 +34,8 @@ class ApkInventoryTest(unittest.TestCase):
                 audit(fixture((name,)))
 
     def test_ambiguous_paths_and_duplicate_entries_are_rejected(self):
-        for name in ("/private.dat", "../private.dat", "res\\private.dat", "C:/private.dat", "classes.dex"):
+        for name in ("/private.dat", "../private.dat", "res\\private.dat", "C:/private.dat", "classes.dex",
+                     "res//raw/backup.json", "assets//backup.json", "assets/private/"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 audit(fixture((name,)))
 
