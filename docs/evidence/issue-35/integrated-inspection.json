@@ -1,0 +1,22 @@
+{
+  "sourceSha": "d4595a1532abb4bd7ddf10aae3cb3ad3650d67fa",
+  "artifacts": [
+    {
+      "variant": "debug",
+      "sha256": "a4c0c287f446dfc19fc4f5c686007b2911eef0c1cc474972cebc7aa34060dfa3",
+      "package": "dev.hamstercage.preview",
+      "versionCode": 2,
+      "compiledPrivacyControls": "PASS",
+      "signing": "development key"
+    },
+    {
+      "variant": "release",
+      "sha256": "7692dfa674acd6631b1d74568435d695ca9a6818f2103f5925fafb7d241d53fb",
+      "package": "dev.hamstercage",
+      "versionCode": 2,
+      "compiledPrivacyControls": "PASS",
+      "signing": "unsigned; inspected only"
+    }
+  ],
+  "physicalDeviceTested": false
+}

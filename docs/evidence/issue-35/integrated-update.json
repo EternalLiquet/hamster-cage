@@ -1,0 +1,16 @@
+{
+  "sourceSha": "d4595a1532abb4bd7ddf10aae3cb3ad3650d67fa",
+  "api": 37,
+  "physicalDevice": false,
+  "sameKeyUpdate": "PASS",
+  "twoSyntheticOfficesRetained": true,
+  "deletedFactsRemainEmpty": {
+    "raw_events": 0,
+    "corrections": 0,
+    "manual_sessions": 0,
+    "excluded_dates": 0,
+    "day_labels": 0
+  },
+  "launchPid": "15100",
+  "sha256": "a4c0c287f446dfc19fc4f5c686007b2911eef0c1cc474972cebc7aa34060dfa3"
+}
