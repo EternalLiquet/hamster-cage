@@ -7,7 +7,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
@@ -93,7 +92,9 @@ class HistoryTest {
             assertTrue("Initial isolated repository state: ${initial::class.simpleName}", initial is StorageState.Ready)
             assertEquals(1, (initial as StorageState.Ready).snapshot.manualSessions.size)
             compose.setContent {
-                val state by repository.state.collectAsState(StorageState.Loading)
+                // Read in this composition scope so its SideEffect tracks each emission,
+                // rather than only the independently recomposing Column content below.
+                val state = repository.state.collectAsState(StorageState.Loading).value
                 SideEffect { seen.set(state) }
                 HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
                     (state as? StorageState.Ready)?.snapshot?.input(now)?.let { input -> HistoryScreen(input, AttendanceEngine.derive(input)) }

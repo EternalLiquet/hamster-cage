@@ -89,7 +89,7 @@ class HamsterRepository internal constructor(
     }
 
     suspend fun officeVersion(id: String): Long? = dao.office(id)?.version
-    suspend fun savePolicy(settings: PolicySettings) = policy.save(settings)
+    suspend fun savePolicy(settings: PolicySettings, expected: PolicySettings? = null) = policy.save(settings, expected)
 
     /** Entire batch commits or rolls back. Identical replay is a no-op; conflicting IDs fail. */
     suspend fun appendRawEvents(events: List<RecordedEvent>) = database.withTransaction {

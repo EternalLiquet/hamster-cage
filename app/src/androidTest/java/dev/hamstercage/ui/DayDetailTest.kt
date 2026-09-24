@@ -33,7 +33,7 @@ class DayDetailTest {
         } }
         compose.onNodeWithTag("history_credit_$day").performScrollTo().assertTextContains("40m")
         compose.onNodeWithText("Explain $day").performScrollTo().performClick()
-        compose.onNodeWithTag("detail_credit").performScrollTo().assertTextContains("40m")
+        compose.onNodeWithTag("detail_credit").performScrollTo().assertTextEquals("Recorded credit: 40m")
         compose.onNodeWithText("Original bounds: 2026-09-23T14:00:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Effective bounds: 2026-09-23T14:30:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Source event: in").performScrollTo().assertIsDisplayed()
@@ -48,7 +48,7 @@ class DayDetailTest {
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
             DayDetailScreen(input, AttendanceEngine.derive(input), day, back = {})
         } } }
-        compose.onNodeWithTag("detail_credit").assertTextContains("0m")
+        compose.onNodeWithTag("detail_credit").assertTextEquals("Recorded credit: 0m")
         compose.onAllNodesWithText(reviewExplanation(ReviewReason.MISSING_ENTER))[0].performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Source event: exit").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Unknown coverage").performScrollTo().assertIsDisplayed()
