@@ -1,5 +1,13 @@
 # Product MVP checkpoint
 
+## Attendance reconstruction issue #13
+
+The focused domain slice reconstructs immutable raw observations per office, applies separate entry/exit grace, reconciles configured short gaps within an office, and unions credited intervals globally. Every interval retains session provenance. Open sessions stop at injected `now`; stale and missing-boundary observations remain reviewable. Manual facts remain separate from device events. Corrections retain source aliases even when a late replay changes the canonical session identifier.
+
+Implementation evidence: 41 attendance tests plus two domain clock tests pass, alongside the app clock test, Android lint and debug assembly. Tests cover documented 380/490-minute examples, repeated/missing/duplicate/conflicting facts, malformed numeric and extreme time inputs, midnight, both DST transitions, multi-office union invariants, manual overlap and correction identity. Simultaneous ENTER/EXIT ordering cannot depend on replay IDs or generate walking credit from a zero-length observation. Conflicting correction identities remain reviewable. No raw event is rewritten or fabricated.
+
+Calendar-window totals, departure estimates, persistence and UI integration remain separate issues. Independent verification, review and current-head CI for #13 are still required; these implementation results are not independent sign-off.
+
 ## CI issue #14 extraction
 
 The expanded CI slice replaces the bootstrap workflow with source-head build, lint, unit/instrumentation tests, wrapper-integrity checks, OSV runtime dependency audit, Gitleaks, CodeQL and traceable APK/report artifacts. A post-test reinstall fixes the reference workflow's launch failure. No recurring workflows are created; dependency updates remain reviewed PRs.
@@ -30,7 +38,7 @@ Implementation checks passed on 2026-09-24 UTC:
 
 Issue #10 merged through [PR #51](https://github.com/EternalLiquet/hamster-cage/pull/51) at `e5b3eef41fd263996a8ca0058e552c43afb9e2d6`. Its source head `e6deefc8621230ece676808ee4b816fe8153048c` passed independent verification, independent review and exact-head CI. The [verifier evidence](https://github.com/EternalLiquet/hamster-cage/pull/51#issuecomment-5806094303) includes the clean offline install/navigation checks, adversarial audit failures and unchanged APK identity. The issue is closed; Phase 0 and Product MVP are not complete.
 
-Issue #14 still requires its own current-head hosted CI, independent verification and independent review before merge. Review identified Java Properties syntax that bypassed the initial wrapper parser; the gate now pins the entire reviewed configuration and rejects duplicate/escaped/whitespace/colon/continued overrides. The combined local Python suite includes eight shell privacy tests plus thirteen wrapper/dependency tests. Product MVP issues remain open until their individual acceptance criteria and security passes are satisfied.
+Issue #14 merged through [PR #52](https://github.com/EternalLiquet/hamster-cage/pull/52) at `1103903a8edef601d117665d1064043312d0f930`, preserving verified head `883b1b3603977dd15bd9eaede0326f8f93b63ffd`. [Independent verification](https://github.com/EternalLiquet/hamster-cage/pull/52#issuecomment-5806253123), independent review and all five hosted checks passed, including actual emulator tests/cold launch and downloaded APK checksum/signature/provenance. The wrapper gate pins the complete reviewed configuration; all 21 Python regression methods pass normally and with optimization. Product MVP issues remain open until their individual acceptance criteria and security passes are satisfied.
 
 ## Remaining scope
 

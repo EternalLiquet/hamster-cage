@@ -1,0 +1,352 @@
+package dev.hamstercage.domain
+
+import java.time.Duration
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import org.junit.Assert.*
+import org.junit.Test
+
+class AttendanceEngineTest {
+    // Reconstruct absolute intervals here; calendar-window calculations are issue #21.
+    private val zone = ZoneId.of("America/New_York")
+    private val day = LocalDate.of(2026, 9, 23)
+    private val office = Office("a", "Synthetic office", 0.0, 0.0)
+    private fun at(time: String, date: LocalDate = day): Instant = date.atTime(java.time.LocalTime.parse(time)).atZone(zone).toInstant()
+    private fun enter(id: String, time: String, officeId: String = "a", date: LocalDate = day) = RawEvent(id, officeId, Transition.ENTER, at(time, date))
+    private fun exit(id: String, time: String, officeId: String = "a", date: LocalDate = day) = RawEvent(id, officeId, Transition.EXIT, at(time, date))
+    private fun input(events: List<RawEvent>, now: Instant = at("20:00"), policy: Policy = Policy(), offices: List<Office> = listOf(office), corrections: List<Correction> = emptyList()) =
+        AttendanceInput(offices, events, corrections, policy, now, day.minusDays(100))
+    private fun minutes(input: AttendanceInput) = AttendanceEngine.derive(input).intervals.sumOf { it.minutes }
+    private fun assertMinutes(expected: Double, input: AttendanceInput) = assertEquals(expected, minutes(input), 0.00001)
+
+    @Test fun midnightKeepsOneAbsoluteIntervalAndBothRawBoundaries() {
+        val data = input(listOf(enter("in", "23:00"), exit("out", "01:00", date = day.plusDays(1))), now = at("02:00", day.plusDays(1)))
+        val result = AttendanceEngine.derive(data)
+        assertMinutes(130.0, data)
+        assertEquals(at("22:55"), result.intervals.single().start)
+        assertEquals(at("01:05", day.plusDays(1)), result.intervals.single().end)
+        assertEquals(setOf("in", "out"), result.sessions.single().sourceEventIds)
+    }
+
+    @Test fun simultaneousBoundariesAndReplayedIdsCannotInventAnOpenShift() {
+        val events = listOf(enter("z", "09:00"), exit("m", "09:00"))
+        val data = input(events)
+        val replayed = data.copy(events = events + enter("a", "09:00"))
+        for (candidate in listOf(data, replayed, replayed.copy(events = replayed.events.reversed()))) {
+            assertMinutes(0.0, candidate)
+            val result = AttendanceEngine.derive(candidate)
+            assertFalse(result.sessions.single().isOpen)
+            assertTrue(result.reviews.any { it.reason == ReviewReason.ZERO_LENGTH_SESSION })
+        }
+    }
+
+    @Test fun unpersistableTimesArePreservedForReviewWithoutOverflow() {
+        val raw = enter("bad", "09:00").copy(at = Instant.MIN)
+        val manual = ManualSession("m", "a", Instant.MIN, at("10:00"), at("18:00"))
+        val correction = Correction("c", "session:in", Instant.MIN, at("10:00"), at("18:00"))
+        val data = input(listOf(raw, enter("in", "09:00"), exit("out", "10:00")), corrections = listOf(correction))
+            .copy(manualSessions = listOf(manual))
+        assertMinutes(70.0, data)
+        assertEquals(Instant.MIN, data.events.first().at)
+        assertTrue(AttendanceEngine.derive(data).reviews.map { it.reason }.containsAll(listOf(
+            ReviewReason.INVALID_EVENT, ReviewReason.INVALID_MANUAL_SESSION, ReviewReason.INVALID_CORRECTION)))
+    }
+
+    @Test fun extremeRepresentableIntervalDoesNotOverflowDurationArithmetic() {
+        val start = Instant.ofEpochMilli(Long.MIN_VALUE)
+        val end = Instant.ofEpochMilli(Long.MAX_VALUE)
+        val interval = CreditedInterval(start, end, setOf("extreme"))
+        assertTrue(interval.minutes.isFinite() && interval.minutes > 0)
+        val data = input(listOf(RawEvent("in", "a", Transition.ENTER, start), RawEvent("out", "a", Transition.EXIT, end)), now = end)
+        assertTrue(minutes(data).isFinite())
+        assertEquals(end, AttendanceEngine.derive(data).intervals.single().end)
+    }
+
+    @Test fun conflictingCorrectionIdentityIsNotResolvedByInputOrder() {
+        val first = Correction("same", "session:in", at("09:00"), at("14:00"), at("18:00"))
+        val second = first.copy(end = at("13:00"))
+        val data = input(listOf(enter("in", "09:00"), exit("out", "15:00")), corrections = listOf(first, second))
+        val result = AttendanceEngine.derive(data)
+        assertMinutes(370.0, data)
+        assertTrue(result.reviews.any { it.reason == ReviewReason.INVALID_CORRECTION })
+        assertEquals(result, AttendanceEngine.derive(data.copy(corrections = listOf(second, first))))
+    }
+
+    @Test fun malformedOfficeAndPolicyNumbersAreRejectedAtTheBoundary() {
+        val invalid = listOf<() -> Any>(
+            { office.copy(latitude = Double.NaN) }, { office.copy(longitude = Double.POSITIVE_INFINITY) },
+            { office.copy(radiusMeters = Float.NaN) }, { office.copy(radiusMeters = 49f) },
+            { office.copy(entryGraceMinutes = -1) }, { office.copy(exitGraceMinutes = Int.MAX_VALUE) },
+            { Policy(shortGapMinutes = Int.MAX_VALUE) }, { Policy(maxOpenSessionHours = 0) },
+        )
+        invalid.forEach { construct -> assertThrows(IllegalArgumentException::class.java) { construct() } }
+    }
+
+    @Test fun lateDuplicateWithEarlierIdKeepsExistingCorrectionAndRawProvenance() {
+        val original = enter("z", "09:00")
+        val events = listOf(original, exit("out", "15:00"))
+        val correction = Correction("edited", "session:z", at("10:00"), at("14:00"), at("18:00"))
+        val initial = input(events, corrections = listOf(correction))
+        val replayed = initial.copy(events = events + original.copy(id = "a"))
+        val result = AttendanceEngine.derive(replayed)
+        assertMinutes(250.0, initial)
+        assertMinutes(250.0, replayed)
+        assertEquals("edited", result.sessions.single().correctionId)
+        assertTrue("session:z" in result.sessions.single().correctionTargetIds)
+        assertEquals(setOf("a", "z", "out"), result.sessions.single().sourceEventIds)
+        assertFalse(result.reviews.any { it.reason == ReviewReason.ORPHAN_CORRECTION })
+        assertEquals(result, AttendanceEngine.derive(replayed.copy(events = replayed.events.reversed())))
+        assertEquals(events, initial.events)
+    }
+
+    @Test fun lateMissingEnterKeepsCorrectionPreviouslyAttachedToExit() {
+        val correction = Correction("repair", "session:out", at("09:30"), at("14:30"), at("18:00"))
+        val original = input(listOf(exit("out", "15:00")), corrections = listOf(correction))
+        val late = original.copy(events = original.events + enter("in", "09:00"))
+        assertMinutes(310.0, original)
+        assertMinutes(310.0, late)
+        val session = AttendanceEngine.derive(late).sessions.single()
+        assertEquals("repair", session.correctionId)
+        assertEquals(setOf("in", "out"), session.sourceEventIds)
+    }
+
+    @Test fun blankEventIdentityRemainsReviewableWithoutCredit() {
+        val data = input(listOf(enter("", "09:00")))
+        val result = AttendanceEngine.derive(data)
+        assertTrue(result.intervals.isEmpty())
+        assertEquals(ReviewReason.INVALID_EVENT, result.reviews.single().reason)
+        assertEquals("", data.events.single().id)
+    }
+
+    @Test fun zeroLengthManualAndCorrectionCannotCreateWalkingCredit() {
+        val manual = ManualSession("m", "a", at("09:00"), at("09:00"), at("18:00"))
+        val manualData = input(emptyList()).copy(manualSessions = listOf(manual))
+        assertMinutes(0.0, manualData)
+        assertEquals(ReviewReason.INVALID_MANUAL_SESSION, AttendanceEngine.derive(manualData).reviews.single().reason)
+        val correction = Correction("zero", "session:in", at("09:00"), at("09:00"), at("18:00"))
+        val data = input(listOf(enter("in", "09:00"), exit("out", "10:00")), corrections = listOf(correction))
+        assertMinutes(70.0, data)
+        assertTrue(AttendanceEngine.derive(data).reviews.any { it.reason == ReviewReason.INVALID_CORRECTION })
+        assertEquals(at("10:00"), AttendanceEngine.derive(data).sessions.single().end)
+    }
+
+    @Test fun cleanSingleSessionSeparatesRawFromGrace() {
+        val data = input(listOf(enter("e", "09:00"), exit("x", "15:00")))
+        val result = AttendanceEngine.derive(data)
+        assertMinutes(370.0, data)
+        assertEquals(360.0, AttendanceEngine.observedMinutes(result.sessions.single(), data.now), 0.0)
+        assertEquals(Confidence.HIGH, result.sessions.single().confidence)
+    }
+    @Test fun splitLunchMatchesSourceExample380Minutes() {
+        assertMinutes(380.0, input(listOf(enter("1", "09:15"), exit("2", "11:45"), enter("3", "13:30"), exit("4", "17:00"))))
+    }
+    @Test fun customGracePerOffice() {
+        assertMinutes(385.0, input(listOf(enter("1", "09:00"), exit("2", "15:00")), offices = listOf(office.copy(entryGraceMinutes = 10, exitGraceMinutes = 15))))
+    }
+    @Test fun graceOverlapUnionDoesNotDoubleCount() {
+        val data = input(listOf(enter("1", "09:00"), exit("2", "14:00"), enter("3", "14:04"), exit("4", "17:00")))
+        assertMinutes(490.0, data)
+        assertEquals(1, AttendanceEngine.derive(data).intervals.size)
+    }
+    @Test fun shortGapAtThresholdIsReconciledWithProvenance() {
+        val events = listOf(enter("1", "09:00"), exit("2", "12:00"), enter("3", "12:20"), exit("4", "15:00"))
+        val result = AttendanceEngine.derive(input(events))
+        assertEquals(370.0, result.intervals.single().minutes, 0.0)
+        assertTrue(result.intervals.single().reconciledGap)
+        assertEquals(setOf("session:1", "session:3"), result.intervals.single().sessionIds)
+        assertMinutes(360.0, input(events, policy = Policy(shortGapMinutes = 9)))
+    }
+    @Test fun repeatedEnterPreservesEarliestAndFlagsLowConfidence() {
+        val data = input(listOf(enter("1", "09:00"), enter("2", "10:00"), exit("3", "15:00")))
+        assertMinutes(370.0, data)
+        val session = AttendanceEngine.derive(data).sessions.single()
+        assertEquals(Confidence.LOW, session.confidence)
+        assertTrue(ReviewReason.REPEATED_ENTER in session.reviewReasons)
+        assertEquals(setOf("1", "2", "3"), session.sourceEventIds)
+    }
+    @Test fun repeatedExitDoesNotInventAnotherSessionStart() {
+        val data = input(listOf(enter("1", "09:00"), exit("2", "15:00"), exit("3", "15:05")))
+        assertMinutes(370.0, data)
+        assertTrue(AttendanceEngine.derive(data).reviews.any { it.reason == ReviewReason.MISSING_ENTER })
+    }
+    @Test fun exitWithoutEnterOrInstallInsideOfficeIsUnknownNotInventedHistory() {
+        val data = input(listOf(exit("1", "15:00")))
+        assertMinutes(0.0, data)
+        val session = AttendanceEngine.derive(data).sessions.single()
+        assertNull(session.start)
+        assertEquals(Confidence.LOW, session.confidence)
+    }
+    @Test fun openSessionGetsEntryGraceButNoFutureExitGrace() {
+        val data = input(listOf(enter("1", "09:00")), now = at("10:00"))
+        assertMinutes(65.0, data)
+        assertEquals(at("10:00"), AttendanceEngine.derive(data).intervals.single().end)
+        assertEquals(1, data.events.size)
+    }
+    @Test fun recentClosedSessionFutureExitGraceIsClippedToNow() {
+        assertMinutes(66.0, input(listOf(enter("1", "09:00"), exit("2", "10:00")), now = at("10:01")))
+    }
+    @Test fun staleOpenSessionDoesNotAccrueAnUnboundedOvernightShift() {
+        val data = input(listOf(enter("1", "09:00", date = day.minusDays(1))))
+        assertMinutes(0.0, data)
+        assertTrue(AttendanceEngine.derive(data).reviews.any { it.reason == ReviewReason.STALE_OPEN_SESSION })
+    }
+    @Test fun twoEligibleOfficesPoolTheirMinutes() {
+        val data = input(listOf(enter("1", "09:00"), exit("2", "12:00"), enter("3", "13:00", "b"), exit("4", "16:00", "b")), offices = listOf(office, office.copy(id = "b")))
+        assertMinutes(380.0, data)
+    }
+    @Test fun overlappingOfficesAndGraceAreGloballyUnioned() {
+        val data = input(listOf(enter("1", "09:00"), exit("2", "12:00"), enter("3", "11:00", "b"), exit("4", "15:00", "b")), offices = listOf(office, office.copy(id = "b")))
+        assertMinutes(370.0, data)
+    }
+    @Test fun shortTransferGapBetweenDifferentOfficesIsNotCredited() {
+        val data = input(listOf(enter("1", "09:00"), exit("2", "12:00"), enter("3", "12:15", "b"), exit("4", "15:00", "b")), offices = listOf(office, office.copy(id = "b")))
+        assertMinutes(365.0, data)
+    }
+    @Test fun disabledAndIneligibleOfficeRemainEvidenceButDoNotCredit() {
+        val events = listOf(enter("1", "09:00"), exit("2", "15:00"))
+        assertMinutes(0.0, input(events, offices = listOf(office.copy(enabled = false))))
+        assertMinutes(0.0, input(events, offices = listOf(office.copy(countsTowardAttendance = false))))
+        assertEquals(1, AttendanceEngine.derive(input(events, offices = listOf(office.copy(enabled = false)))).sessions.size)
+    }
+    @Test fun springForwardUsesRealElapsedTime() {
+        val date = LocalDate.of(2026, 3, 8)
+        assertMinutes(70.0, input(listOf(enter("1", "01:30", date = date), exit("2", "03:30", date = date)), now = at("12:00", date)))
+    }
+    @Test fun fallBackUsesRealElapsedTime() {
+        val date = LocalDate.of(2026, 11, 1)
+        assertMinutes(190.0, input(listOf(enter("1", "00:30", date = date), exit("2", "02:30", date = date)), now = at("12:00", date)))
+    }
+    @Test fun correctionsRetainRawEventsAndResolveReview() {
+        val events = listOf(exit("exitOnly", "15:00"))
+        val correction = Correction("c", "session:exitOnly", at("09:00"), at("14:00"), at("18:00"), "Restored missed enter")
+        val data = input(events, corrections = listOf(correction))
+        val result = AttendanceEngine.derive(data)
+        assertMinutes(310.0, data)
+        assertEquals(events, data.events)
+        assertEquals(setOf("exitOnly"), result.sessions.single().sourceEventIds)
+        assertEquals(Confidence.MANUAL, result.sessions.single().confidence)
+        assertTrue(result.reviews.isEmpty())
+    }
+    @Test fun latestCorrectionWinsDeterministically() {
+        val early = Correction("c1", "session:1", at("09:00"), at("14:00"), at("18:00"))
+        val late = early.copy(id = "c2", end = at("15:00"), createdAt = at("19:00"))
+        val data = input(listOf(enter("1", "09:00"), exit("2", "12:00")), corrections = listOf(late, early))
+        assertMinutes(370.0, data)
+        assertEquals(AttendanceEngine.derive(data), AttendanceEngine.derive(data.copy(corrections = listOf(early, late))))
+    }
+    @Test fun invalidAndOrphanCorrectionsAreReviewable() {
+        val bad = Correction("bad", "session:1", at("15:00"), at("09:00"), at("18:00"))
+        val orphan = bad.copy(id = "orphan", sessionId = "missing")
+        val data = input(listOf(enter("1", "09:00"), exit("2", "15:00")), corrections = listOf(bad, orphan))
+        assertMinutes(370.0, data)
+        assertTrue(AttendanceEngine.derive(data).reviews.map { it.reason }.containsAll(listOf(ReviewReason.INVALID_CORRECTION, ReviewReason.ORPHAN_CORRECTION)))
+    }
+    @Test fun duplicatesDoNotIncreaseTimeAndKeepAllSourceIds() {
+        val events = listOf(enter("1", "09:00"), exit("2", "15:00"))
+        val repeated = input(events + events + enter("replayed", "09:00"))
+        assertMinutes(370.0, repeated)
+        assertEquals(setOf("1", "2", "replayed"), AttendanceEngine.derive(repeated).sessions.single().sourceEventIds)
+        assertEquals(Confidence.MEDIUM, AttendanceEngine.derive(repeated).sessions.single().confidence)
+    }
+    @Test fun unorderedInputProducesIdenticalOutput() {
+        val events = listOf(enter("1", "09:00"), exit("2", "12:00"), enter("3", "13:00"), exit("4", "15:00"))
+        assertEquals(AttendanceEngine.derive(input(events)), AttendanceEngine.derive(input(events.reversed())))
+    }
+    @Test fun futureUnknownOfficeAndConflictingIdsNeverBecomeCredit() {
+        val data = input(listOf(enter("future", "21:00"), enter("unknown", "09:00", "missing"), enter("conflict", "09:00"), exit("conflict", "15:00")))
+        assertMinutes(0.0, data)
+        assertEquals(setOf(ReviewReason.FUTURE_EVENT, ReviewReason.UNKNOWN_OFFICE, ReviewReason.CONFLICTING_EVENT_ID), AttendanceEngine.derive(data).reviews.map { it.reason }.toSet())
+    }
+    @Test fun unionInvariantsAcrossDeterministicSyntheticIntervals() {
+        val random = java.util.Random(42)
+        repeat(100) {
+            val intervals = (0..30).map { index ->
+                val start = at("00:00").plusSeconds(random.nextInt(86400).toLong())
+                CreditedInterval(start, start.plusSeconds(random.nextInt(10000).toLong()), setOf(index.toString()))
+            }
+            val united = AttendanceEngine.union(intervals)
+            assertTrue(united.all { it.minutes >= 0.0 })
+            assertTrue(united.sumOf { it.minutes } <= intervals.sumOf { it.minutes } + 0.00001)
+            assertEquals(united, AttendanceEngine.union(intervals + intervals))
+            assertEquals(united, AttendanceEngine.union(intervals.reversed()))
+            assertTrue(united.zipWithNext().all { (a, b) -> a.end < b.start })
+        }
+    }
+    @Test fun overlappingManualIntervalCannotConsumeAutomaticExit() {
+        val events = listOf(enter("in", "09:00"), exit("out", "17:00"))
+        val manual = ManualSession("lunch", "a", at("12:00"), at("13:00"), at("18:00"), "User observation")
+        val data = input(events).copy(manualSessions = listOf(manual))
+        val result = AttendanceEngine.derive(data)
+        assertMinutes(490.0, data)
+        assertEquals(2, result.sessions.size)
+        val automatic = result.sessions.single { it.id == "session:in" }
+        assertEquals(at("17:00"), automatic.end)
+        assertEquals(setOf("in", "out"), automatic.sourceEventIds)
+        assertNull(automatic.manualSessionId)
+        val user = result.sessions.single { it.id == "manual:lunch" }
+        assertEquals("lunch", user.manualSessionId)
+        assertEquals(Confidence.MANUAL, user.confidence)
+        assertTrue(user.sourceEventIds.isEmpty())
+        assertTrue(result.reviews.isEmpty())
+        assertEquals(events, data.events)
+    }
+    @Test fun manualCorrectionRetainsStableSourceAndDoesNotTouchAutomaticSession() {
+        val manual = ManualSession("m", "a", at("12:00"), at("13:00"), at("18:00"))
+        val correction = Correction("c", "manual:m", at("08:00"), at("18:00"), at("19:00"))
+        val data = input(listOf(enter("1", "09:00"), exit("2", "17:00")), corrections = listOf(correction))
+            .copy(manualSessions = listOf(manual))
+        val result = AttendanceEngine.derive(data)
+        assertMinutes(610.0, data)
+        assertEquals(at("17:00"), result.sessions.single { it.id == "session:1" }.end)
+        val edited = result.sessions.single { it.id == "manual:m" }
+        assertEquals("m", edited.manualSessionId)
+        assertEquals("c", edited.correctionId)
+        assertEquals(listOf(manual), data.manualSessions)
+        assertTrue(result.reviews.isEmpty())
+    }
+    @Test fun multipleOverlappingManualIntervalsUnionWithoutDoubleCount() {
+        val manuals = listOf(
+            ManualSession("a", "a", at("09:00"), at("13:00"), at("18:00")),
+            ManualSession("b", "a", at("12:00"), at("15:00"), at("18:00")),
+            ManualSession("c", "a", at("14:00"), at("17:00"), at("18:00")),
+        )
+        val data = input(emptyList()).copy(manualSessions = manuals)
+        assertMinutes(490.0, data)
+        val result = AttendanceEngine.derive(data)
+        assertEquals(setOf("manual:a", "manual:b", "manual:c"), result.intervals.single().sessionIds)
+        assertEquals(result, AttendanceEngine.derive(data.copy(manualSessions = manuals.reversed() + manuals)))
+    }
+    @Test fun openManualSessionIsIndependentAndNeverReceivesFutureGrace() {
+        val manual = ManualSession("m", "a", at("09:00"), null, at("09:30"))
+        val data = input(emptyList(), now = at("10:00")).copy(manualSessions = listOf(manual))
+        assertMinutes(65.0, data)
+        val result = AttendanceEngine.derive(data)
+        assertEquals(input(emptyList(), now = at("10:00")).now, result.intervals.single().end)
+        assertEquals(Confidence.MANUAL, result.sessions.single().confidence)
+        assertTrue(data.events.isEmpty())
+    }
+    @Test fun overlappingClosedManualDoesNotCloseAutomaticOpenSession() {
+        val data = input(listOf(enter("1", "09:00")), now = at("14:00")).copy(
+            manualSessions = listOf(ManualSession("m", "a", at("12:00"), at("13:00"), at("13:30"))))
+        val result = AttendanceEngine.derive(data)
+        assertMinutes(305.0, data)
+        assertTrue(result.sessions.single { it.id == "session:1" }.isOpen)
+    }
+    @Test fun staleManualOpenRequiresReviewInsteadOfUnboundedAccrual() {
+        val manual = ManualSession("m", "a", at("09:00", day.minusDays(1)), null, at("09:30", day.minusDays(1)))
+        val data = input(emptyList()).copy(manualSessions = listOf(manual))
+        assertMinutes(0.0, data)
+        assertTrue(AttendanceEngine.derive(data).reviews.any { it.reason == ReviewReason.STALE_OPEN_SESSION })
+    }
+    @Test fun invalidAndConflictingManualEvidenceIsFlaggedWithoutCredit() {
+        val original = ManualSession("m", "a", at("09:00"), at("12:00"), at("18:00"))
+        val conflict = original.copy(end = at("13:00"))
+        val bad = original.copy(id = "bad", start = at("15:00"))
+        val future = original.copy(id = "future", end = at("21:00"))
+        val data = input(emptyList()).copy(manualSessions = listOf(original, conflict, bad, future))
+        assertMinutes(0.0, data)
+        val reasons = AttendanceEngine.derive(data).reviews.map { it.reason }.toSet()
+        assertEquals(setOf(ReviewReason.CONFLICTING_MANUAL_SESSION_ID, ReviewReason.INVALID_MANUAL_SESSION), reasons)
+    }
+}

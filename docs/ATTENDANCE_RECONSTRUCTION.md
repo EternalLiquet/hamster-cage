@@ -1,0 +1,12 @@
+# Attendance reconstruction contract
+
+`core-domain` accepts immutable source facts and an explicit `now`, returning sessions, credited intervals and review items. It has no Android, storage, UI or networking dependency. Calendar aggregation and departure estimates are separate features.
+
+- Raw IDs with conflicting payloads, unknown offices, future events and unpersistable timestamps are retained in the caller's input and excluded with a review reason. Persisted timestamps must fit signed epoch milliseconds; duration arithmetic does not overflow by first converting to milliseconds.
+- Equivalent observations are normalized by office, instant and transition, retaining all source IDs. ENTER sorts before EXIT at the same instant, independently of replay IDs. Zero-length observations cannot create grace credit. Repeated ENTER retains the first observed start and flags uncertainty; missing ENTER never invents a start.
+- Each session applies its office's entry and exit grace. Exit grace stops at `now`, and an open session receives no future exit grace. Stale open sessions require review. Configured short gaps reconcile only within one office; a final global union prevents overlapping offices or manual intervals from multiplying credit.
+- Every credited interval contains its contributing session IDs and identifies gap reconciliation. Each session links to original raw IDs or one manual fact. Confidence is an explanation, not a credit multiplier.
+- Manual observations are intervals, never synthetic device transitions. Corrections are separate immutable facts. The latest validly shaped candidate by creation time then ID changes effective bounds; malformed candidates are reviewable and preserve original evidence. Conflicting correction IDs are excluded instead of resolved by input order.
+- Correction targets include the canonical session ID and aliases for every retained raw source ID. Late replay and repaired missing-boundary evidence therefore cannot silently orphan an earlier edit. Future correction UI must use `correctionTargetIds` when showing audit history.
+
+Public tests use synthetic locations and dates. The test matrix includes the documented split-day 380 minutes and overlapping-grace 490 minutes, deterministic reordering, duplication, malformed inputs, midnight/DST, open/stale sessions, manual overlap and stable correction provenance. No runtime logs expose source facts.
