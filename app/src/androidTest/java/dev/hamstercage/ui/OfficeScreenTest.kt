@@ -51,7 +51,7 @@ class OfficeScreenTest {
         compose.waitUntil(5_000) { loadedId.get() != null }
         assertEquals("office-a", loadedId.get())
         compose.onNodeWithTag("officeName").assertTextContains("Synthetic A")
-        compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithText("Cancel").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("edit-office-b").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("edit-office-b").performScrollTo().performClick()
         compose.onNodeWithTag("officeName").assertTextContains("Synthetic B")
@@ -80,11 +80,11 @@ class OfficeScreenTest {
         compose.waitUntil(5_000) { loads.get() >= 2 }
         compose.waitForIdle()
         compose.onNodeWithTag("officeName").assertTextContains("Synthetic A")
-        compose.onNodeWithText("Save office").performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
         if (savedVersion.get() == null) {
             // A save while the restored version is still loading must fail closed, then retry.
             compose.waitForIdle()
-            compose.onNodeWithText("Save office").performClick()
+            compose.onNodeWithText("Save office").performScrollTo().performClick()
         }
         compose.waitUntil(5_000) { savedVersion.get() != null }
         assertEquals(2L, savedVersion.get())
