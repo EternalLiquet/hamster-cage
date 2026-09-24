@@ -18,14 +18,14 @@ Phase 0 is complete: issues #10–15 and [epic #1](https://github.com/EternalLiq
 | #19 Recovery/coverage | Open | Recovery and unknown-history accounting still required. |
 | #20 Capture Security Pass | Open | Must audit completed capture/recovery surfaces. |
 | #21 Calendar metrics | Merged [#57](https://github.com/EternalLiquet/hamster-cage/pull/57) | Verified ea87d52; merge 2a538b4; 17 calendar plus 45 existing domain tests, inclusive rolling windows, policy-timezone/DST, holidays/WFH and explicit unknown coverage. [Contract](CALENDAR_METRICS.md). |
-| #22 Dashboard | Verification [#61](https://github.com/EternalLiquet/hamster-cage/pull/61) | Seven presentation and eight focused API37 UI/lifecycle/navigation checks pass at 074b874, with exact-head hosted gates. Actual API37 process restart passed: different PID, credit 13m to 14m, honest unknown state; production source 074b874 with helper af9a7ad. Office setup is integrated; keep open until #18/#19 readiness/coverage is evidenced. [Contract](DASHBOARD.md). |
+| #22 Dashboard | Scoped merge [#61](https://github.com/EternalLiquet/hamster-cage/pull/61) | Verified d727d0d; merge bb0bfe4; Seven presentation and eight focused API37 UI/lifecycle/navigation checks pass at 074b874, with exact-head hosted gates. Actual API37 process restart passed: different PID, credit 13m to 14m, honest unknown state; production source 074b874 with helper af9a7ad. Office setup is integrated; keep open until #18/#19 readiness/coverage is evidenced. [Contract](DASHBOARD.md). |
 | #23 Departure | Merged [#58](https://github.com/EternalLiquet/hamster-cage/pull/58) | Verified d758b58; merge c384b7b; 18 departure plus 62 existing domain tests, five named targets, ambiguity before satisfaction, union/grace/window/horizon checks. [Contract](DEPARTURE_ESTIMATES.md). |
 | #24 Dashboard Security Pass | Open | Requires completed dashboard and estimates. |
 | #25 History | Open | Daily history remains to implement and verify. |
 | #26 Explanations | Open | Raw/effective bounds and credited interval explanations remain. |
 | #27 Corrections | Open | Preview, confirm, append-only correction and revert remain. |
 | #28 History Security Pass | Open | Requires history/correction surfaces. |
-| #29 Policy | Open | Policy editing/recomputation remains. |
+| #29 Policy | Implementation | Local validated policy editor, atomic stale-write rejection and restored drafts implemented. Four focused validation/default/travel tests pass; persistence/DST/UI/failure/restoration checks await device execution. [Contract](POLICY_SETTINGS.md). |
 | #30 Calendar controls | Open | Exclusions and WFH controls remain. |
 | #31 Privacy controls | Open | Local data explanation/deletion controls remain. |
 | #32 Settings Security Pass | Open | Requires policy/calendar/privacy controls. |

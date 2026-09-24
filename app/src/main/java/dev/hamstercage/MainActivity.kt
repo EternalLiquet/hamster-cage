@@ -49,7 +49,7 @@ class MainActivity : ComponentActivity() {
                     newId = HamsterRepository::newId,
                     version = repository::officeVersion,
                     save = repository::saveOffice,
-                ))
+                ), savePolicy = { settings, expected -> repository.savePolicy(settings, expected) })
         }
     }
 
