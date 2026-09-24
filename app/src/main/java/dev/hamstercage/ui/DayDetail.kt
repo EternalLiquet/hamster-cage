@@ -14,7 +14,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: LocalDate, back: () -> Unit) {
+fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: LocalDate, back: () -> Unit, edit: ((Session) -> Unit)? = null) {
     val detail = remember(input, result, date) { explainDay(input, result, date) }
     val offices = input.offices.associateBy { it.id }
     fun at(time: Instant?) = time?.atZone(input.policy.zoneId)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) ?: "Missing boundary"
@@ -40,7 +40,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             Text("${office(session.officeId)} · ${session.id}", style = MaterialTheme.typography.titleMedium)
             val original = detail.originalSessions.find { it.id == session.id }
             Text("Original bounds: ${at(original?.start)} → ${at(original?.end)}")
-            if (session.correctionId != null) original?.reviewReasons?.forEach {
+            if (session.correctionId != null && !session.correctionReverted) original?.reviewReasons?.forEach {
                 Text("Original evidence: ${reviewExplanation(it)} The applied correction supplies effective bounds.")
             }
             Text("Effective bounds: ${at(session.start)} → ${at(session.end)}")
@@ -50,8 +50,10 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                 if (!value.enabled || !value.countsTowardAttendance) Text("This office is disabled or excluded from attendance credit.")
             }
             Text("Confidence: ${session.confidence.name}. Source events: ${session.sourceEventIds.sorted().joinToString().ifEmpty { "Manual interval" }}")
-            session.correctionId?.let { Text("Applied correction: $it. Original evidence is retained below.") }
+            session.correctionId?.let { Text(if (session.correctionReverted) "Reverted to original by audit entry: $it."
+                else "Applied correction: $it. Original evidence is retained below.") }
             session.reviewReasons.forEach { Text(reviewExplanation(it)) }
+            edit?.let { action -> OutlinedButton(onClick = { action(session) }) { Text("Correct ${session.id}") } }
         }
         EvidenceSection("Raw observations", detail.rawEvents) { event ->
             Text("${event.transition.name} · ${office(event.officeId)} · ${at(event.at)}")
@@ -64,8 +66,11 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         }
         EvidenceSection("Correction audit", detail.corrections) { correction ->
             Text("${correction.id} → ${correction.sessionId}")
-            Text("${at(correction.start)} → ${at(correction.end)} · entered ${at(correction.createdAt)}")
-            Text(if (detail.sessions.any { it.correctionId == correction.id }) "Applied to effective bounds." else "Retained audit entry; not the currently applied correction.")
+            if (correction.revertToOriginal) Text("Revert to original reconstruction · entered ${at(correction.createdAt)}")
+            else Text("${at(correction.start)} → ${at(correction.end)} · entered ${at(correction.createdAt)}")
+            Text(if (detail.sessions.any { it.correctionId == correction.id })
+                if (correction.revertToOriginal) "Currently restores original reconstruction." else "Applied to effective bounds."
+                else "Retained audit entry; not the currently applied correction.")
             if (correction.note.isNotBlank()) Text(evidenceText(correction.note))
         }
         EvidenceSection("Review explanations", detail.reviews) { review ->

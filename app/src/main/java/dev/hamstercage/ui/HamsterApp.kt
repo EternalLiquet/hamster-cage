@@ -61,6 +61,7 @@ fun HamsterApp(
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
     trackingReady: Boolean = false,
     officeActions: OfficeActions? = null,
+    correctionActions: CorrectionActions? = null,
     savePolicy: (suspend (PolicySettings, PolicySettings) -> Unit)? = null,
     calendarActions: CalendarActions? = null,
 ) {
@@ -143,7 +144,7 @@ fun HamsterApp(
                         snapshot != null -> {
                             val input = remember(snapshot, now) { snapshot.input(now) }
                             val result = remember(input) { AttendanceEngine.derive(input) }
-                            if (selected == Destination.HISTORY) HistoryScreen(input, result)
+                            if (selected == Destination.HISTORY) HistoryScreen(input, result, correctionActions)
                             else DashboardScreen(input, result, trackingReady,
                                 openOffices = { selectedName = Destination.OFFICES.name },
                                 openHistory = { selectedName = Destination.HISTORY.name })
