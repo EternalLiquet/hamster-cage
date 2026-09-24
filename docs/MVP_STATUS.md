@@ -1,12 +1,18 @@
 # Product MVP checkpoint
 
+## Foundation Security Pass #15 checkpoint
+
+The Phase 0 audit inventories local source/policy data, OS components, permissions, backup rules, logging, artifacts and CI trust boundaries. It strengthens export/provider/permission checks, rejects unaudited backup overlays and diagnostic logs, and adds a release-manifest CI audit. Fifteen adversarial privacy-audit methods pass across three Python interpreter modes. Debug and minified unsigned release builds pass; both binary manifests and their compiled backup exclusions were inspected. No INTERNET permission, embedded source database/credentials/private key, exported data provider or application logging was found.
+
+Both new OS instrumentation checks pass on API37: installed network/backup/component controls, and actual Room/DataStore files deny reads from shell UID 2000 with no returned source bytes. The shell denial probe uses the separate stderr descriptor available on API34+, including hosted API35; older APIs do not claim that probe. Existing storage failure/restart and domain anomaly evidence remains required in exact-head CI. Independent verification/review are pending. See [foundation security inventory](FOUNDATION_SECURITY.md). Phase 0 and Product MVP are not declared complete until the applicable issue gates pass.
+
 Delivery uses one issue per PR, with separate implementation, verification and review agents. PR #50 remains an unmerged extraction reference. Only phases 0–5 are in scope; no scheduled continuation tasks or post-MVP work.
 
 ## Local source storage issue #12
 
 The storage slice adds a versioned Room database for offices, raw observations, corrections, manual sessions, excluded dates and WFH labels, plus versioned DataStore policy. Raw observations and append-only edits have stable IDs and no normal update/delete path. Repository reads form a consistent transaction and derive attendance from source facts when requested; no aggregate is persisted. Failed reads emit a sanitized unavailable state that the app shell displays. Room has no destructive fallback, and its corruption callback preserves the file. The existing backup exclusions cover both database and policy files.
 
-Implementation checks: `:core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` and `python scripts/security_check.py` pass. All twelve Android instrumentation tests passed on the local Pixel 10 Pro XL emulator (API 37), including six storage cases and the visible-failure notice: all-fact Room and fresh DataStore restart, aggregate recomputation, atomic failed batch, delayed observation after office disable, version-one schema compatibility, legacy policy migration with future-version rejection, unsupported Room version and corrupt-file preservation. Independent verification/review, current-head CI and PR merge remain pending. No version-two schema exists; any future upgrade requires an explicit, preservation-tested migration.
+Implementation checks: `:core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` and `python scripts/security_check.py` pass. All twelve Android instrumentation tests passed on the local Pixel 10 Pro XL emulator (API 37), including six storage cases and the visible-failure notice: all-fact Room and fresh DataStore restart, aggregate recomputation, atomic failed batch, delayed observation after office disable, version-one schema compatibility, legacy policy migration with future-version rejection, unsupported Room version and corrupt-file preservation. Independent verification/review and all exact-head CI passed at source 494c7411413f28b38072d03e6347ec8fe4f44310; PR #55 merged at 6b5a049dae25dc38d905b463e96e5cd9a8d3589d and issue #12 is closed. No version-two schema exists; any future upgrade requires an explicit, preservation-tested migration.
 
 
 ## Merged foundation

@@ -31,9 +31,11 @@ jobs:
         with:
           packages: 'platforms;android-36 build-tools;35.0.0'
       - name: Unit tests, lint, APK and runtime dependency inventory
-        run: ./gradlew :core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:writeDependencyInventory
+        run: ./gradlew :core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:processReleaseManifest :app:writeDependencyInventory
       - name: Audit privacy boundary
-        run: python3 scripts/security_check.py
+        run: |
+          python3 scripts/security_check.py
+          python3 scripts/security_check.py --variant release
       - name: Audit resolved runtime dependencies
         run: python3 scripts/dependency_audit.py
       - name: Record signed artifact provenance
