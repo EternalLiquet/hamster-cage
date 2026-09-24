@@ -12,11 +12,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import dev.hamstercage.capture.CaptureController
 import dev.hamstercage.capture.CaptureHealth
-import dev.hamstercage.capture.CoverageLedger
+import dev.hamstercage.capture.CaptureWriteGate
 import dev.hamstercage.capture.CoverageStore
 import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.StorageState
@@ -25,14 +26,23 @@ import dev.hamstercage.location.BackgroundPermissionAction
 import dev.hamstercage.location.LocationPermissions
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.location.backgroundPermissionAction
+import dev.hamstercage.privacy.PrivacyController
+import dev.hamstercage.privacy.PrivacyResetState
+import dev.hamstercage.privacy.PrivacyResetStore
+import dev.hamstercage.privacy.PrivacyStorageState
+import dev.hamstercage.privacy.privacyVisibleStorage
 import dev.hamstercage.ui.HamsterApp
 import dev.hamstercage.ui.OfficeActions
 import dev.hamstercage.ui.CorrectionActions
 import dev.hamstercage.ui.CalendarActions
+import dev.hamstercage.ui.PrivacyActions
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.withLock
 
 class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
     private var setupError by mutableStateOf<String?>(null)
+    private var fullResetRequested by mutableStateOf(false)
     private val foregroundRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshLocationSetup() }
     private val backgroundRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshLocationSetup() }
 
@@ -43,14 +53,32 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         val repository = HamsterRepository.get(this)
+        val privacy = PrivacyController.get(this)
         CaptureController.get(this)
         setContent {
-            val storageState by repository.state.collectAsState(initial = StorageState.Loading)
+            val visible = remember(repository, privacy) {
+                privacyVisibleStorage(privacy.state, freshStorage = { repository.state },
+                    freshCoverage = { CoverageStore.state(this).map { it } })
+            }
+            val presentation by visible.collectAsState(
+                initial = PrivacyStorageState(PrivacyResetState.Unavailable, StorageState.Unavailable))
+            val storageState = presentation.storage
+            val privacyState = presentation.reset
+            val coverage = presentation.coverage
             val captureStatus by CaptureHealth.state.collectAsState()
-            val coverage by CoverageStore.state(this).collectAsState(initial = CoverageLedger())
+            val editingGeneration = (privacyState as? PrivacyResetState.Idle)?.generation
+            suspend fun historyWrite(action: suspend () -> Unit) = CaptureWriteGate.mutex.withLock {
+                check(editingGeneration != null &&
+                    PrivacyResetStore.read(this@MainActivity) == PrivacyResetState.Idle(editingGeneration)) {
+                    "Attendance changed; reopen the editor."
+                }
+                action()
+            }
             HamsterApp(timeSource = SystemTimeSource(), storageState = storageState, locationSetup = locationSetup,
-                captureStatus = captureStatus, coverage = coverage,
-                correctionActions = CorrectionActions(SystemTimeSource()::now, HamsterRepository::newId, repository::commitAttendanceEdit),
+                captureStatus = captureStatus, coverage = coverage, privacyState = privacyState,
+                fullResetRequested = fullResetRequested,
+                correctionActions = CorrectionActions(SystemTimeSource()::now, HamsterRepository::newId,
+                    { edit -> historyWrite { repository.commitAttendanceEdit(edit) } }),
                 backgroundOptionLabel = LocationPermissions.backgroundOptionLabel(this), setupError = setupError,
                 requestForeground = { foregroundRequest.launch(LocationPermissions.foregroundPermissions) },
                 requestBackground = { requestBackground() },
@@ -61,7 +89,13 @@ class MainActivity : ComponentActivity() {
                     version = repository::officeVersion,
                     save = repository::saveOffice,
                 ), savePolicy = { settings, expected -> repository.savePolicy(settings, expected) },
-                calendarActions = CalendarActions(repository::saveExclusion, repository::removeExclusion, repository::setWfh))
+                calendarActions = CalendarActions(
+                    { value -> historyWrite { repository.saveExclusion(value) } },
+                    { date -> historyWrite { repository.removeExclusion(date) } },
+                    { date, enabled -> historyWrite { repository.setWfh(date, enabled) } }),
+                privacyActions = PrivacyActions(privacy::deleteHistory, privacy::recoverPending, {
+                    privacy.resetAllAppData().also { if (it) fullResetRequested = true }
+                }))
         }
     }
 

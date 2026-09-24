@@ -11,6 +11,7 @@ import com.google.android.gms.location.GeofencingClient
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
 import dev.hamstercage.offices.OfficeRegistrationIntent
+import dev.hamstercage.privacy.PrivacyResetStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.sync.Mutex
@@ -21,12 +22,16 @@ class GeofenceRegistrar(
     context: Context,
     private val client: GeofencingClient = LocationServices.getGeofencingClient(context.applicationContext),
     private val operations: FenceOperations = PlayServicesFenceOperations(context.applicationContext, client),
+    private val retirement: FenceRetirementLedger = PrivacyResetStore.fenceRetirement(context.applicationContext),
 ) {
     private val application = context.applicationContext
     private val lock = Mutex()
     private var lastApplied: List<OfficeRegistrationIntent>? = null
+    private var lastAppliedGeneration: Long? = null
 
-    suspend fun synchronize(desired: List<OfficeRegistrationIntent>, ready: Boolean, force: Boolean = false): CaptureStatus = lock.withLock {
+    suspend fun synchronize(desired: List<OfficeRegistrationIntent>, ready: Boolean, force: Boolean = false,
+        generation: Long = 0L): CaptureStatus = lock.withLock {
+        require(generation >= 0)
         val sorted = desired.sortedBy { it.officeId }
         // Recheck at the platform call even if the UI most recently reported ready;
         // permission can be revoked between its state read and this reconciliation.
@@ -35,7 +40,7 @@ class GeofenceRegistrar(
         if (!ready || !permitted) {
             // Revocation usually clears platform monitoring, but a failed removal
             // leaves the platform's actual state unknown. Retry on the next sync.
-            try { operations.remove(pendingIntent()) }
+            try { removeCurrentAndPrevious(generation) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
                 return@withLock CaptureStatus(RegistrationStatus.FAILED).also {
@@ -43,15 +48,16 @@ class GeofenceRegistrar(
                 }
             }
             lastApplied = null
+            lastAppliedGeneration = null
             return@withLock CaptureStatus(RegistrationStatus.NEEDS_SETUP).also {
                 CaptureHealth.registration(it.registration)
             }
         }
-        if (!force && sorted == lastApplied) return@withLock CaptureStatus(
+        if (!force && sorted == lastApplied && generation == lastAppliedGeneration) return@withLock CaptureStatus(
             if (sorted.isEmpty()) RegistrationStatus.NO_OFFICES else RegistrationStatus.ACTIVE, sorted.size)
         CaptureHealth.registration(RegistrationStatus.REGISTERING)
         try {
-            operations.remove(pendingIntent())
+            removeCurrentAndPrevious(generation)
             // Initial trigger zero avoids treating "already inside at registration" as
             // an observed entry. The first credited entry must be a real transition.
             sorted.forEach { office ->
@@ -62,35 +68,51 @@ class GeofenceRegistrar(
                     .setExpirationDuration(Geofence.NEVER_EXPIRE)
                     .build()
                 operations.add(GeofencingRequest.Builder().setInitialTrigger(0)
-                    .addGeofence(boundary).build(), pendingIntent())
+                    .addGeofence(boundary).build(), pendingIntent(generation))
             }
             lastApplied = sorted
+            lastAppliedGeneration = generation
             CaptureStatus(if (sorted.isEmpty()) RegistrationStatus.NO_OFFICES else RegistrationStatus.ACTIVE, sorted.size).also {
                 CaptureHealth.registration(it.registration, it.registeredCount)
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
             lastApplied = null
+            lastAppliedGeneration = null
             // A partially added set is not a healthy registration. Clear it if possible.
-            try { operations.remove(pendingIntent()) }
+            try { removeCurrentAndPrevious(generation) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { Unit }
             CaptureStatus(RegistrationStatus.FAILED).also { CaptureHealth.registration(it.registration) }
         }
     }
 
-    internal fun pendingIntent(): PendingIntent {
+    private suspend fun removeCurrentAndPrevious(generation: Long) {
+        // The durable cursor bounds the healthy path while retaining every
+        // failed older removal for retry, including after process restart.
+        var prior = retirement.retiredThrough() + 1
+        while (prior < generation) {
+            operations.remove(pendingIntent(prior))
+            retirement.markRetiredThrough(prior)
+            prior++
+        }
+        operations.remove(pendingIntent(generation))
+    }
+
+    internal fun pendingIntent(generation: Long = 0L): PendingIntent {
+        require(generation >= 0)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
         // Google Play services must fill transition extras on S+, hence mutable. The
         // intent still names one non-exported receiver in this package.
         val intent = Intent(application, GeofenceTransitionReceiver::class.java)
-            .setPackage(application.packageName).setAction(ACTION)
+            .setPackage(application.packageName).setAction(action(generation))
         return PendingIntent.getBroadcast(application, 0, intent, flags)
     }
 
     companion object {
         const val ACTION = "dev.hamstercage.action.GEOFENCE_TRANSITION"
+        fun action(generation: Long): String = if (generation == 0L) ACTION else "$ACTION.$generation"
     }
 }
 
@@ -98,6 +120,12 @@ class GeofenceRegistrar(
 interface FenceOperations {
     suspend fun remove(intent: PendingIntent)
     suspend fun add(request: GeofencingRequest, intent: PendingIntent)
+}
+
+/** Persisted after each successful prior-generation removal, never for the live generation. */
+interface FenceRetirementLedger {
+    suspend fun retiredThrough(): Long
+    suspend fun markRetiredThrough(generation: Long)
 }
 
 private class PlayServicesFenceOperations(private val context: Context, private val client: GeofencingClient) : FenceOperations {
