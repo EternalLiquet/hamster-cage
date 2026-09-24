@@ -4,10 +4,18 @@
 
 Foreground/background permission setup is staged; denial, approximate access, revocation, disabled location and unavailable Play services cannot claim active capture. Offices/Settings retain setup controls and navigation, with no geofence registration or collection in this slice.
 
-At source `5cd010c73a3b9e4d852c4455e8115348ddd453a6`, independent scoped verification, review and all exact-head CI passed after storage integration. [Evidence](https://github.com/EternalLiquet/hamster-cage/pull/56#issuecomment-5807007516) includes actual API37 denial twice, settings handoff, approximate access, resumed foreground/background changes, location off/recovery and revocation; eight original instrumentation cases plus integrated storage tests pass. API29 routing has JVM coverage; its real system dialog has not run. This branch now incorporates calendar #21 without changing the permission/app source and requires refreshed exact-head gates.
+At source `5cd010c73a3b9e4d852c4455e8115348ddd453a6`, independent scoped verification, review and all exact-head CI passed after storage integration. [Evidence](https://github.com/EternalLiquet/hamster-cage/pull/56#issuecomment-5807007516) includes actual API37 denial twice, settings handoff, approximate access, resumed foreground/background changes, location off/recovery and revocation; eight original instrumentation cases plus integrated storage tests pass. API29 routing has JVM coverage; its real system dialog has not run. This branch now incorporates calendar #21 and departure #23 without changing the permission/app source and requires refreshed exact-head gates.
 
 Keep #17 open after its scoped PR merge until correction editing while location is denied is independently established in #27/#33. Product MVP remains incomplete.
 
+
+
+
+## Departure estimates #23 checkpoint
+
+The pure estimator names all five target contexts and keeps estimated exit time separate from accrued credit. It uses prior unioned credit and office exit grace, suppresses predictions for missing history, relevant ambiguous/malformed bounds or competing open offices, and checks those conditions before apparent target satisfaction. Projections stop at the target window and configured safe open-session horizon. No source fact or historical aggregate is changed.
+
+Eighteen focused departure tests and the 62 existing domain tests pass. They cover target names, prior credit, met/unmet states, overlap, grace, leave-now projections, exclusions/WFH, rolling/week boundaries, correction resolution, clock anomalies, midnight and DST. Departure #23 merged via PR #58 at c384b7b3b5b891db0f5527face8ca7cd1fdcdc48 after independent verification/review and passing current-head CI. See [departure contract](DEPARTURE_ESTIMATES.md); UI/tracking-health integration remains separate.
 
 ## Calendar metrics #21 checkpoint
 

@@ -219,6 +219,43 @@ object AttendanceEngine {
             expected.size - unknownExpected - future, unknownExpected, future, unknownCalendar)
     }
 
+    /** Estimate against the selected window as it stands now; never mutate historical credit. */
+    fun departure(input: AttendanceInput, result: AttendanceResult, target: TargetWindow): DepartureEstimate {
+        val summary = summary(input, result, target)
+        val remaining = max(0.0, summary.requiredMinutes - summary.creditedMinutes)
+        fun outcome(status: DepartureStatus) = DepartureEstimate(target, status, remaining)
+        if (!summary.hasCompleteHistory) return outcome(DepartureStatus.INCOMPLETE_HISTORY)
+        val windowStart = summary.startDate.atStartOfDay(input.policy.zoneId).toInstant()
+        val windowEnd = summary.endDate.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()
+        val eligibleOffices = input.offices.filter { it.enabled && it.countsTowardAttendance }.associateBy { it.id }
+        val relevant = result.sessions.filter { session ->
+            val office = eligibleOffices[session.officeId]
+            office != null && (session.end == null || session.end.plusSeconds(office.exitGraceMinutes * 60L) >= windowStart) &&
+                (session.start == null || session.start.minusSeconds(office.entryGraceMinutes * 60L) < windowEnd)
+        }
+        val current = relevant.filter { it.isOpen }
+        val benign = setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT)
+        val relevantIds = relevant.map { it.id }.toSet()
+        val allSessionIds = result.sessions.map { it.id }.toSet()
+        // Ambiguity wins even when the provisional credit exceeds the target. A bad clock,
+        // unresolved boundary or competing open offices must never produce a confident exit.
+        if (current.size > 1 || relevant.any { session -> session.reviewReasons.any { it !in benign } } ||
+            result.reviews.any { it.reason !in benign && (it.sessionId !in allSessionIds || it.sessionId in relevantIds) })
+            return outcome(DepartureStatus.NEEDS_REVIEW)
+        if (remaining == 0.0) return outcome(DepartureStatus.TARGET_SATISFIED)
+        if (current.isEmpty()) return outcome(DepartureStatus.NOT_IN_OFFICE)
+        if (input.now < windowStart || input.now >= windowEnd) return outcome(DepartureStatus.OUTSIDE_WINDOW)
+        val session = current.single()
+        val office = eligibleOffices.getValue(session.officeId)
+        val targetAt = input.now.plusMillis(kotlin.math.ceil(remaining * 60000.0).toLong())
+        val exitAt = maxOf(input.now, targetAt.minusSeconds(office.exitGraceMinutes * 60L))
+        // A continuing visit earns one minute per minute, regardless of overlapping offices.
+        // Do not roll today's/rolling window forward to make an otherwise unreachable target fit.
+        if (targetAt > windowEnd || exitAt > session.start!!.plusSeconds(input.policy.maxOpenSessionHours * 3600L))
+            return outcome(DepartureStatus.UNREACHABLE_IN_WINDOW)
+        return DepartureEstimate(target, DepartureStatus.ESTIMATED, remaining, targetAt, exitAt)
+    }
+
     private fun window(input: AttendanceInput, target: TargetWindow): Pair<LocalDate, LocalDate> {
         val today = input.now.atZone(input.policy.zoneId).toLocalDate()
         val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
