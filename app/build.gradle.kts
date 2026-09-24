@@ -71,6 +71,8 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.datastore)
     implementation(libs.coroutines.android)
+    implementation(libs.coroutines.play.services)
+    implementation(libs.play.location)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.runtime.ktx)
     testImplementation(libs.junit)
