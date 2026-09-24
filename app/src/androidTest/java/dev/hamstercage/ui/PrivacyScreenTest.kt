@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -145,7 +146,7 @@ class PrivacyScreenTest {
         compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
         releaseFreshCoverage.complete(Unit)
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Office state unknown").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Office state unknown").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown")
         compose.onNodeWithTag("today_balance").performScrollTo().assertTextContains("Unknown")
         compose.onNodeWithText("In Synthetic office").assertDoesNotExist()
     }

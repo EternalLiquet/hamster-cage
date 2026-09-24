@@ -2,7 +2,9 @@ package dev.hamstercage.ui
 
 import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
 import dev.hamstercage.MainActivity
@@ -36,7 +38,7 @@ class CoverageNoticeTest {
             }
         }
         compose.onNodeWithText("Attendance coverage needs review").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Office state unknown").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown")
     }
 
     @Test fun currentRegistrationFailureOverridesStaleConfirmedCoverage() {
@@ -55,7 +57,7 @@ class CoverageNoticeTest {
                     coverage = stale, captureStatus = CaptureStatus(RegistrationStatus.FAILED))
             }
         }
-        compose.onNodeWithText("Office state unknown").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown")
         compose.onNodeWithText("Office detection unavailable").performScrollTo().assertIsDisplayed()
     }
 
@@ -75,7 +77,7 @@ class CoverageNoticeTest {
                     coverage = stale, captureStatus = CaptureStatus(RegistrationStatus.ACTIVE, deliveryFailure = true))
             }
         }
-        compose.onNodeWithText("Office state unknown").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("office_state").performScrollTo().assertTextEquals("Office state unknown")
         compose.onNodeWithText("Attendance capture needs attention").performScrollTo().assertIsDisplayed()
     }
 }
