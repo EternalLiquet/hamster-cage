@@ -66,7 +66,8 @@ fun HamsterApp(
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
-    val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD || selected == Destination.SETTINGS)
+    val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD ||
+        selected == Destination.HISTORY || selected == Destination.SETTINGS)
     val snapshot = (storageState as? StorageState.Ready)?.snapshot
     val displayZone = snapshot?.policy?.zoneId ?: zoneId
     HamsterTheme {
@@ -137,12 +138,13 @@ fun HamsterApp(
                 }
                 PageHeading(selected.label, now.atZone(displayZone).toLocalDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")))
                 Tag("LOCAL ONLY", warm = true)
-                if (selected == Destination.DASHBOARD) {
+                if (selected == Destination.DASHBOARD || selected == Destination.HISTORY) {
                     when {
                         snapshot != null -> {
                             val input = remember(snapshot, now) { snapshot.input(now) }
                             val result = remember(input) { AttendanceEngine.derive(input) }
-                            DashboardScreen(input, result, trackingReady,
+                            if (selected == Destination.HISTORY) HistoryScreen(input, result)
+                            else DashboardScreen(input, result, trackingReady,
                                 openOffices = { selectedName = Destination.OFFICES.name },
                                 openHistory = { selectedName = Destination.HISTORY.name })
                         }
