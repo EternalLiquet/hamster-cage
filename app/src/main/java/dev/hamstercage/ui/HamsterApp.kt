@@ -63,10 +63,12 @@ fun HamsterApp(
     officeActions: OfficeActions? = null,
     correctionActions: CorrectionActions? = null,
     savePolicy: (suspend (PolicySettings, PolicySettings) -> Unit)? = null,
+    calendarActions: CalendarActions? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
-    val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD || selected == Destination.HISTORY)
+    val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD ||
+        selected == Destination.HISTORY || selected == Destination.SETTINGS)
     val snapshot = (storageState as? StorageState.Ready)?.snapshot
     val displayZone = snapshot?.policy?.zoneId ?: zoneId
     HamsterTheme {
@@ -156,6 +158,9 @@ fun HamsterApp(
                     PolicyScreen(storageState, savePolicy)
                 } else Notice("Ready for the next step", selected.description)
 
+                if (selected == Destination.SETTINGS && calendarActions != null) {
+                    CalendarScreen(storageState, now.atZone(displayZone).toLocalDate(), calendarActions)
+                }
                 if (selected == Destination.OFFICES || selected == Destination.SETTINGS) {
                     FormError(setupError)
                     LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground,
