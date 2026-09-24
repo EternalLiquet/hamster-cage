@@ -93,6 +93,6 @@ class CaptureNoticeTest {
         }
         compose.onNodeWithTag("office_state").assertTextEquals("In Synthetic office")
         compose.onNodeWithTag("today_credit").assertTextEquals("0m")
-        compose.onNodeWithText("A session needs review").assertIsDisplayed()
+        compose.onNodeWithText("A session needs review").performScrollTo().assertIsDisplayed()
     }
 }
