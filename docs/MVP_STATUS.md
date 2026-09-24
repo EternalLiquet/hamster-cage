@@ -31,6 +31,6 @@ Reconstruction #13 merged through PR #54 at `ffe699ab0b9e0a8e4b65c5ce8882707ed17
 
 ## Remaining work and device gates
 
-Storage #12, Phase0 Security Pass #15, and capture/pages/settings/integration issues #16–35 remain open until their own acceptance criteria pass. Calendar #21 is the current focused implementation; departure estimates remain separate. Product MVP is not complete.
+Storage #12 merged via PR #55 at `6b5a049dae25dc38d905b463e96e5cd9a8d3589d`, verified head `494c7411413f28b38072d03e6347ec8fe4f44310`. [Independent evidence](https://github.com/EternalLiquet/hamster-cage/pull/55#issuecomment-5806840358), review and all exact-head CI passed. The calendar branch now includes this prerequisite without changing its verified domain source. Phase0 Security Pass #15 and capture/pages/settings/integration issues #16–35 remain open until their acceptance criteria pass. Calendar #21 is the current focused implementation; departure estimates remain separate. Product MVP is not complete.
 
 No physical-phone checks have run. Actual phone background delivery, permission changes, reboot/force-stop recovery and battery/OEM behavior remain explicit integration gates. Local and hosted emulator checks are identified as such. Production signing remains separate from the debug preview; every delivered APK must carry source SHA, checksum and signing caveat. No continuous GPS, INTERNET permission, public backend, analytics or sensitive fixture data is permitted.
