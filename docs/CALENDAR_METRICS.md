@@ -1,0 +1,13 @@
+# Calendar and rolling metrics
+
+Issue #21 adds pure domain summaries for today, week through today, explicit full-week projection, and inclusive 30/90-date windows. It follows the private [product rules](https://github.com/EternalLiquet/gpt-projects-files/blob/master/hamster-cage/02_PRODUCT_RULES.md): excluded dates reduce required minutes, while actual recorded attendance remains credit; WFH labels do not remove the denominator.
+
+The default policy is 360 minutes on Monday–Friday. The denominator counts all expected dates, including known dates with no office visit. Through-today calculations exclude future requirements; full-week projection identifies future expected dates separately. An empty denominator yields an undefined (`null`) average, never a fabricated zero average.
+
+Calendar boundaries come from the configured policy timezone. Credited intervals are clipped to the requested window and injected `now`, then unioned. This handles midnight and 23/25-hour DST days without assuming 86,400-second days or walking through a potentially extreme raw interval. Public period requests are bounded before date enumeration. Policy changes recompute source facts; no raw records are rewritten.
+
+Coverage is independent of attendance amount and denominator membership. Installing today does not shrink a rolling denominator. Missing weekend/holiday coverage remains unknown because those dates can still contain attendance. `unknownExpectedWorkdays` explains denominator coverage; `unknownCalendarDays` controls `hasCompleteHistory`. Only elapsed calendar dates participate in coverage, while `projectedExpectedWorkdays` identifies future requirements. UI consumers must label incomplete recorded totals instead of presenting them as complete history.
+
+`observedDailyMinutes` unions raw device evidence with no correction, manual interval, walking grace or gap credit. The regular summary reports effective credited intervals. Departure estimates and feature pages remain separate issues.
+
+Focused evidence: 17 calendar tests cover default/custom policy, empty/zero attendance denominators, holidays/WFH, inclusive windows, future projection, missing coverage on expected and non-expected dates, midnight, both DST transitions, timezone attribution, raw/effective separation, extreme interval clipping and malformed period bounds. These pass alongside 43 reconstruction and two clock tests (62 domain tests total). Exact-head CI and independent verification/review remain required before integration.

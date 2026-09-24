@@ -1,7 +1,11 @@
 package dev.hamstercage.domain
 
 import java.time.Duration
+import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import kotlin.math.max
 
 /** Pure deterministic derivation. Inputs, raw observations and corrections are never mutated. */
@@ -172,6 +176,60 @@ object AttendanceEngine {
     fun observedMinutes(session: Session, now: Instant): Double = session.start?.let {
         max(0.0, Duration.between(it, minOf(session.end ?: now, now)).elapsedMinutes())
     } ?: 0.0
+
+    fun observedDailyMinutes(input: AttendanceInput, date: LocalDate): Double {
+        val raw = input.copy(corrections = emptyList(), manualSessions = emptyList(),
+            offices = input.offices.map { it.copy(entryGraceMinutes = 0, exitGraceMinutes = 0) },
+            policy = input.policy.copy(shortGapMinutes = 0))
+        return daily(raw, derive(raw), date).creditedMinutes
+    }
+
+    fun daily(input: AttendanceInput, result: AttendanceResult, date: LocalDate): PeriodSummary =
+        period(input, result, date, date)
+
+    fun summary(input: AttendanceInput, result: AttendanceResult, target: TargetWindow): PeriodSummary {
+        val (start, end) = window(input, target)
+        return period(input, result, start, end, includeFutureRequirements = target == TargetWindow.FULL_WEEK)
+    }
+
+    fun period(input: AttendanceInput, result: AttendanceResult, startDate: LocalDate, endDate: LocalDate,
+               includeFutureRequirements: Boolean = false): PeriodSummary {
+        val span = ChronoUnit.DAYS.between(startDate, endDate)
+        require(span in 0..36600 && endDate < LocalDate.MAX) { "Invalid or oversized calendar period" }
+        require(input.now.isStorageTime()) { "Current time must fit persisted epoch milliseconds" }
+        val today = input.now.atZone(input.policy.zoneId).toLocalDate()
+        val dates = (0..span.toInt()).map { startDate.plusDays(it.toLong()) }
+        val expected = dates.filter { input.policy.isExpected(it) && (includeFutureRequirements || it <= today) }
+        fun isUnknown(date: LocalDate) = input.historyStartDate == null || date < input.historyStartDate || date in input.unknownDates
+        val future = expected.count { it > today }
+        val unknownExpected = expected.count { it <= today && isUnknown(it) }
+        // Weekends and exclusions can still contain attendance; missing coverage there is unknown too.
+        val unknownCalendar = dates.count { it <= today && isUnknown(it) }
+        val start = startDate.atStartOfDay(input.policy.zoneId).toInstant()
+        val end = minOf(endDate.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant(), input.now)
+        val clipped = if (end <= start) emptyList() else result.intervals.mapNotNull { interval ->
+            val clippedStart = maxOf(start, interval.start)
+            val clippedEnd = minOf(end, interval.end)
+            if (clippedEnd <= clippedStart) null else interval.copy(start = clippedStart, end = clippedEnd)
+        }
+        val credited = union(clipped).sumOf { it.minutes }
+        val required = expected.size * input.policy.targetMinutesPerDay
+        return PeriodSummary(startDate, endDate, credited, expected.size, required, credited - required,
+            if (expected.isEmpty()) null else credited / expected.size,
+            expected.size - unknownExpected - future, unknownExpected, future, unknownCalendar)
+    }
+
+    private fun window(input: AttendanceInput, target: TargetWindow): Pair<LocalDate, LocalDate> {
+        val today = input.now.atZone(input.policy.zoneId).toLocalDate()
+        val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        return when (target) {
+            TargetWindow.TODAY -> today to today
+            TargetWindow.WEEK_TO_DATE -> monday to today
+            TargetWindow.FULL_WEEK -> monday to monday.plusDays(6)
+            TargetWindow.ROLLING_30 -> today.minusDays(29) to today
+            TargetWindow.ROLLING_90 -> today.minusDays(89) to today
+        }
+    }
 
     private fun Instant.isStorageTime(): Boolean = try { toEpochMilli(); true } catch (_: ArithmeticException) { false }
 }
