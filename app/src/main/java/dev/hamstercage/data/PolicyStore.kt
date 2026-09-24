@@ -32,10 +32,12 @@ internal val Context.hamsterPreferences by preferencesDataStore(
 
 internal class PolicyStore(private val preferences: DataStore<Preferences>) {
     val settings = preferences.data.map(::readSettings)
-    suspend fun save(settings: PolicySettings) {
+    suspend fun save(settings: PolicySettings, expected: PolicySettings? = null) {
         settings.toPolicy() // Domain validation occurs before the atomic edit.
+        require(settings.expectedWeekdays.isNotEmpty()) { "Choose at least one expected weekday." }
         preferences.edit { current ->
-            readSettings(current) // Invalid/future state must not be silently replaced.
+            val existing = readSettings(current) // Invalid/future state must not be silently replaced.
+            check(expected == null || existing == expected) { "Policy changed; reopen before editing." }
             current[SCHEMA] = 1
             current[ZONE] = settings.zoneId.id
             current[TARGET] = settings.targetMinutesPerDay
@@ -71,5 +73,6 @@ private fun readSettings(prefs: Preferences): PolicySettings {
         prefs[GAP] ?: 10, prefs[MAX_OPEN] ?: 16,
     )
     settings.toPolicy()
+    require(settings.expectedWeekdays.isNotEmpty()) { "Choose at least one expected weekday." }
     return settings
 }

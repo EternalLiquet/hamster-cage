@@ -18,7 +18,7 @@ class ShellSmokeTest {
         val destinations = listOf(
             "Offices" to "No offices yet",
             "History" to "Every total comes from your local record.",
-            "Settings" to "Attendance policy and privacy controls are coming in the settings features.",
+            "Settings" to "Attendance policy",
             "Dashboard" to "Office state unknown",
         )
         destinations.forEach { (label, description) ->
