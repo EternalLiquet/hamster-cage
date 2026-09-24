@@ -30,7 +30,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import dev.hamstercage.domain.TimeSource
+import dev.hamstercage.data.StorageState
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -43,7 +46,7 @@ private enum class Destination(val label: String, val description: String) {
 
 /** UI depends on domain contracts; the Activity supplies platform/data implementations. */
 @Composable
-fun HamsterApp(timeSource: TimeSource, zoneId: ZoneId = ZoneId.systemDefault()) {
+fun HamsterApp(timeSource: TimeSource, zoneId: ZoneId = ZoneId.systemDefault(), storageState: StorageState = StorageState.Loading) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
     HamsterTheme {
@@ -97,6 +100,11 @@ fun HamsterApp(timeSource: TimeSource, zoneId: ZoneId = ZoneId.systemDefault()) 
                 verticalArrangement = Arrangement.spacedBy(CageStyle.Gap),
             ) {
                 Text("Hamster Cage", style = MaterialTheme.typography.titleMedium, color = CageStyle.Peach)
+                if (storageState == StorageState.Unavailable) {
+                    Column(Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) {
+                        Notice("Attendance data unavailable", "Local attendance data could not be opened. Saved data was kept for recovery.")
+                    }
+                }
                 PageHeading(selected.label, timeSource.localDate(zoneId).format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")))
                 Tag("LOCAL ONLY", warm = true)
                 Notice("Ready for the next step", selected.description)

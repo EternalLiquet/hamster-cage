@@ -24,6 +24,7 @@ import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
@@ -55,8 +56,8 @@ class StorageIntegrationTest {
             Instant.parse("2025-03-10T11:00:00Z"), Instant.parse("2025-03-10T11:30:00Z"), fixedNow)
         val excluded = ExcludedDate(LocalDate.parse("2025-03-11"), ExclusionReason.PTO, "Synthetic leave")
         val wfh = LocalDate.parse("2025-03-12")
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val preferences = PreferenceDataStoreFactory.create(scope = scope) {
+        var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        var preferences = PreferenceDataStoreFactory.create(scope = scope) {
             context.preferencesDataStoreFile(name)
         }
         val database = HamsterDatabase.open(context, "$name.db")
@@ -72,6 +73,12 @@ class StorageIntegrationTest {
             repository.setWfh(wfh, true)
             repository.savePolicy(PolicySettings(zoneId = ZoneId.of("America/Indianapolis"), targetMinutesPerDay = 420))
             database.close()
+            scope.cancel()
+            scope.coroutineContext[Job]?.join()
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            preferences = PreferenceDataStoreFactory.create(scope = scope) {
+                context.preferencesDataStoreFile(name)
+            }
 
             val reopened = HamsterDatabase.open(context, "$name.db")
             try {
@@ -111,6 +118,42 @@ class StorageIntegrationTest {
         }
     }
 
+    @Test fun delayedObservationSurvivesOfficeDisableAndRestart() = runBlocking {
+        val name = "late-${UUID.randomUUID()}"
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val preferences = PreferenceDataStoreFactory.create(scope = scope) {
+            context.preferencesDataStoreFile(name)
+        }
+        val office = Office("late-office", "Synthetic office", 0.0, 0.0)
+        val event = RawEvent("late-enter", office.id, Transition.ENTER, fixedNow.minusSeconds(3600))
+        val database = HamsterDatabase.open(context, "$name.db")
+        try {
+            val repository = HamsterRepository(database, preferences, clock)
+            repository.saveOffice(office)
+            repository.saveOffice(office.copy(enabled = false), repository.officeVersion(office.id))
+            repository.appendRawEvents(listOf(RecordedEvent(event, fixedNow)))
+            var unknownRejected = false
+            try {
+                repository.appendRawEvents(listOf(RecordedEvent(event.copy(id = "unknown", officeId = "missing"), fixedNow)))
+            } catch (_: IllegalArgumentException) { unknownRejected = true }
+            assertTrue("Unknown offices still fail", unknownRejected)
+            database.close()
+            val reopened = HamsterDatabase.open(context, "$name.db")
+            try {
+                val snapshot = (HamsterRepository(reopened, preferences, clock).state
+                    .first { it is StorageState.Ready } as StorageState.Ready).snapshot
+                assertEquals(listOf(event), snapshot.events)
+                assertFalse(snapshot.offices.single().enabled)
+                assertTrue(snapshot.derive(fixedNow).intervals.isEmpty())
+            } finally { reopened.close() }
+        } finally {
+            database.close()
+            scope.cancel()
+            context.deleteDatabase("$name.db")
+            context.preferencesDataStoreFile(name).delete()
+        }
+    }
+
     @Test fun unsupportedSchemaDoesNotDeleteSourceDatabase() = runBlocking {
         val name = "unsupported-${UUID.randomUUID()}.db"
         val dbFile = context.getDatabasePath(name)
@@ -121,10 +164,16 @@ class StorageIntegrationTest {
             sqlite.execSQL("INSERT INTO sentinel VALUES ('synthetic source fact')")
         }
         val database = HamsterDatabase.open(context, name)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val policyName = "unsupported-policy-${UUID.randomUUID()}"
+        val preferences = PreferenceDataStoreFactory.create(scope = scope) {
+            context.preferencesDataStoreFile(policyName)
+        }
         try {
             var rejected = false
             try { database.dao().offices() } catch (_: Exception) { rejected = true }
             assertTrue("Unsupported schema must fail visibly", rejected)
+            assertEquals(StorageState.Unavailable, HamsterRepository(database, preferences, clock).state.first())
             assertTrue(dbFile.exists())
             SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY).use { sqlite ->
                 sqlite.rawQuery("SELECT value FROM sentinel", null).use { cursor ->
@@ -134,7 +183,9 @@ class StorageIntegrationTest {
             }
         } finally {
             database.close()
+            scope.cancel()
             context.deleteDatabase(name)
+            context.preferencesDataStoreFile(policyName).delete()
         }
     }
 

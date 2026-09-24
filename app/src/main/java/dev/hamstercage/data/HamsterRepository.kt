@@ -101,7 +101,9 @@ class HamsterRepository internal constructor(
             val previous = dao.event(event.id)
             require(previous == null || previous == record) { "Conflicting event ID." }
             if (previous == null) {
-                require(dao.office(event.officeId)?.enabled == true) { "Office must exist and be enabled." }
+                // Delivery may lag behind a user disabling the office. Keep the observation;
+                // current policy decides whether it contributes credit during derivation.
+                require(dao.office(event.officeId) != null) { "Office was not found." }
                 dao.insertEvent(record)
             }
         }
