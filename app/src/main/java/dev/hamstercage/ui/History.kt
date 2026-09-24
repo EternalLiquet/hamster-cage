@@ -14,10 +14,16 @@ import androidx.compose.ui.semantics.semantics
 import dev.hamstercage.domain.AttendanceInput
 import dev.hamstercage.domain.AttendanceResult
 import java.time.format.DateTimeFormatter
+import java.time.LocalDate
 
 @Composable
 fun HistoryScreen(input: AttendanceInput, result: AttendanceResult) {
     var offsetDays by rememberSaveable { mutableIntStateOf(0) }
+    var selectedDay by rememberSaveable { mutableStateOf<String?>(null) }
+    selectedDay?.let { day ->
+        DayDetailScreen(input, result, LocalDate.parse(day), back = { selectedDay = null })
+        return
+    }
     val days = remember(input, result, offsetDays) { historyDays(input, result, offsetDays) }
     val earliest = remember(input) { earliestHistoryDate(input) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
@@ -42,6 +48,7 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult) {
                 Column(Modifier.testTag("history_balance_${day.date}").semantics(mergeDescendants = true) {}) {
                     MetricRow("Balance", if (day.summary.hasCompleteHistory) balanceText(day.summary.balanceMinutes) else "Unknown", true)
                 }
+                OutlinedButton(onClick = { selectedDay = day.date.toString() }) { Text("Explain ${day.date}") }
             }
         }
         if (days.last().date > earliest && offsetDays <= Int.MAX_VALUE - HISTORY_PAGE_DAYS)
