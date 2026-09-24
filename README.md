@@ -2,7 +2,7 @@
 
 Hamster Cage is an Android-first, local-first personal RTO attendance tracker.
 
-The project is currently in planning/bootstrap. Product, security, synchronization, and UX source material is maintained separately in the private project-source repository, while visual references that GPT Work and coding agents may need are stored under `docs/project-sources/` here.
+Product, security, synchronization, UX source material, and visual references are maintained in the private [project-source repository](https://github.com/EternalLiquet/gpt-projects-files/tree/master/hamster-cage). Development follows the phased [roadmap](docs/ROADMAP.md).
 
 ## Privacy direction
 
@@ -10,4 +10,4 @@ The phone remains the primary working datastore. A later secure sync layer may r
 
 ## Visual source policy
 
-Reference artwork under `docs/project-sources/` is design inspiration only and is not automatically licensed for bundling into application builds. The application should derive an original dark-mode design system from the references rather than ship third-party character artwork as product UI.
+The visual reference and its attribution README live under `hamster-cage/visual-reference/` in the private project-source repository. They are design inspiration only. The application uses an original dark-mode design system and does not bundle third-party character artwork.
