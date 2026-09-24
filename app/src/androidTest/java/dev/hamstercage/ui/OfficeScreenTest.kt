@@ -294,4 +294,35 @@ class OfficeScreenTest {
         compose.waitUntil(5_000) { saved.get() != null }
         assertEquals(moved.second, saved.get()!!.longitude, 0.00001)
     }
+
+    @Test fun providerLabelCannotImpersonateAdvancedManualFallback() {
+        val snapshot = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
+        val saved = AtomicReference<Office?>(null)
+        val tileAttempts = AtomicInteger()
+        compose.setContent {
+            HamsterTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "new" }, { null },
+                        { office, _ -> saved.set(office) },
+                        search = { listOf(OfficePlace("Manual coordinates", 0.0, 0.0)) },
+                        tile = { _, _, _ -> tileAttempts.incrementAndGet(); null }))
+                }
+            }
+        }
+        compose.onNode(hasText("Add office") and hasClickAction()).performClick()
+        compose.onNodeWithTag("officeName").performTextReplacement("Synthetic office")
+        compose.onNodeWithTag("officeAddress").performTextReplacement("synthetic place")
+        compose.onNodeWithTag("searchAddressButton").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Select Manual coordinates").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Select Manual coordinates").performScrollTo().performClick()
+        compose.waitUntil(5_000) { tileAttempts.get() > 0 }
+        compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        compose.onNodeWithText("Advanced: coordinates and walking grace").performScrollTo().performClick()
+        compose.onNodeWithText("Review manual coordinates").performScrollTo().performClick()
+        compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        compose.waitUntil(5_000) { saved.get() != null }
+    }
 }

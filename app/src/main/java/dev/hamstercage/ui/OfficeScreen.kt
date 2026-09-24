@@ -76,6 +76,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
     var searching by remember { mutableStateOf(false) }
     var locating by remember { mutableStateOf(false) }
     var selectedLabel by rememberSaveable { mutableStateOf<String?>(null) }
+    var manualSelection by rememberSaveable { mutableStateOf(false) }
     var reviewing by rememberSaveable { mutableStateOf(false) }
     var confirmed by rememberSaveable { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
@@ -106,7 +107,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         searchEpoch++
         searchJob?.cancel(); searching = false; locating = false
         latitude = place.latitude.toString(); longitude = place.longitude.toString()
-        selectedLabel = place.label; reviewing = true; confirmed = false
+        selectedLabel = place.label; manualSelection = false; reviewing = true; confirmed = false
         results = emptyList(); error = null; status = null; loadedMap = null; tileEpoch++
     }
 
@@ -119,6 +120,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         error = null; status = null
         address = ""; results = emptyList(); searchEpoch++
         selectedLabel = if (draft.latitude.isNotBlank()) "Saved office location" else null
+        manualSelection = false
         reviewing = false; confirmed = selectedLabel != null; advanced = false; loadedMap = null
     }
 
@@ -201,7 +203,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
             CageButton(if (searching) "Searching…" else "Search address", onClick = {
                 val query = address.trim(); val epoch = ++searchEpoch
                 searchJob?.cancel(); currentJob?.cancel(); locating = false
-                searching = true; confirmed = false; reviewing = false; loadedMap = null
+                searching = true; confirmed = false; reviewing = false; manualSelection = false; loadedMap = null
                 error = null; results = emptyList()
                 searchJob = scope.launch {
                     try {
@@ -217,7 +219,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
             }, modifier = Modifier.testTag("searchAddressButton"))
             results.forEach { place -> CageButton("Select ${place.label}", onClick = { currentJob?.cancel(); select(place) }) }
             CageButton(if (locating) "Finding current location…" else "Use my current location", onClick = {
-                val epoch = ++searchEpoch; locating = true; confirmed = false; reviewing = false; loadedMap = null; error = null
+                val epoch = ++searchEpoch; locating = true; confirmed = false; reviewing = false; manualSelection = false; loadedMap = null; error = null
                 searchJob?.cancel(); searching = false; results = emptyList()
                 currentJob?.cancel()
                 currentJob = scope.launch {
@@ -248,7 +250,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                 if (loadedMap?.request != currentMapRequest()) CageButton("Retry map", onClick = { loadedMap = null; tileEpoch++ })
                 CageButton("Confirm pin and radius", onClick = {
                     if (radius.toFloatOrNull()?.let { it in 50f..5000f } != true) error = "Radius must be between 50 and 5000 meters."
-                    else if (selectedLabel != "Manual coordinates" && loadedMap?.request != currentMapRequest())
+                    else if (!manualSelection && loadedMap?.request != currentMapRequest())
                         error = "Wait for the current pin and radius map, or use Advanced manual coordinates."
                     else { confirmed = true; reviewing = false; error = null }
                 })
@@ -262,7 +264,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                 CageButton("Review manual coordinates", onClick = {
                     val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull()
                     if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) error = "Enter valid latitude and longitude."
-                    else { selectedLabel = "Manual coordinates"; reviewing = true; confirmed = false; loadedMap = null; tileEpoch++; error = null }
+                    else { selectedLabel = "Manual coordinates"; manualSelection = true; reviewing = true; confirmed = false; loadedMap = null; tileEpoch++; error = null }
                 })
                 OutlinedTextField(entryGrace, { entryGrace = it }, label = { Text("Entry grace (minutes)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)

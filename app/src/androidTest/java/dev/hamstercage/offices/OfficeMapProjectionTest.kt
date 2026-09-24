@@ -1,9 +1,12 @@
 package dev.hamstercage.offices
 
 import android.graphics.Bitmap
+import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class OfficeMapProjectionTest {
@@ -58,5 +61,17 @@ class OfficeMapProjectionTest {
         val service = currentRequestFailure(IllegalStateException("provider account secret"))
         assertTrue(service.message!!.contains("Retry outdoors"))
         assertFalse(service.message!!.contains("provider account secret"))
+    }
+
+    @Test fun tileDecoderRejectsOversizedDimensionsBeforeFullDecode() {
+        fun png(width: Int, height: Int): ByteArray = ByteArrayOutputStream().use { output ->
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                .compress(Bitmap.CompressFormat.PNG, 100, output)
+            output.toByteArray()
+        }
+        assertNotNull(decodeOfficeTile(png(256, 256)))
+        assertNull(decodeOfficeTile(png(512, 512)))
+        assertNull(decodeOfficeTile(png(256, 512)))
+        assertNull(decodeOfficeTile(ByteArray(300_001)))
     }
 }

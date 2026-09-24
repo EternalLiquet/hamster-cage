@@ -44,6 +44,15 @@ internal fun currentRequestFailure(failure: Exception): IllegalStateException = 
     IllegalStateException("Precise foreground location was revoked. Grant it in Settings, then retry; or search an address.")
 else IllegalStateException("Current location service is unavailable. Retry outdoors, check Play Services, or search an address.")
 
+/** OSM standard tiles are 256×256; inspect headers before allowing bitmap allocation. */
+internal fun decodeOfficeTile(bytes: ByteArray): Bitmap? {
+    if (bytes.isEmpty() || bytes.size > 300_000) return null
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth != 256 || bounds.outHeight != 256) return null
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.takeIf { it.width == 256 && it.height == 256 }
+}
+
 /** Network access is limited to a user-submitted address or a selected map viewport. */
 class OfficeLocationServices(private val context: Context) {
     private val legacySearchLock = Mutex()
@@ -141,7 +150,8 @@ class OfficeLocationServices(private val context: Context) {
     private fun loadTile(zoom: Int, x: Int, y: Int): Bitmap? {
         val directory = File(context.cacheDir, "office-map-tiles").apply { mkdirs() }
         val file = File(directory, "$zoom-$x-$y.png")
-        val cached = if (file.isFile) runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull() else null
+        val cached = if (file.isFile && file.length() in 1..300_000)
+            runCatching { decodeOfficeTile(file.readBytes()) }.getOrNull() else null
         if (cached != null && System.currentTimeMillis() - file.lastModified() < 7L * 24 * 60 * 60 * 1000)
             return cached
         return try {
@@ -168,7 +178,7 @@ class OfficeLocationServices(private val context: Context) {
                     output.toByteArray()
                 }
                 if (bytes.size > 300_000) return cached
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return cached
+                val bitmap = decodeOfficeTile(bytes) ?: return cached
                 file.writeBytes(bytes)
                 bitmap
             } finally { connection.disconnect() }
