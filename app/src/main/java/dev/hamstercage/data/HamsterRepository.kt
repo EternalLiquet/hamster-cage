@@ -157,6 +157,16 @@ class HamsterRepository internal constructor(
     suspend fun removeExclusion(date: LocalDate) = dao.removeExclusion(date.toString())
     suspend fun setWfh(date: LocalDate, enabled: Boolean) = dao.upsertLabel(DayLabelRecord(date.toString(), enabled, clock.now().toEpochMilli()))
 
+    /** Explicit privacy action only. All attendance and calendar facts commit or roll back together. */
+    internal suspend fun deleteAttendanceAndCalendarHistory(beforeCommit: suspend () -> Unit = {}) = policyEditLock.withLock { database.withTransaction {
+        dao.deleteAllEvents()
+        dao.deleteAllCorrections()
+        dao.deleteAllManualSessions()
+        dao.deleteAllExclusions()
+        dao.deleteAllLabels()
+        beforeCommit()
+    } }
+
     /** Compare all preview source facts inside the Room transaction; a new observation/edit
      * rejects a stale confirmation instead of silently applying a different preview. */
     suspend fun commitAttendanceEdit(edit: AttendanceEdit) = policyEditLock.withLock { database.withTransaction {

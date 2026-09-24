@@ -70,3 +70,18 @@ fun reviewExplanation(reason: ReviewReason): String = when (reason) {
 
 /** Display-only sanitation; stored notes and names are unchanged. No markup is interpreted. */
 internal fun evidenceText(text: String) = text.filter { it == '\n' || (!it.isISOControl() && Character.getType(it) != Character.FORMAT.toInt()) }.take(2000)
+
+/** A reversible visible escape for unusual characters keeps distinct source IDs distinct.
+ * Long/corrupt IDs retain a full SHA-256 suffix; reserved display markers are always escaped. */
+internal fun evidenceId(id: String): String {
+    val escaped = buildString {
+        id.codePoints().forEach { point ->
+            if (point in 48..57 || point in 65..90 || point in 97..122 || point in listOf(45, 46, 58, 95)) appendCodePoint(point)
+            else append("\\u{").append(point.toString(16).uppercase()).append('}')
+        }
+    }.ifEmpty { "\\u{}" }
+    if (escaped.length <= 200) return escaped
+    val digest = java.security.MessageDigest.getInstance("SHA-256").digest(id.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    return escaped.take(110) + "…[sha256:$digest]"
+}

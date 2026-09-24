@@ -58,4 +58,24 @@ class CoverageNoticeTest {
         compose.onNodeWithText("Office state unknown").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Office detection unavailable").performScrollTo().assertIsDisplayed()
     }
+
+    @Test fun deliveryFailureOverridesStaleConfirmedCoverageEvenWithActiveRegistration() {
+        val now = Instant.parse("2025-03-10T20:00:00Z")
+        val entered = now.minusSeconds(60)
+        val office = Office("synthetic", "Synthetic office", 0.0, 0.0)
+        val snapshot = AppSnapshot(listOf(office), listOf(RecordedEvent(
+            RawEvent("synthetic-enter", office.id, Transition.ENTER, entered), entered)),
+            emptyList(), emptyList(), Policy(zoneId = ZoneId.of("UTC")))
+        val stale = CoverageLedger(historyStartDate = LocalDate.parse("2025-03-10"),
+            lastObservationAt = entered, recoveryBoundaryAt = entered.minusSeconds(1),
+            registration = RegistrationStatus.ACTIVE, policyZoneId = ZoneId.of("UTC"))
+        compose.activity.runOnUiThread {
+            compose.activity.setContent {
+                HamsterApp(timeSource = TimeSource { now }, storageState = StorageState.Ready(snapshot),
+                    coverage = stale, captureStatus = CaptureStatus(RegistrationStatus.ACTIVE, deliveryFailure = true))
+            }
+        }
+        compose.onNodeWithText("Office state unknown").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Attendance capture needs attention").performScrollTo().assertIsDisplayed()
+    }
 }
