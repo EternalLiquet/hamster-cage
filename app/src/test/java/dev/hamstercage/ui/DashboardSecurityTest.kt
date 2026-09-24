@@ -25,7 +25,10 @@ class DashboardSecurityTest {
         assertTrue(result.intervals.isEmpty())
         assertEquals("Needs review", dashboardPresence(input, result, true).label)
         assertEquals("Office state unknown", dashboardPresence(input, result, false).label)
-        TargetWindow.entries.forEach { assertEquals(DepartureStatus.INCOMPLETE_HISTORY, AttendanceEngine.departure(input, result, it).status) }
+        TargetWindow.entries.forEach { target ->
+            assertEquals(if (target == TargetWindow.TODAY) DepartureStatus.NEEDS_REVIEW else DepartureStatus.INCOMPLETE_HISTORY,
+                AttendanceEngine.departure(input, result, target).status)
+        }
     }
     @Test fun nonFiniteCoordinatesAreRejectedBeforeReachingDisplayOrCapture() {
         listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, 91.0).forEach { latitude ->

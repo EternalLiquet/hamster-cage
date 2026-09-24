@@ -251,7 +251,11 @@ object AttendanceEngine {
         val summary = summary(input, result, target)
         val remaining = max(0.0, summary.requiredMinutes - summary.creditedMinutes)
         fun outcome(status: DepartureStatus) = DepartureEstimate(target, status, remaining)
-        if (!summary.hasCompleteHistory) return outcome(DepartureStatus.INCOMPLETE_HISTORY)
+        // Today's projection is anchored to observed credit through now and the active
+        // session. Unknown coverage makes it provisional, but prior history cannot
+        // contribute a deficit to a single-day target.
+        if (target != TargetWindow.TODAY && !summary.hasCompleteHistory)
+            return outcome(DepartureStatus.INCOMPLETE_HISTORY)
         val windowStart = summary.startDate.atStartOfDay(input.policy.zoneId).toInstant()
         val windowEnd = summary.endDate.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()
         val eligibleOffices = input.offices.filter { it.enabled && it.countsTowardAttendance }.associateBy { it.id }
@@ -266,7 +270,8 @@ object AttendanceEngine {
         val allSessionIds = result.sessions.map { it.id }.toSet()
         // Ambiguity wins even when the provisional credit exceeds the target. A bad clock,
         // unresolved boundary or competing open offices must never produce a confident exit.
-        if (current.size > 1 || relevant.any { session -> session.reviewReasons.any { it !in benign } } ||
+        if (current.size > 1) return outcome(DepartureStatus.OVERLAPPING_SESSIONS)
+        if (relevant.any { session -> session.reviewReasons.any { it !in benign } } ||
             result.reviews.any { it.reason !in benign && (it.sessionId !in allSessionIds || it.sessionId in relevantIds) })
             return outcome(DepartureStatus.NEEDS_REVIEW)
         if (remaining == 0.0) return outcome(DepartureStatus.TARGET_SATISFIED)

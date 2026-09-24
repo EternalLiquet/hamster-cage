@@ -74,6 +74,15 @@ class DashboardTest {
         compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("About 3:00 PM")
     }
 
+    @Test fun freshInstallShowsPrimaryDailyLeaveTimeWhileLongerHistoryIsUnknown() {
+        show(data(listOf(enter())).copy(historyStartDate = null))
+        compose.onNodeWithTag("today_leave").assertTextEquals("You can leave at 3:00 PM")
+        compose.onNodeWithTag("today_leave_context").assertTextContains("6h 0m target · provisional", substring = true)
+        compose.onNodeWithTag("today_leave_boundary").assertTextContains("geofence", substring = true)
+        compose.onNodeWithTag("ROLLING_30_balance").performScrollTo().assertTextContains("Unknown")
+        compose.onNodeWithTag("ROLLING_90_balance").performScrollTo().assertTextContains("Unknown")
+    }
+
     @Test fun activeArrivalWindowShowsZeroCreditAndCountdown() {
         val entry = Instant.parse("2026-09-23T13:00:00Z")
         val input = data(listOf(RawEvent("in", "a", Transition.ENTER, entry))).copy(now = entry.plusSeconds(180))

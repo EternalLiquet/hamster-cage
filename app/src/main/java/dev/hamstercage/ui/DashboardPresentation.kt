@@ -2,6 +2,8 @@ package dev.hamstercage.ui
 
 import dev.hamstercage.domain.AttendanceInput
 import dev.hamstercage.domain.AttendanceResult
+import dev.hamstercage.domain.DepartureEstimate
+import dev.hamstercage.domain.DepartureStatus
 import dev.hamstercage.domain.ReviewReason
 import dev.hamstercage.domain.Transition
 import java.time.Instant
@@ -53,4 +55,17 @@ fun departureTimeText(value: Instant, now: Instant, zone: ZoneId): String {
     val rounded = if (minute < value) minute.plusSeconds(60) else minute
     val pattern = if (rounded.atZone(zone).toLocalDate() == now.atZone(zone).toLocalDate()) "h:mm a" else "EEE, MMM d, h:mm a"
     return DateTimeFormatter.ofPattern(pattern).withZone(zone).format(rounded)
+}
+
+/** A daily projection remains useful with unknown coverage, but an unsafe bound has no time. */
+fun todayLeaveText(estimate: DepartureEstimate, trackingReady: Boolean, now: Instant, zone: ZoneId): String = when (estimate.status) {
+    DepartureStatus.TARGET_SATISFIED -> "You can leave now"
+    DepartureStatus.ESTIMATED -> if (trackingReady) "You can leave at ${departureTimeText(estimate.estimatedExitAt!!, now, zone)}"
+        else "Confirm office detection to see a leave time"
+    DepartureStatus.NOT_IN_OFFICE -> "Start an eligible office session to see a leave time"
+    DepartureStatus.OVERLAPPING_SESSIONS -> "Review overlapping active sessions in History"
+    DepartureStatus.NEEDS_REVIEW -> "Review today's uncertain observations in History"
+    DepartureStatus.UNREACHABLE_IN_WINDOW -> "Today's target cannot be reached in this session"
+    DepartureStatus.OUTSIDE_WINDOW -> "Today's projection is outside the day"
+    DepartureStatus.INCOMPLETE_HISTORY -> "Review missing coverage in History"
 }

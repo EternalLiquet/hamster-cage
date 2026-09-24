@@ -4,7 +4,7 @@ import java.time.Instant
 
 enum class DepartureStatus {
     TARGET_SATISFIED, ESTIMATED, NOT_IN_OFFICE, NEEDS_REVIEW, INCOMPLETE_HISTORY,
-    OUTSIDE_WINDOW, UNREACHABLE_IN_WINDOW,
+    OUTSIDE_WINDOW, UNREACHABLE_IN_WINDOW, OVERLAPPING_SESSIONS,
 }
 
 /** A projection only: neither timestamp is an observed fact or future aggregate credit. */

@@ -54,4 +54,15 @@ class DashboardPresentationTest {
         assertEquals("4:01 PM", departureTimeText(now.plusSeconds(30), now, zone))
         assertTrue(departureTimeText(now.plusSeconds(24 * 3600), now, zone).contains("Sep 24"))
     }
+    @Test fun dailyLeaveMessageNamesSafeActionForEachCommonState() {
+        val zone = ZoneId.of("UTC")
+        fun message(input: AttendanceInput, ready: Boolean = true): String =
+            todayLeaveText(AttendanceEngine.departure(input, AttendanceEngine.derive(input), TargetWindow.TODAY), ready, input.now, zone)
+        assertEquals("You can leave at 9:00 PM", message(data(listOf(enter())).copy(historyStartDate = null)))
+        assertEquals("Confirm office detection to see a leave time", message(data(listOf(enter())), false))
+        assertEquals("Start an eligible office session to see a leave time", message(data()))
+        assertEquals("You can leave now", message(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600))))))
+        val overlapping = data(listOf(enter(), enter("bin", "b"))).copy(offices = listOf(office, office.copy(id = "b")))
+        assertEquals("Review overlapping active sessions in History", message(overlapping))
+    }
 }
