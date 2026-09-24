@@ -71,14 +71,15 @@ fun HamsterApp(repository: HamsterRepository,refreshGeneration: Int,requestForeg
                 else -> {
                     val input=remember(state,now) { AttendanceInput(state.offices,state.events,state.corrections,state.policy,now,state.historyStartDate,state.unknownDates,state.manualSessions) }
                     val result=remember(input) { AttendanceEngine.derive(input) }
+                    val monitoringActive=state.trackingHealth.canTrack && state.trackingHealth.registeredOfficeCount>0 && state.trackingHealth.registrationError==null
                     val health: @Composable ()->Unit = {
                         TrackingPanel(state.trackingHealth,state.offices.any { it.enabled },requestForeground,requestBackground,openAppSettings,openLocationSettings) {
                             action { repository.requestRegistration(force=true);repository.refreshHealth() }
                         }
                     }
                     when(destination) {
-                        0 -> DashboardScreen(input,result,state.trackingHealth.canTrack && state.trackingHealth.registeredOfficeCount>0 && state.trackingHealth.registrationError==null,health,{destination=2},{destination=1})
-                        1 -> HistoryScreen(input,result,state.manualEventIds,state.eventEvidence,{session,date -> editedSession=session to date},{date -> action("Day marked reviewed") {repository.confirmDayReviewed(date)}})
+                        0 -> DashboardScreen(input,result,monitoringActive,health,{destination=2},{destination=1})
+                        1 -> HistoryScreen(input,result,state.manualEventIds,state.eventEvidence,monitoringActive,{session,date -> editedSession=session to date},{date -> action("Day marked reviewed") {repository.confirmDayReviewed(date)}})
                         2 -> OfficesScreen(state.offices,{editedOffice=it;officeDialog=true},health)
                         3 -> SettingsScreen(state.policy,
                             {action("Policy saved") {repository.savePolicy(it)}},
@@ -87,11 +88,11 @@ fun HamsterApp(repository: HamsterRepository,refreshGeneration: Int,requestForeg
                             {date,wfh -> action("WFH label updated") {repository.setWfh(date,wfh)}},
                             {action("Attendance history deleted") {repository.deleteAttendanceHistory(it)}},health)
                     }
-                    if(officeDialog) OfficeDialog(editedOffice,{officeDialog=false}) { office ->
+                    if(officeDialog) OfficeDialog(editedOffice,{officeDialog=false},writing) { office ->
                         action("Office saved") { repository.saveOffice(office);officeDialog=false }
                     }
                     editedSession?.let { (session,date) ->
-                        SessionDialog(session,date,input,{editedSession=null}) { officeId,start,end,note ->
+                        SessionDialog(session,date,input,{editedSession=null},writing) { officeId,start,end,note ->
                             action("Session saved") {
                                 if(session==null) repository.addManualSession(officeId,start,end,note)
                                 else repository.saveCorrection(Correction(UUID.randomUUID().toString(),session.id,start,end,Instant.now(),note))

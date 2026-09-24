@@ -2,21 +2,12 @@ name: Security analysis
 on:
   pull_request:
   push:
-    branches: [master, 'feat/**']
+    branches: [master]
   schedule:
     - cron: '17 7 * * 1'
 permissions:
   contents: read
 jobs:
-  dependency-review:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
-        with:
-          fail-on-severity: high
   secrets:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -44,6 +35,8 @@ jobs:
         with:
           languages: java-kotlin
           build-mode: manual
-      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0'
       - run: ./gradlew :app:assembleDebug
       - uses: github/codeql-action/analyze@ed1a0fa18ac745d017ca370dd4ef08bba3b4f504

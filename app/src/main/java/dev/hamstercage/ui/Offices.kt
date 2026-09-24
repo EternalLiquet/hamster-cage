@@ -33,7 +33,7 @@ fun OfficesScreen(offices: List<Office>, onEdit: (Office?) -> Unit, health: @Com
 }
 
 @Composable
-fun OfficeDialog(office: Office?, onDismiss: () -> Unit, onSave: (Office) -> Unit) {
+fun OfficeDialog(office: Office?, onDismiss: () -> Unit, saving: Boolean = false, onSave: (Office) -> Unit) {
     var name by remember { mutableStateOf(office?.name ?: "") }
     var latitude by remember { mutableStateOf(office?.latitude?.toString() ?: "") }
     var longitude by remember { mutableStateOf(office?.longitude?.toString() ?: "") }
@@ -70,7 +70,7 @@ fun OfficeDialog(office: Office?, onDismiss: () -> Unit, onSave: (Office) -> Uni
                 else -> null
             }
             if(error==null) onSave(Office(office?.id ?: UUID.randomUUID().toString(),name.trim(),lat!!,lon!!,rad!!,enabled,counts,ent!!,ext!!))
-        })
+        },saveText=if(saving) "Saving…" else "Save",enabled=!saving)
     }
 }
 

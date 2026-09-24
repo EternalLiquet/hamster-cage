@@ -15,7 +15,7 @@ class OfficeFormTest {
 
     @Test fun malformedCoordinatesDoNotSave() {
         var saved: Office? = null
-        compose.setContent { HamsterTheme { OfficeDialog(null,{}, {saved=it}) } }
+        compose.setContent { HamsterTheme { OfficeDialog(null,{},onSave={saved=it}) } }
         compose.onNodeWithText("Office name").performTextInput("Test office")
         compose.onNodeWithText("Latitude (−90 to 90)").performTextInput("not-a-coordinate")
         compose.onNodeWithText("Longitude (−180 to 180)").performTextInput("0")
@@ -26,7 +26,7 @@ class OfficeFormTest {
 
     @Test fun validOfficeRetainsConfiguration() {
         var saved: Office? = null
-        compose.setContent { HamsterTheme { OfficeDialog(null,{}, {saved=it}) } }
+        compose.setContent { HamsterTheme { OfficeDialog(null,{},onSave={saved=it}) } }
         compose.onNodeWithText("Office name").performTextInput("Test office")
         compose.onNodeWithText("Latitude (−90 to 90)").performTextInput("0")
         compose.onNodeWithText("Longitude (−180 to 180)").performTextInput("0")

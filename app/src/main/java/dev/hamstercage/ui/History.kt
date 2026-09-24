@@ -13,14 +13,14 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 @Composable
-fun HistoryScreen(input: AttendanceInput,result: AttendanceResult,manualIds: Set<String>,evidence: List<EventEvidence>,onCorrect: (Session?,LocalDate) -> Unit,onReviewed: (LocalDate)->Unit) {
+fun HistoryScreen(input: AttendanceInput,result: AttendanceResult,manualIds: Set<String>,evidence: List<EventEvidence>,monitoringActive: Boolean,onCorrect: (Session?,LocalDate) -> Unit,onReviewed: (LocalDate)->Unit) {
     val today=input.now.atZone(input.policy.zoneId).toLocalDate()
     var selected by remember { mutableStateOf<LocalDate?>(null) }
     var dayCount by remember { mutableIntStateOf(14) }
     val date=selected
     BackHandler(enabled=date!=null) { selected=null }
     if(date != null) {
-        DayDetail(input,result,date,manualIds,evidence,{selected=null},{onCorrect(it,date)},{onReviewed(date)})
+        DayDetail(input,result,date,manualIds,evidence,monitoringActive,{selected=null},{onCorrect(it,date)},{onReviewed(date)})
         return
     }
     ScreenColumn {
@@ -60,7 +60,7 @@ private fun sessionsForDay(input: AttendanceInput,result: AttendanceResult,date:
 }
 
 @Composable
-private fun DayDetail(input: AttendanceInput,result: AttendanceResult,date: LocalDate,manualIds: Set<String>,evidence: List<EventEvidence>,onBack: ()->Unit,onCorrect: (Session?)->Unit,onReviewed: ()->Unit) {
+private fun DayDetail(input: AttendanceInput,result: AttendanceResult,date: LocalDate,manualIds: Set<String>,evidence: List<EventEvidence>,monitoringActive: Boolean,onBack: ()->Unit,onCorrect: (Session?)->Unit,onReviewed: ()->Unit) {
     var confirmReview by remember { mutableStateOf(false) }
     val summary=AttendanceEngine.daily(input,result,date)
     val sessions=sessionsForDay(input,result,date)
@@ -83,7 +83,10 @@ private fun DayDetail(input: AttendanceInput,result: AttendanceResult,date: Loca
             },style=MaterialTheme.typography.bodyMedium,color=CageStyle.Secondary)
             if(!summary.hasCompleteHistory) {
                 Text("Coverage is incomplete. Recorded credit is a lower-bound record, not proof of absence.",style=MaterialTheme.typography.bodyMedium,color=CageStyle.Amber)
-                if(date in input.unknownDates) OutlinedButton(onClick={confirmReview=true}) { Text("Mark whole day reviewed") }
+                val today=input.now.atZone(input.policy.zoneId).toLocalDate()
+                val canReview=date.isBefore(today) || (date==today && monitoringActive)
+                OutlinedButton(onClick={confirmReview=true},enabled=canReview) { Text(if(date==today) "Review today through now" else "Mark whole day reviewed") }
+                if(!canReview) Text("Today is still in progress. Enable automatic detection to review coverage through now, or review the whole day after it ends.",style=MaterialTheme.typography.bodyMedium,color=CageStyle.Secondary)
             }
         }
         Text("RECONSTRUCTED SESSIONS",style=MaterialTheme.typography.labelMedium,color=CageStyle.Secondary)
@@ -145,9 +148,9 @@ private fun DayDetail(input: AttendanceInput,result: AttendanceResult,date: Loca
     }
     if(confirmReview) AlertDialog(
         onDismissRequest={confirmReview=false},
-        title={Text("Confirm the whole day?")},
-        text={Text("Confirm that all visits and gaps on $date have been checked and any missing sessions added. This clears the known coverage warning for this date. Original events and corrections remain unchanged.")},
-        confirmButton={TextButton(onClick={onReviewed();confirmReview=false}) {Text("I reviewed the whole day")}},
+        title={Text(if(date==input.now.atZone(input.policy.zoneId).toLocalDate()) "Confirm coverage through now?" else "Confirm the whole day?")},
+        text={Text("Confirm that all visits and gaps on $date${if(date==input.now.atZone(input.policy.zoneId).toLocalDate()) " through now" else ""} have been checked and any missing sessions added. This clears the coverage warning for this date. Original events and corrections remain unchanged.")},
+        confirmButton={TextButton(onClick={onReviewed();confirmReview=false}) {Text("Confirm reviewed coverage")}},
         dismissButton={TextButton(onClick={confirmReview=false}) {Text("Cancel")}}
     )
 }
@@ -156,7 +159,7 @@ private fun dateTime(at: Instant,zone: ZoneId): String = DateTimeFormatter.ofPat
 private fun editTime(at: Instant,zone: ZoneId): String = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone).format(at)
 
 @Composable
-fun SessionDialog(session: Session?,date: LocalDate,input: AttendanceInput,onDismiss: ()->Unit,onSave: (String,Instant,Instant?,String)->Unit) {
+fun SessionDialog(session: Session?,date: LocalDate,input: AttendanceInput,onDismiss: ()->Unit,saving: Boolean=false,onSave: (String,Instant,Instant?,String)->Unit) {
     var officeId by remember { mutableStateOf(session?.officeId ?: input.offices.firstOrNull()?.id ?: "") }
     var start by remember { mutableStateOf(session?.start?.let { editTime(it,input.policy.zoneId) } ?: "$date ") }
     var end by remember { mutableStateOf(session?.end?.let { editTime(it,input.policy.zoneId) } ?: "") }
@@ -186,7 +189,7 @@ fun SessionDialog(session: Session?,date: LocalDate,input: AttendanceInput,onDis
                 onSave(officeId,a,b,note.trim())
             } catch(e: IllegalArgumentException) { error=e.message ?: "Check the session times." }
               catch(e: java.time.DateTimeException) { error="Use a valid date and time, such as 2026-09-23 09:00." }
-        },saveText=if(session==null) "Add session" else "Save correction")
+        },saveText=if(saving) "Saving…" else if(session==null) "Add session" else "Save correction",enabled=!saving)
     }
 }
 

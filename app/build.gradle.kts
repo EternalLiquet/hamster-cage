@@ -29,6 +29,18 @@ android {
     lint { abortOnError = true; checkReleaseBuilds = true }
 }
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+tasks.register("writeDependencyInventory") {
+    doLast {
+        val coordinates = configurations.getByName("debugRuntimeClasspath").resolvedConfiguration.resolvedArtifacts
+            .map { it.moduleVersion.id }.distinctBy { "${it.group}:${it.name}:${it.version}" }
+            .sortedBy { "${it.group}:${it.name}" }
+        val output = layout.buildDirectory.file("reports/runtime-dependencies.json").get().asFile
+        output.parentFile.mkdirs()
+        output.writeText(coordinates.joinToString(",", "[", "]") {
+            "{\"name\":\"${it.group}:${it.name}\",\"version\":\"${it.version}\"}"
+        })
+    }
+}
 dependencies {
     implementation(project(":core-domain"))
     implementation(platform(libs.compose.bom))

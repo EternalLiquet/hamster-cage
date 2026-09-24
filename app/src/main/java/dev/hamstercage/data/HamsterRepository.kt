@@ -51,7 +51,8 @@ class HamsterRepository(context: Context) {
                 maxOpenSessionHours = prefs[MAX_OPEN] ?: 16,
             ),
             historyStartDate = prefs[HISTORY_START]?.let(LocalDate::parse),
-            unknownDates = ((prefs[UNKNOWN_DATES] ?: emptySet()) - (prefs[VERIFIED_DATES] ?: emptySet())).map(LocalDate::parse).toSet(),
+            unknownDates = unknownCoverageDates(prefs[UNKNOWN_DATES] ?: emptySet(), prefs[GAP_SINCE],
+                LocalDate.now(ZoneId.of(prefs[ZONE] ?: "America/New_York")), prefs[VERIFIED_DATES] ?: emptySet()),
             trackingHealth = LocationPermissions.health(context).copy(
                 registeredOfficeCount = prefs[REGISTERED_COUNT] ?: 0,
                 lastRegisteredAt = prefs[REGISTERED_AT]?.let(Instant::ofEpochMilli),
@@ -86,11 +87,18 @@ class HamsterRepository(context: Context) {
     suspend fun setWfh(date: LocalDate, isWfh: Boolean) = dao.upsertLabel(DayLabelRecord(date.toString(), isWfh, System.currentTimeMillis()))
     /** Call only after the user explicitly verifies the entire day's entries, including zero attendance. */
     suspend fun confirmDayReviewed(date: LocalDate) {
+        val health = LocationPermissions.health(context)
         preferences.edit {
             val zone = ZoneId.of(it[ZONE] ?: "America/New_York")
-            require(!date.isAfter(LocalDate.now(zone))) { "Future dates cannot be verified." }
-            val start = it[HISTORY_START]?.let(LocalDate::parse) ?: LocalDate.now(zone)
+            val today = LocalDate.now(zone)
+            require(!date.isAfter(today)) { "Future dates cannot be verified." }
+            val tracking = health.canTrack && (it[REGISTERED_COUNT] ?: 0) > 0 && it[REGISTRATION_ERROR] == null
+            require(date != today || tracking) { "Today is still in progress without automatic monitoring. Review it after the day ends." }
+            val hadNoHistory = it[HISTORY_START] == null
+            val start = it[HISTORY_START]?.let(LocalDate::parse) ?: today
             var unknown = it[UNKNOWN_DATES] ?: emptySet()
+            if (hadNoHistory) unknown = unknown + today.toString()
+            if (!tracking && it[GAP_SINCE] == null) it[GAP_SINCE] = today.toString()
             if (date.isBefore(start)) {
                 // Verifying one historical day does not imply the intervening days were observed.
                 unknown = unknown + generateSequence(date.plusDays(1)) { d -> d.plusDays(1) }
@@ -108,10 +116,11 @@ class HamsterRepository(context: Context) {
         }
     }
     suspend fun saveCorrection(correction: Correction) {
+        val end = correction.end
         require(correction.id.isNotBlank() && correction.sessionId.isNotBlank() && correction.note.length <= 2000)
-        require(correction.end == null || correction.end.isAfter(correction.start)) { "End must follow start." }
-        require(!correction.start.isAfter(Instant.now()) && (correction.end == null || !correction.end.isAfter(Instant.now()))) { "Attendance cannot be in the future." }
-        dao.insertCorrection(CorrectionRecord(correction.id, correction.sessionId, correction.start.toEpochMilli(), correction.end?.toEpochMilli(), correction.createdAt.toEpochMilli(), correction.note))
+        require(end == null || end.isAfter(correction.start)) { "End must follow start." }
+        require(!correction.start.isAfter(Instant.now()) && (end == null || !end.isAfter(Instant.now()))) { "Attendance cannot be in the future." }
+        dao.insertCorrection(CorrectionRecord(correction.id, correction.sessionId, correction.start.toEpochMilli(), end?.toEpochMilli(), correction.createdAt.toEpochMilli(), correction.note))
         ensureHistoryStart(Instant.now())
     }
 
