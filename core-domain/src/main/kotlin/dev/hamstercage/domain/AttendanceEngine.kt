@@ -219,6 +219,49 @@ object AttendanceEngine {
         return period(input, result, start, end, includeFutureRequirements = target == TargetWindow.FULL_WEEK)
     }
 
+    /** A display baseline cannot turn an orphan observation or a pre-install day into owed time.
+     * Coverage ledger days are continuous except marked outages; a valid session supplies only
+     * its own policy-local dates when continuous coverage has not been established.
+     */
+    fun reportingCoverage(input: AttendanceInput, result: AttendanceResult,
+                          startDate: LocalDate, endDate: LocalDate): ReportingCoverage {
+        val span = ChronoUnit.DAYS.between(startDate, endDate)
+        require(span in 0..36600 && endDate < LocalDate.MAX) { "Invalid or oversized calendar period" }
+        val today = input.now.atZone(input.policy.zoneId).toLocalDate()
+        val eligible = input.offices.filter { it.enabled && it.countsTowardAttendance }.map { it.id }.toSet()
+        val benign = setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT)
+        val reliable = result.sessions.filter { it.officeId in eligible && it.start != null &&
+            it.reviewReasons.all(benign::contains) && (it.end == null || it.end > it.start) }
+        val sessionStart = reliable.minOfOrNull { it.start!!.atZone(input.policy.zoneId).toLocalDate() }
+        val ledgerStart = input.historyStartDate?.let { start ->
+            var candidate = start
+            while (candidate <= today && candidate in input.unknownDates) candidate = candidate.plusDays(1)
+            candidate.takeIf { it <= today }
+        }
+        val first = listOfNotNull(sessionStart, ledgerStart).minOrNull()
+        val dates = (0..span.toInt()).map { startDate.plusDays(it.toLong()) }.filter { it <= today }
+        val sessionDates = dates.filterTo(mutableSetOf()) { date ->
+            val dayStart = date.atStartOfDay(input.policy.zoneId).toInstant()
+            val dayEnd = date.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()
+            reliable.any { it.start!! < dayEnd && (it.end ?: input.now) > dayStart }
+        }
+        val correctedDates = dates.filterTo(mutableSetOf()) { date ->
+            val dayStart = date.atStartOfDay(input.policy.zoneId).toInstant()
+            val dayEnd = date.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()
+            reliable.any { it.confidence == Confidence.MANUAL && it.start!! < dayEnd &&
+                (it.end ?: input.now) > dayStart }
+        }
+        val covered = dates.filterTo(mutableSetOf()) { date ->
+            date in correctedDates || (date !in input.unknownDates &&
+                ((input.historyStartDate != null && date >= input.historyStartDate) || date in sessionDates))
+        }
+        val before = dates.filterTo(mutableSetOf()) { first == null || it < first }
+        val after = dates.filterTo(mutableSetOf()) { it !in before && it !in covered }
+        val expected = covered.count(input.policy::isExpected)
+        return ReportingCoverage(first, covered, before, after, expected,
+            expected * input.policy.targetMinutesPerDay)
+    }
+
     fun period(input: AttendanceInput, result: AttendanceResult, startDate: LocalDate, endDate: LocalDate,
                includeFutureRequirements: Boolean = false): PeriodSummary {
         val span = ChronoUnit.DAYS.between(startDate, endDate)

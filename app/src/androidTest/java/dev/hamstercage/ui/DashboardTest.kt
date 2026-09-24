@@ -83,6 +83,27 @@ class DashboardTest {
         compose.onNodeWithTag("ROLLING_90_balance").performScrollTo().assertTextContains("Unknown")
     }
 
+    @Test fun noHistoryRollingCardsExplainUnavailableDaysWithoutARequiredTotalAtLargeText() {
+        show(data().copy(historyStartDate = null), scale = 2f)
+        listOf("ROLLING_30", "ROLLING_90").forEach { target ->
+            compose.onNodeWithTag("${target}_coverage").performScrollTo()
+                .assertTextContains("Earlier days predate reliable tracking", substring = true)
+            compose.onNodeWithTag("${target}_required").assertDoesNotExist()
+            compose.onNodeWithTag("${target}_days").assertDoesNotExist()
+            compose.onNodeWithTag("${target}_balance").performScrollTo().assertTextContains("Unknown")
+        }
+    }
+
+    @Test fun firstTrackedDayRollingRequirementExcludesPriorDays() {
+        show(data(listOf(enter())).copy(historyStartDate = null))
+        listOf("ROLLING_30", "ROLLING_90").forEach { target ->
+            compose.onNodeWithTag("${target}_days").performScrollTo().assertTextContains("1")
+            compose.onNodeWithTag("${target}_required").performScrollTo().assertTextContains("6h 0m")
+            compose.onNodeWithTag("${target}_pretracking").performScrollTo().assertTextContains("predates reliable tracking", substring = true)
+            compose.onNodeWithTag("${target}_balance").performScrollTo().assertTextContains("Unknown")
+        }
+    }
+
     @Test fun activeArrivalWindowShowsZeroCreditAndCountdown() {
         val entry = Instant.parse("2026-09-23T13:00:00Z")
         val input = data(listOf(RawEvent("in", "a", Transition.ENTER, entry))).copy(now = entry.plusSeconds(180))
@@ -124,6 +145,6 @@ class DashboardTest {
         assertTrue(layouts.isNotEmpty())
         assertTrue(layouts.joinToString { "size=${it.size}, width=${it.didOverflowWidth}, height=${it.didOverflowHeight}, lines=${it.lineCount}" }, layouts.none { it.hasVisualOverflow })
         compose.onNodeWithTag("ROLLING_90_average").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("ROLLING_90_days").performScrollTo().assertTextContains("Expected workdays")
+        compose.onNodeWithTag("ROLLING_90_days").performScrollTo().assertTextContains("Expected workdays", substring = true)
     }
 }
