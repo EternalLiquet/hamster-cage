@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Opt-in synthetic emulator check: persisted timer survives a real app-process stop/restart.
 
-Requires built debug/test APKs and an empty preview database. Does not erase or uninstall data.
+Requires built debug/test APKs and an empty database (or this recent synthetic fixture).
+Does not erase or uninstall data.
 The synthetic fixture remains on the emulator and must not be mistaken for personal attendance.
 """
 import argparse
@@ -30,13 +31,18 @@ def main():
         return int(adb("shell", "date", "+%s").strip())
 
     def tree():
-        adb("shell", "uiautomator", "dump", "/sdcard/hamster-dashboard-restart.xml")
-        return ET.fromstring(adb("shell", "cat", "/sdcard/hamster-dashboard-restart.xml"))
+        # Activity launch can finish before its accessibility root is ready. Never read a stale dump.
+        for _ in range(5):
+            output = adb("shell", "uiautomator", "dump", "/sdcard/hamster-dashboard-restart.xml")
+            if "UI hierchary dumped to" in output:
+                return ET.fromstring(adb("shell", "cat", "/sdcard/hamster-dashboard-restart.xml"))
+            time.sleep(0.5)
+        raise RuntimeError("Emulator accessibility root did not become ready")
 
     def launch():
         output = adb("shell", "am", "start", "-W", "-n", PACKAGE + "/dev.hamstercage.MainActivity")
         if "Status: ok" not in output:
-            raise RuntimeError("Preview activity did not start successfully")
+            raise RuntimeError(f"Preview activity did not start successfully: {output}")
         return adb("shell", "pidof", PACKAGE).strip()
 
     def assert_credit(start):
@@ -60,6 +66,8 @@ def main():
     if not match or "OK (1 test)" not in seed:
         raise RuntimeError("Synthetic fixture refused to seed; existing source data was not reset")
     start = int(match[1])
+    # The instrumentation process can still be finishing after reporting OK. Start a clean app process.
+    adb("shell", "am", "force-stop", PACKAGE)
     first_pid = launch()
     first_credit, first_xml = assert_credit(start)
     adb("shell", "am", "force-stop", PACKAGE)

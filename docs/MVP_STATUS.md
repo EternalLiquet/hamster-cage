@@ -18,7 +18,7 @@ Phase 0 is complete: issues #10–15 and [epic #1](https://github.com/EternalLiq
 | #19 Recovery/coverage | Open | Recovery and unknown-history accounting still required. |
 | #20 Capture Security Pass | Open | Must audit completed capture/recovery surfaces. |
 | #21 Calendar metrics | Merged [#57](https://github.com/EternalLiquet/hamster-cage/pull/57) | Verified ea87d52; merge 2a538b4; 17 calendar plus 45 existing domain tests, inclusive rolling windows, policy-timezone/DST, holidays/WFH and explicit unknown coverage. [Contract](CALENDAR_METRICS.md). |
-| #22 Dashboard | Implementation | Seven focused presentation tests pass. Engine-backed observed/credited totals, target guidance, unknown/review states and visible-only clock implemented; UI/lifecycle and actual process-restart checks pending. Windows Gradle transform retries preserve all gates. |
+| #22 Dashboard | Verification [#61](https://github.com/EternalLiquet/hamster-cage/pull/61) | Seven presentation and eight focused API37 UI/lifecycle/navigation checks pass at 074b874, with exact-head hosted gates. Actual process-restart proof pending. Keep open until #16 setup and #18/#19 readiness/coverage integration are evidenced. [Contract](DASHBOARD.md). |
 | #23 Departure | Merged [#58](https://github.com/EternalLiquet/hamster-cage/pull/58) | Verified d758b58; merge c384b7b; 18 departure plus 62 existing domain tests, five named targets, ambiguity before satisfaction, union/grace/window/horizon checks. [Contract](DEPARTURE_ESTIMATES.md). |
 | #24 Dashboard Security Pass | Open | Requires completed dashboard and estimates. |
 | #25 History | Open | Daily history remains to implement and verify. |
