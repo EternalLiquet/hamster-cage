@@ -117,7 +117,8 @@ object AttendanceEngine {
             val (valid, invalid) = candidates.partition { correction ->
                 correction.id.isNotBlank() && correction.createdAt.isStorageTime() && correction.start.isStorageTime() &&
                     correction.createdAt <= input.now && correction.start <= input.now &&
-                    (correction.end == null || (correction.end.isStorageTime() && correction.end > correction.start && correction.end <= input.now))
+                    (correction.end == null || (correction.end.isStorageTime() && correction.end <= input.now &&
+                        (correction.revertToOriginal || correction.end > correction.start)))
             }
             if (invalid.isNotEmpty())
                 reviews += ReviewItem(ReviewReason.INVALID_CORRECTION, original.sourceEventIds, original.id)
@@ -125,6 +126,12 @@ object AttendanceEngine {
             if (correction == null) {
                 if (invalid.isEmpty()) original else original.copy(confidence = Confidence.LOW,
                     reviewReasons = original.reviewReasons + ReviewReason.INVALID_CORRECTION)
+            } else if (correction.revertToOriginal) {
+                // A marker restores reconstruction from retained facts, including missing
+                // boundaries and original review reasons. It never fabricates a raw event.
+                original.copy(correctionId = correction.id, correctionReverted = true,
+                    confidence = if (invalid.isEmpty()) original.confidence else Confidence.LOW,
+                    reviewReasons = original.reviewReasons + if (invalid.isEmpty()) emptySet() else setOf(ReviewReason.INVALID_CORRECTION))
             } else {
                 val openFlags = if (correction.end == null) {
                     if (Duration.between(correction.start, input.now) > Duration.ofHours(input.policy.maxOpenSessionHours.toLong()))

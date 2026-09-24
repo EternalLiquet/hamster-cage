@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 
 data class RecordedEvent(
     val event: RawEvent, val receivedAt: Instant,
@@ -113,9 +114,12 @@ class HamsterRepository internal constructor(
 
     suspend fun appendCorrection(correction: Correction) = database.withTransaction {
         validId(correction.id); validId(correction.sessionId); validNote(correction.note)
-        validBounds(correction.start, correction.end, correction.createdAt)
+        if (correction.revertToOriginal) {
+            require(correction.createdAt <= clock.now() && correction.start <= clock.now() &&
+                (correction.end?.let { it <= clock.now() } != false)) { "Future attendance is invalid." }
+        } else validBounds(correction.start, correction.end, correction.createdAt)
         val record = CorrectionRecord(correction.id, correction.sessionId, correction.start.persistedMillis(),
-            correction.end?.persistedMillis(), correction.createdAt.persistedMillis(), correction.note)
+            correction.end?.persistedMillis(), correction.createdAt.persistedMillis(), correction.note, correction.revertToOriginal)
         val previous = dao.correction(correction.id)
         require(previous == null || previous == record) { "Conflicting correction ID." }
         if (previous == null) {
@@ -146,6 +150,24 @@ class HamsterRepository internal constructor(
     suspend fun removeExclusion(date: LocalDate) = dao.removeExclusion(date.toString())
     suspend fun setWfh(date: LocalDate, enabled: Boolean) = dao.upsertLabel(DayLabelRecord(date.toString(), enabled, clock.now().toEpochMilli()))
 
+    /** Compare all preview source facts inside the Room transaction; a new observation/edit
+     * rejects a stale confirmation instead of silently applying a different preview. */
+    suspend fun commitAttendanceEdit(edit: AttendanceEdit) = database.withTransaction {
+        val settings = policy.settings.first()
+        val current = AttendanceInput(dao.offices().map { it.toDomain() }, dao.events().map { it.toEvidence().event },
+            corrections = dao.corrections().map { it.toDomain() },
+            manualSessions = dao.manualSessions().map { it.toDomain() }, now = edit.baseline.now,
+            policy = settings.toPolicy().copy(
+                excludedDates = dao.exclusions().map { ExcludedDate(LocalDate.parse(it.date), ExclusionReason.valueOf(it.reason), it.note) },
+                wfhDates = dao.labels().filter { it.isWfh }.map { LocalDate.parse(it.date) }.toSet(),
+            ))
+        check(current == edit.baseline.copy(historyStartDate = null, unknownDates = emptySet())) { "Attendance changed; preview again." }
+        when (edit) {
+            is AttendanceEdit.Correct -> appendCorrection(edit.value)
+            is AttendanceEdit.AddManual -> appendManualSession(edit.value)
+        }
+    }
+
     private fun validBounds(start: Instant, end: Instant?, createdAt: Instant) {
         val now = clock.now()
         require(end == null || end > start) { "End must follow start." }
@@ -173,5 +195,5 @@ private fun EventRecord.toEvidence(): RecordedEvent {
     return RecordedEvent(RawEvent(id, officeId, Transition.valueOf(transition), Instant.ofEpochMilli(at)),
         Instant.ofEpochMilli(receivedAt), observedLocationAt?.let(Instant::ofEpochMilli), source)
 }
-private fun CorrectionRecord.toDomain() = Correction(id, sessionId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note)
+private fun CorrectionRecord.toDomain() = Correction(id, sessionId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note, revertToOriginal)
 private fun ManualSessionRecord.toDomain() = ManualSession(id, officeId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note)

@@ -159,7 +159,7 @@ class StorageIntegrationTest {
         val dbFile = context.getDatabasePath(name)
         dbFile.parentFile?.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { sqlite ->
-            sqlite.execSQL("PRAGMA user_version = 2")
+            sqlite.execSQL("PRAGMA user_version = 999")
             sqlite.execSQL("CREATE TABLE sentinel (value TEXT NOT NULL)")
             sqlite.execSQL("INSERT INTO sentinel VALUES ('synthetic source fact')")
         }
@@ -204,6 +204,7 @@ class StorageIntegrationTest {
             assertEquals(1, database.dao().offices().size)
             assertEquals(1, database.dao().events().size)
             assertEquals(1, database.dao().corrections().size)
+            assertFalse(database.dao().corrections().single().revertToOriginal)
             assertEquals(1, database.dao().manualSessions().size)
             assertEquals(1, database.dao().exclusions().size)
             assertEquals(1, database.dao().labels().size)

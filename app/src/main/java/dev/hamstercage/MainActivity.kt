@@ -25,6 +25,7 @@ import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.location.backgroundPermissionAction
 import dev.hamstercage.ui.HamsterApp
 import dev.hamstercage.ui.OfficeActions
+import dev.hamstercage.ui.CorrectionActions
 
 class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
@@ -45,6 +46,7 @@ class MainActivity : ComponentActivity() {
             val captureStatus by CaptureHealth.state.collectAsState()
             HamsterApp(timeSource = SystemTimeSource(), storageState = storageState, locationSetup = locationSetup,
                 captureStatus = captureStatus,
+                correctionActions = CorrectionActions(SystemTimeSource()::now, HamsterRepository::newId, repository::commitAttendanceEdit),
                 backgroundOptionLabel = LocationPermissions.backgroundOptionLabel(this), setupError = setupError,
                 requestForeground = { foregroundRequest.launch(LocationPermissions.foregroundPermissions) },
                 requestBackground = { requestBackground() },

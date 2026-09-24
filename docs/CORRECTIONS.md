@@ -1,0 +1,11 @@
+# Previewed append-only attendance corrections (#27)
+
+History can add a manual interval or open a session correction from day detail. The editor takes an explicit UTC offset per boundary, so a repeated DST hour is unambiguous. End-before/equal-start, future bounds, sub-millisecond precision, malformed timestamps and oversized notes are rejected. Blank end means explicitly open attendance. Location permission is not required.
+
+Preview runs the shared engine on the proposed immutable facts at a fixed evaluation instant. It displays before/after credited time and requires an explicit confirmation. The repository compares all attendance/policy source facts against the preview inside the Room transaction; a new observation or stale edit rejects the confirmation and returns the preserved draft for a fresh preview. Later clock ticks or policy/observation changes can naturally update displayed totals. Success is shown only after commit; failures remain sanitized.
+
+Edits append a correction with MANUAL confidence. Manual intervals have their own source type and never create synthetic geofence ENTER/EXIT events. Repeated edits retain prior audit entries. Reverting appends a `revertToOriginal` marker: the engine restores reconstruction from the retained source facts, including missing boundaries, original confidence and review reasons, with explicit revert audit metadata. A later valid correction can supersede that marker. Day detail retains all original events and audit entries.
+
+Room schema 2 adds a non-null correction revert flag, default false, using explicit migration 1→2. Schema 1 files and records remain supported; future/invalid stores preserve data and fail unavailable. There is no destructive migration or source-fact replacement. The marker's existing bounds are retained audit payload and do not define restored attendance.
+
+Checks cover supersession/revert/missing boundary/future or conflicting markers, explicit-offset DST/midnight input, immutable raw facts, preview/final parity, stale/invalid atomic rejection, actual reopen, schema-1 preservation, UI confirmation/failure/restoration and manual provenance. Exact results and independent gates are recorded in the PR. Physical-device checks remain separate.
