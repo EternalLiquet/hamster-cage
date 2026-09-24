@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -33,6 +34,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import dev.hamstercage.domain.TimeSource
+import dev.hamstercage.domain.AttendanceEngine
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.data.StorageState
 import java.time.ZoneId
@@ -53,10 +55,14 @@ fun HamsterApp(
     locationSetup: LocationSetup = LocationSetup(), backgroundOptionLabel: String = "Allow all the time",
     setupError: String? = null, requestForeground: () -> Unit = {}, requestBackground: () -> Unit = {},
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
+    trackingReady: Boolean = false,
     officeActions: OfficeActions? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
+    val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD)
+    val snapshot = (storageState as? StorageState.Ready)?.snapshot
+    val displayZone = snapshot?.policy?.zoneId ?: zoneId
     HamsterTheme {
         Scaffold(bottomBar = {
             if (LocalDensity.current.fontScale >= CageStyle.LargeFontThreshold) {
@@ -113,14 +119,24 @@ fun HamsterApp(
                         Notice("Attendance data unavailable", "Local attendance data could not be opened. Saved data was kept for recovery.")
                     }
                 }
-                PageHeading(selected.label, timeSource.localDate(zoneId).format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")))
+                PageHeading(selected.label, now.atZone(displayZone).toLocalDate().format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")))
                 Tag("LOCAL ONLY", warm = true)
-                if (selected == Destination.OFFICES && officeActions != null) {
+                if (selected == Destination.DASHBOARD) {
+                    when {
+                        snapshot != null -> {
+                            val input = remember(snapshot, now) { snapshot.input(now) }
+                            val result = remember(input) { AttendanceEngine.derive(input) }
+                            DashboardScreen(input, result, trackingReady,
+                                openOffices = { selectedName = Destination.OFFICES.name },
+                                openHistory = { selectedName = Destination.HISTORY.name })
+                        }
+                        storageState == StorageState.Loading -> Text("Opening your local record…")
+                        else -> Unit // The sanitized storage failure notice above remains the only data state.
+                    }
+                } else if (selected == Destination.OFFICES && officeActions != null) {
                     OfficeScreen(storageState, officeActions)
-                } else {
-                    Notice("Ready for the next step", selected.description)
-                    Text("App shell preview · all four pages work offline. No attendance is collected yet.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-                }
+                } else Notice("Ready for the next step", selected.description)
+
                 if (selected == Destination.OFFICES || selected == Destination.SETTINGS) {
                     FormError(setupError)
                     LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground, openAppSettings, openDeviceSettings)

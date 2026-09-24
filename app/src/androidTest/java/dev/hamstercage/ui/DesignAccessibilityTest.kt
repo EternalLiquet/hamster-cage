@@ -47,7 +47,7 @@ class DesignAccessibilityTest {
             }
             textResults.forEach { assertFalse("Navigation text must not truncate", it.hasVisualOverflow) }
         }
-        compose.onNodeWithText("Attendance totals will appear here when office capture and the attendance engine are connected.")
+        compose.onNodeWithText("Opening your local record…")
             .performScrollTo().assertIsDisplayed()
     }
 }
