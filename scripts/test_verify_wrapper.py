@@ -26,14 +26,44 @@ class WrapperIntegrityTest(unittest.TestCase):
     def test_missing_distribution_checksum_is_rejected(self):
         path = self.wrapper / "gradle-wrapper.properties"
         path.write_text("\n".join(line for line in path.read_text().splitlines() if not line.startswith("distributionSha256Sum=")))
-        with self.assertRaisesRegex(ValueError, "distribution checksum"):
+        with self.assertRaisesRegex(ValueError, "reviewed canonical"):
             verify(self.root)
 
     def test_unreviewed_distribution_host_is_rejected(self):
         path = self.wrapper / "gradle-wrapper.properties"
         path.write_text(path.read_text().replace("services.gradle.org", "untrusted.invalid"))
-        with self.assertRaisesRegex(ValueError, "distribution URL"):
+        with self.assertRaisesRegex(ValueError, "reviewed canonical"):
             verify(self.root)
+
+    def test_java_properties_override_forms_are_rejected(self):
+        path = self.wrapper / "gradle-wrapper.properties"
+        original = path.read_text()
+        overrides = [
+            "distributionUrl =https://untrusted.invalid/arbitrary.zip\n",
+            "distributionUrl:https://untrusted.invalid/arbitrary.zip\n",
+            "distributionUrl https://untrusted.invalid/arbitrary.zip\n",
+            "distribution\\u0055rl=https://untrusted.invalid/arbitrary.zip\n",
+            "distribution\\\nUrl=https://untrusted.invalid/arbitrary.zip\n",
+            "distributionSha256Sum =" + "a" * 64 + "\n",
+            "distributionSha256Sum:" + "a" * 64 + "\n",
+            "distributionSha256\\u0053um=" + "a" * 64 + "\n",
+        ]
+        for override in overrides:
+            with self.subTest(override=override):
+                path.write_text(original + override)
+                with self.assertRaisesRegex(ValueError, "reviewed canonical"):
+                    verify(self.root)
+
+    def test_duplicate_even_unchanged_property_is_rejected(self):
+        path = self.wrapper / "gradle-wrapper.properties"
+        path.write_text(path.read_text() + "networkTimeout=10000\n")
+        with self.assertRaisesRegex(ValueError, "reviewed canonical"):
+            verify(self.root)
+
+    def test_windows_line_endings_are_allowed(self):
+        path = self.wrapper / "gradle-wrapper.properties"
+        path.write_bytes(path.read_text().replace("\n", "\r\n").encode())
+        verify(self.root)
 
 
 if __name__ == "__main__":

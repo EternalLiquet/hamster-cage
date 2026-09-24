@@ -4,7 +4,7 @@
 
 The expanded CI slice replaces the bootstrap workflow with source-head build, lint, unit/instrumentation tests, wrapper-integrity checks, OSV runtime dependency audit, Gitleaks, CodeQL and traceable APK/report artifacts. A post-test reinstall fixes the reference workflow's launch failure. No recurring workflows are created; dependency updates remain reviewed PRs.
 
-Implementation checks: ten wrapper/dependency-audit tests pass in ordinary and optimized Python, including known-vulnerability and unavailable/incomplete-service failures; the three shell JVM tests, lint, APK/test APK assembly, dependency inventory and privacy audit pass. OSV reports no known vulnerabilities in 57 resolved external Maven runtime dependencies. Provenance refuses dirty checkouts. Instrumentation/hosted scanners, independent verification/review and current-head CI are required in the issue PR; the preserved PR #50 results are not substituted for them. This does not complete other Phase 0 features or the Product MVP.
+Implementation checks: thirteen wrapper/dependency-audit tests pass in ordinary and optimized Python, including known-vulnerability and unavailable/incomplete-service failures; the three shell JVM tests, lint, APK/test APK assembly, dependency inventory and privacy audit pass. OSV reports no known vulnerabilities in 57 resolved external Maven runtime dependencies. Provenance refuses dirty checkouts. Instrumentation/hosted scanners, independent verification/review and current-head CI are required in the issue PR; the preserved PR #50 results are not substituted for them. This does not complete other Phase 0 features or the Product MVP.
 
 This branch adds issue #14's CI slice to the focused issue #10 shell. The shell extracted pinned build/privacy defaults from PR #50 commit `12a2cc8`; none of that reference branch's broader feature-completion claims apply here.
 
@@ -30,7 +30,7 @@ Implementation checks passed on 2026-09-24 UTC:
 
 Issue #10 merged through [PR #51](https://github.com/EternalLiquet/hamster-cage/pull/51) at `e5b3eef41fd263996a8ca0058e552c43afb9e2d6`. Its source head `e6deefc8621230ece676808ee4b816fe8153048c` passed independent verification, independent review and exact-head CI. The [verifier evidence](https://github.com/EternalLiquet/hamster-cage/pull/51#issuecomment-5806094303) includes the clean offline install/navigation checks, adversarial audit failures and unchanged APK identity. The issue is closed; Phase 0 and Product MVP are not complete.
 
-Issue #14 still requires its own current-head hosted CI, independent verification and independent review before merge. The combined local Python suite now includes eight shell privacy tests plus ten wrapper/dependency tests. Product MVP issues remain open until their individual acceptance criteria and security passes are satisfied.
+Issue #14 still requires its own current-head hosted CI, independent verification and independent review before merge. Review identified Java Properties syntax that bypassed the initial wrapper parser; the gate now pins the entire reviewed configuration and rejects duplicate/escaped/whitespace/colon/continued overrides. The combined local Python suite includes eight shell privacy tests plus thirteen wrapper/dependency tests. Product MVP issues remain open until their individual acceptance criteria and security passes are satisfied.
 
 ## Remaining scope
 
