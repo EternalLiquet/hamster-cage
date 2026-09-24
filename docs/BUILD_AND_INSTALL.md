@@ -15,10 +15,14 @@ Accept Android SDK licenses with `sdkmanager --licenses`, then install `sdkmanag
 From a clean checkout:
 
 ```sh
-./gradlew :core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
+python3 scripts/verify_wrapper.py
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
+./gradlew :core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:writeDependencyInventory
 python3 scripts/security_check.py
-python3 -m unittest discover -s scripts -p 'test_*.py'
+python3 scripts/dependency_audit.py
 ```
+
+See [CI checks](CI.md) for scanner limits, wrapper integrity and manual dependency upgrades. Successful Android CI runs publish `hamster-cage-preview-<source SHA>` containing the APK, `SHA256SUMS`, source/package/version metadata and signing-certificate digest. Verify the checksum before installing; hosted debug keys may differ between runs.
 
 On Windows PowerShell use `.\gradlew.bat` and `python` with the same arguments. Domain tests can run separately using `./gradlew :core-domain:test` without an emulator or Android framework.
 
