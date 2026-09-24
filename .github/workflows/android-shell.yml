@@ -27,4 +27,6 @@ jobs:
       - name: Build and verify the shell
         run: ./gradlew :core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Check the packaged privacy boundary
-        run: python3 scripts/security_check.py
+        run: |
+          python3 -m unittest discover -s scripts -p "test_*.py"
+          python3 scripts/security_check.py
