@@ -10,8 +10,12 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.hamstercage.MainActivity
 import dev.hamstercage.capture.GeofenceObservation
+import dev.hamstercage.capture.CoverageLedger
+import dev.hamstercage.capture.CoverageStore
 import dev.hamstercage.data.*
 import dev.hamstercage.domain.*
+import dev.hamstercage.privacy.PrivacyResetState
+import dev.hamstercage.privacy.PrivacyResetStore
 import java.io.File
 import java.time.Instant
 import kotlinx.coroutines.flow.first
@@ -33,6 +37,22 @@ class OfflineJourneyHostTest {
     private fun nav(text: String) = compose.onNode(hasText(text) and hasClickAction()).performClick()
     private fun field(label: String, value: String) = compose.onNode(hasText(label) and hasSetTextAction()).performScrollTo().performTextReplacement(value)
     private fun awaitText(text: String) = compose.waitUntil(15_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
+    private fun requireFreshRecord(facts: AppSnapshot, reset: PrivacyResetState, coverage: CoverageLedger) {
+        check(facts.offices.isEmpty() && facts.events.isEmpty() && facts.corrections.isEmpty() && facts.manualSessions.isEmpty() &&
+            facts.policy == Policy() && reset == PrivacyResetState.Idle(0) && coverage == CoverageLedger()) {
+            "Use a fresh synthetic installation; existing private state was preserved"
+        }
+    }
+    @Test fun existingPolicyResetOrCoverageCannotAuthorizeSyntheticMutation() {
+        val fresh = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
+        requireFreshRecord(fresh, PrivacyResetState.Idle(0), CoverageLedger())
+        assertTrue(runCatching { requireFreshRecord(fresh.copy(policy = Policy(targetMinutesPerDay = 420)),
+            PrivacyResetState.Idle(0), CoverageLedger()) }.isFailure)
+        assertTrue(runCatching { requireFreshRecord(fresh, PrivacyResetState.Idle(1), CoverageLedger()) }.isFailure)
+        assertTrue(runCatching { requireFreshRecord(fresh, PrivacyResetState.Pending(1), CoverageLedger()) }.isFailure)
+        assertTrue(runCatching { requireFreshRecord(fresh, PrivacyResetState.Idle(0),
+            CoverageLedger(lastObservationAt = Instant.EPOCH)) }.isFailure)
+    }
     private fun assertTotals(now: Instant) {
         val input = snapshot().input(now)
         val expected = AttendanceEngine.daily(input, AttendanceEngine.derive(input), now.atZone(input.policy.zoneId).toLocalDate())
@@ -59,8 +79,9 @@ class OfflineJourneyHostTest {
         val receipt = File(context.filesDir, "synthetic-offline-journey.json")
         if (action == "exercise") {
             val initial = snapshot()
-            assertTrue("Use a fresh synthetic installation", initial.offices.isEmpty() && initial.events.isEmpty() && initial.corrections.isEmpty() && initial.manualSessions.isEmpty() &&
-                initial.policy.excludedDates.isEmpty() && initial.policy.wfhDates.isEmpty())
+            requireFreshRecord(initial, runBlocking { PrivacyResetStore.read(context) },
+                runBlocking { CoverageStore.state(context).first() })
+            assertFalse("Existing synthetic receipt was preserved", receipt.exists())
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 awaitText("Office state unknown")
                 nav("Offices")
