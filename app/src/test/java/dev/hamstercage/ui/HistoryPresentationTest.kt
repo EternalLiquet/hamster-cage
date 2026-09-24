@@ -68,4 +68,35 @@ class HistoryPresentationTest {
         assertTrue(earliestHistoryDate(source) <= today.minusDays(999))
         assertTrue(page.all { it.summary.creditedMinutes == 60.0 })
     }
+
+    @Test fun rejectedManualSourceStillMarksItsDateForReview() {
+        val source = input().copy(manualSessions = listOf(ManualSession("bad", office.id, now.minusSeconds(3600), now.minusSeconds(7200), now)))
+        val result = AttendanceEngine.derive(source)
+        assertTrue(result.sessions.isEmpty())
+        assertTrue(result.reviews.any { it.reason == ReviewReason.INVALID_MANUAL_SESSION })
+        assertTrue("REVIEW" in historyDays(source, result).first().badges)
+    }
+
+    @Test fun conflictingManualCopiesMarkEveryRetainedBoundaryDate() {
+        val original = ManualSession("duplicate", office.id, now.minusSeconds(3600), now, now)
+        val other = original.copy(start = now.minusSeconds(86400 + 3600), end = now.minusSeconds(86400))
+        val source = input().copy(manualSessions = listOf(original, other))
+        val result = AttendanceEngine.derive(source)
+        assertTrue(result.sessions.isEmpty())
+        assertTrue(result.reviews.any { it.reason == ReviewReason.CONFLICTING_MANUAL_SESSION_ID })
+        val page = historyDays(source, result)
+        assertTrue("REVIEW" in page[0].badges)
+        assertTrue("REVIEW" in page[1].badges)
+    }
+
+    @Test fun orphanCorrectionMarksItsIntendedAndEntryDatesWithoutInventingCredit() {
+        val source = input().copy(corrections = listOf(Correction("orphan", "missing", now.minusSeconds(86400 + 3600), now.minusSeconds(86400), now)))
+        val result = AttendanceEngine.derive(source)
+        assertTrue(result.sessions.isEmpty())
+        assertTrue(result.reviews.any { it.reason == ReviewReason.ORPHAN_CORRECTION })
+        val page = historyDays(source, result)
+        assertTrue("REVIEW" in page[0].badges)
+        assertTrue("REVIEW" in page[1].badges)
+        assertEquals(0.0, page[1].summary.creditedMinutes, 0.001)
+    }
 }

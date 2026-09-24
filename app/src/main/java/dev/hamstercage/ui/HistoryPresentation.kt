@@ -24,10 +24,15 @@ fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: In
                 onDay(session.start) || onDay(session.end)
         }
         val summary = AttendanceEngine.daily(input, result, date)
+        // Rejected source facts may produce no Session at all. Retain their review trail on
+        // every supplied boundary/entry date, including every conflicting copy.
+        fun retainedSourceOnDay(sessionId: String?) = sessionId != null && (
+            input.manualSessions.any { "manual:${it.id}" == sessionId && (onDay(it.start) || onDay(it.end) || onDay(it.createdAt)) } ||
+                input.corrections.any { it.sessionId == sessionId && (onDay(it.start) || onDay(it.end) || onDay(it.createdAt)) })
         val review = result.reviews.any { item ->
             item.reason != ReviewReason.DUPLICATE_EVENT && (
                 sessions.any { item.sessionId in it.correctionTargetIds } ||
-                    item.sourceEventIds.any { onDay(eventsById[it]?.at) })
+                    item.sourceEventIds.any { onDay(eventsById[it]?.at) } || retainedSourceOnDay(item.sessionId))
         }
         val badges = buildList {
             input.policy.excludedDates.find { it.date == date }?.let {

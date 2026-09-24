@@ -21,7 +21,7 @@ Phase 0 is complete: issues #10–15 and [epic #1](https://github.com/EternalLiq
 | #22 Dashboard | Verification [#61](https://github.com/EternalLiquet/hamster-cage/pull/61) | Seven presentation and eight focused API37 UI/lifecycle/navigation checks pass at 074b874, with exact-head hosted gates. Actual API37 process restart passed: different PID, credit 13m to 14m, honest unknown state; production source 074b874 with helper af9a7ad. Office setup is integrated; keep open until #18/#19 readiness/coverage is evidenced. [Contract](DASHBOARD.md). |
 | #23 Departure | Merged [#58](https://github.com/EternalLiquet/hamster-cage/pull/58) | Verified d758b58; merge c384b7b; 18 departure plus 62 existing domain tests, five named targets, ambiguity before satisfaction, union/grace/window/horizon checks. [Contract](DEPARTURE_ESTIMATES.md). |
 | #24 Dashboard Security Pass | Open | Requires completed dashboard and estimates. |
-| #25 History | Implementation | Bounded 14-day pages include expected zero days, textual status/unknown badges and policy-local engine totals. Five focused presentation tests and lint pass; repository/UI update and paging checks await device execution. |
+| #25 History | Implementation | Bounded 14-day pages include expected zero days, textual status/unknown badges and policy-local engine totals. Eight focused presentation tests and lint pass; rejected manual/conflicting/orphan source facts now retain dated REVIEW badges; repository/UI update and paging checks await device execution. |
 | #26 Explanations | Open | Raw/effective bounds and credited interval explanations remain. |
 | #27 Corrections | Open | Preview, confirm, append-only correction and revert remain. |
 | #28 History Security Pass | Open | Requires history/correction surfaces. |
