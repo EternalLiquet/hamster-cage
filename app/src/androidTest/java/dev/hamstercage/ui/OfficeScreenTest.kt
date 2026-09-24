@@ -1,5 +1,6 @@
 package dev.hamstercage.ui
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -10,11 +11,19 @@ import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.Modifier
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.Policy
+import dev.hamstercage.offices.OfficeMapProjection
+import dev.hamstercage.offices.OfficeMapTile
+import dev.hamstercage.offices.OfficePlace
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
@@ -84,5 +93,61 @@ class OfficeScreenTest {
             }
         }
         compose.onNodeWithText("150.9 m").assertIsDisplayed()
+    }
+
+    @Test fun addressResultNeedsExplicitSelectionAndMapConfirmationBeforeSave() {
+        val snapshot = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
+        val saved = AtomicReference<Office?>(null)
+        val tileAttempts = AtomicInteger()
+        val tile = OfficeMapTile(Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888), 16,
+            OfficeMapProjection.tileX(0.0, 16), OfficeMapProjection.tileY(0.0, 16))
+        compose.setContent {
+            HamsterTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "synthetic-new" }, { null },
+                        { office, _ -> saved.set(office) },
+                        search = { listOf(OfficePlace("Synthetic A", 0.0, 0.0), OfficePlace("Synthetic B", 0.0, 0.01)) },
+                        tile = { _, _ -> if (tileAttempts.incrementAndGet() == 1) null else tile }))
+                }
+            }
+        }
+        compose.onNode(hasText("Add office") and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithTag("officeName").performTextReplacement("Test workplace")
+        compose.onNodeWithTag("officeAddress").performTextReplacement("synthetic address")
+        compose.onNode(hasText("Search address") and hasClickAction()).performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Select Synthetic B").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        compose.onNodeWithText("Select Synthetic B").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        assertEquals(null, saved.get())
+        compose.onNodeWithText("Retry map").performScrollTo().performClick()
+        compose.waitUntil(5_000) { tileAttempts.get() >= 2 }
+        compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
+        compose.onNodeWithText("Save office").performScrollTo().performClick()
+        compose.waitUntil(5_000) { saved.get() != null }
+        assertEquals(0.01, saved.get()!!.longitude, 0.000001)
+        assertEquals(150f, saved.get()!!.radiusMeters, 0f)
+    }
+
+    @Test fun changedQueryCannotShowOrSelectOlderAddressResults() {
+        val snapshot = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
+        val pending = CompletableDeferred<List<OfficePlace>>()
+        compose.setContent {
+            HamsterTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "new" }, { null }, { _, _ -> },
+                        search = { pending.await() }))
+                }
+            }
+        }
+        compose.onNode(hasText("Add office") and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithTag("officeAddress").performTextReplacement("old address")
+        compose.onNode(hasText("Search address") and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithTag("officeAddress").performTextReplacement("new address")
+        pending.complete(listOf(OfficePlace("Old result", 0.0, 0.0)))
+        compose.waitForIdle()
+        assertEquals(0, compose.onAllNodesWithText("Select Old result").fetchSemanticsNodes().size)
+        compose.onNode(hasText("Search address") and hasClickAction()).assertIsDisplayed()
     }
 }

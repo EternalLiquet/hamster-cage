@@ -75,6 +75,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
     var confirmed by rememberSaveable { mutableStateOf(false) }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var mapTile by remember { mutableStateOf<OfficeMapTile?>(null) }
+    var tileEpoch by remember { mutableStateOf(0) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -97,7 +98,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         searchJob?.cancel(); searching = false; locating = false
         latitude = place.latitude.toString(); longitude = place.longitude.toString()
         selectedLabel = place.label; reviewing = true; confirmed = false
-        results = emptyList(); error = null; mapTile = null
+        results = emptyList(); error = null; mapTile = null; tileEpoch++
     }
 
     fun populate(draft: OfficeDraft) {
@@ -139,7 +140,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         }
     }
 
-    LaunchedEffect(editing, reviewing, latitude, longitude) {
+    LaunchedEffect(editing, reviewing, latitude, longitude, tileEpoch) {
         val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull()
         if (editing && reviewing && lat != null && lon != null && lat in -85.0..85.0 && lon in -180.0..180.0) {
             mapTile = try { actions.tile(lat, lon) } catch (failure: CancellationException) { throw failure }
@@ -221,6 +222,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                         latitude = newLat.toString(); longitude = newLon.toString(); confirmed = false
                     }
                 }
+                if (mapTile == null) CageButton("Retry map", onClick = { tileEpoch++ })
                 CageButton("Confirm pin and radius", onClick = {
                     if (mapTile == null && selectedLabel != "Manual coordinates") error = "Map unavailable. Retry on a connection or use Advanced manual coordinates."
                     else if (radius.toFloatOrNull()?.let { it in 50f..5000f } != true) error = "Radius must be between 50 and 5000 meters."
@@ -236,7 +238,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                 CageButton("Review manual coordinates", onClick = {
                     val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull()
                     if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) error = "Enter valid latitude and longitude."
-                    else { selectedLabel = "Manual coordinates"; reviewing = true; confirmed = false; mapTile = null; error = null }
+                    else { selectedLabel = "Manual coordinates"; reviewing = true; confirmed = false; mapTile = null; tileEpoch++; error = null }
                 })
                 OutlinedTextField(entryGrace, { entryGrace = it }, label = { Text("Entry grace (minutes)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)
