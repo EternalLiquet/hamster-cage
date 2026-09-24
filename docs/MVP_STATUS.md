@@ -1,6 +1,12 @@
 # Product MVP checkpoint
 
-This branch implements issue #10 only. It extracts the pinned build and privacy defaults from PR #50 commit `12a2cc8`, then supplies a focused shell. It does not carry forward the reference branch's broader feature-completion claims.
+## CI issue #14 extraction
+
+The expanded CI slice replaces the bootstrap workflow with source-head build, lint, unit/instrumentation tests, wrapper-integrity checks, OSV runtime dependency audit, Gitleaks, CodeQL and traceable APK/report artifacts. A post-test reinstall fixes the reference workflow's launch failure. No recurring workflows are created; dependency updates remain reviewed PRs.
+
+Implementation checks: thirteen wrapper/dependency-audit tests pass in ordinary and optimized Python, including known-vulnerability and unavailable/incomplete-service failures; the three shell JVM tests, lint, APK/test APK assembly, dependency inventory and privacy audit pass. OSV reports no known vulnerabilities in 57 resolved external Maven runtime dependencies. Provenance refuses dirty checkouts. Instrumentation/hosted scanners, independent verification/review and current-head CI are required in the issue PR; the preserved PR #50 results are not substituted for them. This does not complete other Phase 0 features or the Product MVP.
+
+This branch adds issue #14's CI slice to the focused issue #10 shell. The shell extracted pinned build/privacy defaults from PR #50 commit `12a2cc8`; none of that reference branch's broader feature-completion claims apply here.
 
 ## Implemented for #10
 
@@ -22,10 +28,10 @@ Implementation checks passed on 2026-09-24 UTC:
 - `:app:connectedDebugAndroidTest` passed both tests: all four destinations open, and selection survives Activity recreation. Airplane mode was enabled and the active default network was `none` throughout these checks.
 - A clean build compiled the app and tests. Windows Gradle cache-transform locks required retries; no check was disabled. The old instrumentation dependency's removed InputManager call was fixed by pinning AndroidX Test runner 1.7.0, JUnit 1.3.0 and Espresso 3.7.0.
 
-Independent verification, independent review, exact-head CI, and merge remain required. The PR records the exact implementation commit and repeats these checks on the committed head; this checkpoint is not independent sign-off.
+Issue #10 merged through [PR #51](https://github.com/EternalLiquet/hamster-cage/pull/51) at `e5b3eef41fd263996a8ca0058e552c43afb9e2d6`. Its source head `e6deefc8621230ece676808ee4b816fe8153048c` passed independent verification, independent review and exact-head CI. The [verifier evidence](https://github.com/EternalLiquet/hamster-cage/pull/51#issuecomment-5806094303) includes the clean offline install/navigation checks, adversarial audit failures and unchanged APK identity. The issue is closed; Phase 0 and Product MVP are not complete.
 
-The issue PR will record the tested commit, commands, actual emulator install/launch results, and any unavailable criteria. Product MVP issues remain open until their individual acceptance criteria and security passes are satisfied.
+Issue #14 still requires its own current-head hosted CI, independent verification and independent review before merge. Review identified Java Properties syntax that bypassed the initial wrapper parser; the gate now pins the entire reviewed configuration and rejects duplicate/escaped/whitespace/colon/continued overrides. The combined local Python suite includes eight shell privacy tests plus thirteen wrapper/dependency tests. Product MVP issues remain open until their individual acceptance criteria and security passes are satisfied.
 
 ## Remaining scope
 
-All attendance/storage/capture/settings implementation and corresponding security passes (#11–35) remain outstanding on this extraction path. No physical-phone checks have run. Real-device background delivery, permission changes, reboot recovery, and battery/OEM behavior remain explicit later integration gates. Production signing and release distribution remain separate from the debug preview.
+Design/icon (#11), storage (#12), attendance reconstruction (#13), the Phase 0 Security Pass (#15), and all page/integration issues (#16–35) remain outstanding on this extraction path. No physical-phone checks have run. Real-device background delivery, permission changes, reboot recovery, and battery/OEM behavior remain explicit later integration gates. Production signing and release distribution remain separate from the debug preview.

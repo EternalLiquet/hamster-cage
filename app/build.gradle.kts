@@ -35,6 +35,20 @@ android {
     lint { abortOnError = true; checkReleaseBuilds = true }
 }
 
+tasks.register("writeDependencyInventory") {
+    doLast {
+        val coordinates = configurations.getByName("debugRuntimeClasspath").resolvedConfiguration.resolvedArtifacts
+            .filter { it.id.componentIdentifier is org.gradle.api.artifacts.component.ModuleComponentIdentifier }
+            .map { it.moduleVersion.id }.distinctBy { "${it.group}:${it.name}:${it.version}" }
+            .sortedBy { "${it.group}:${it.name}" }
+        val output = layout.buildDirectory.file("reports/runtime-dependencies.json").get().asFile
+        output.parentFile.mkdirs()
+        output.writeText(coordinates.joinToString(",", "[", "]") {
+            "{\"name\":\"${it.group}:${it.name}\",\"version\":\"${it.version}\"}"
+        })
+    }
+}
+
 dependencies {
     implementation(project(":core-domain"))
     implementation(platform(libs.compose.bom))
