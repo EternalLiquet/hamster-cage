@@ -192,7 +192,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                     catch (failure: Exception) { if (epoch == searchEpoch) error = failure.message ?: "Address search unavailable. Retry or use another location method." }
                     finally { if (epoch == searchEpoch) searching = false }
                 }
-            })
+            }, modifier = Modifier.testTag("searchAddressButton"))
             results.forEach { place -> CageButton("Select ${place.label}", onClick = { currentJob?.cancel(); select(place) }) }
             CageButton(if (locating) "Finding current location…" else "Use my current location", onClick = {
                 val epoch = ++searchEpoch; locating = true; error = null
@@ -253,7 +253,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                 Text("Counts toward attendance", style = MaterialTheme.typography.bodyMedium)
                 Switch(eligible, { eligible = it }, modifier = Modifier.semantics { contentDescription = "Counts toward attendance" })
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
                 CageButton("Save office", onClick = {
                     if (!confirmed) { error = "Review and confirm the office pin and radius before saving."; return@CageButton }
                     val draft = OfficeDraft(name, latitude, longitude, radius, enabled, eligible, entryGrace, exitGrace)
@@ -273,11 +273,11 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                         catch (_: Exception) { error = "Office could not be saved. Review the form and try again." }
                         finally { saving = false }
                     }
-                })
+                }, modifier = Modifier.fillMaxWidth())
                 CageButton("Cancel", onClick = {
                     searchEpoch++; searchJob?.cancel(); currentJob?.cancel()
                     searching = false; locating = false; editing = false; error = null
-                })
+                }, modifier = Modifier.fillMaxWidth())
             }
         }
     }

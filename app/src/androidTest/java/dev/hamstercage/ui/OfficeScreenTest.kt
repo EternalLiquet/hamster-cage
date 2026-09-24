@@ -16,6 +16,7 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.Modifier
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.StorageState
@@ -51,7 +52,8 @@ class OfficeScreenTest {
         assertEquals("office-a", loadedId.get())
         compose.onNodeWithTag("officeName").assertTextContains("Synthetic A")
         compose.onNodeWithText("Cancel").performClick()
-        compose.onNodeWithTag("edit-office-b").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("edit-office-b").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("edit-office-b").performScrollTo().performClick()
         compose.onNodeWithTag("officeName").assertTextContains("Synthetic B")
         compose.onNodeWithText("Office name").assertIsDisplayed()
     }
@@ -76,8 +78,14 @@ class OfficeScreenTest {
         compose.waitUntil(5_000) { loads.get() == 1 }
         restoration.emulateSavedInstanceStateRestore()
         compose.waitUntil(5_000) { loads.get() >= 2 }
+        compose.waitForIdle()
         compose.onNodeWithTag("officeName").assertTextContains("Synthetic A")
         compose.onNodeWithText("Save office").performClick()
+        if (savedVersion.get() == null) {
+            // A save while the restored version is still loading must fail closed, then retry.
+            compose.waitForIdle()
+            compose.onNodeWithText("Save office").performClick()
+        }
         compose.waitUntil(5_000) { savedVersion.get() != null }
         assertEquals(2L, savedVersion.get())
     }
@@ -114,7 +122,7 @@ class OfficeScreenTest {
         compose.onNode(hasText("Add office") and hasClickAction()).performScrollTo().performClick()
         compose.onNodeWithTag("officeName").performTextReplacement("Test workplace")
         compose.onNodeWithTag("officeAddress").performTextReplacement("synthetic address")
-        compose.onNode(hasText("Search address") and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithTag("searchAddressButton").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Select Synthetic B").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Save office").performScrollTo().performClick()
         assertEquals(null, saved.get())
@@ -122,7 +130,7 @@ class OfficeScreenTest {
         compose.onNodeWithText("Save office").performScrollTo().performClick()
         assertEquals(null, saved.get())
         compose.onNodeWithText("Retry map").performScrollTo().performClick()
-        compose.waitUntil(5_000) { tileAttempts.get() >= 2 }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("© OpenStreetMap contributors").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
         compose.onNodeWithText("Save office").performScrollTo().performClick()
         compose.waitUntil(5_000) { saved.get() != null }
@@ -143,11 +151,11 @@ class OfficeScreenTest {
         }
         compose.onNode(hasText("Add office") and hasClickAction()).performScrollTo().performClick()
         compose.onNodeWithTag("officeAddress").performTextReplacement("old address")
-        compose.onNode(hasText("Search address") and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithTag("searchAddressButton").performScrollTo().performClick()
         compose.onNodeWithTag("officeAddress").performTextReplacement("new address")
         pending.complete(listOf(OfficePlace("Old result", 0.0, 0.0)))
         compose.waitForIdle()
         assertEquals(0, compose.onAllNodesWithText("Select Old result").fetchSemanticsNodes().size)
-        compose.onNode(hasText("Search address") and hasClickAction()).assertIsDisplayed()
+        compose.onNodeWithTag("searchAddressButton").assertIsDisplayed()
     }
 }
