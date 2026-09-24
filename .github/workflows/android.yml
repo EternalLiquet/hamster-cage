@@ -90,7 +90,7 @@ jobs:
           disable-animations: true
           script: |
             ./gradlew :app:connectedDebugAndroidTest
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            python3 scripts/verify_offline_journey.py
             mkdir -p app/build/reports/screenshots
             adb shell am start -W -n dev.hamstercage.preview/dev.hamstercage.MainActivity > app/build/reports/screenshots/launch.txt
             grep -q 'Status: ok' app/build/reports/screenshots/launch.txt
@@ -105,4 +105,5 @@ jobs:
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             app/build/reports/screenshots/
+            app/build/reports/offline-journey/
           retention-days: 14

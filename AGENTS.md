@@ -16,6 +16,7 @@ The owner authorizes autonomous implementation through Phase 5, branches, pushes
 - Close a feature/Security Pass only after its PR merges and all acceptance criteria have evidence. Close an epic only after every child and its explicit Security Pass complete.
 - The coordinator automatically dispatches implementation → verification → review → merge → next ready issue, including rework. PR creation or stage completion is an intermediate checkpoint, not a stopping point. Continue until the Product MVP is evidenced, all remaining work is blocked, or execution/usage limits prevent continuation.
 - Keep issue/PR evidence and `docs/MVP_STATUS.md` current. Include the owner-selected hamster-at-computer launcher artwork in Phase 0; retain private visual references in the private source repository.
+- A dedicated documentation agent maintains the relevant public Markdown, private authoritative project sources and epic/issue checklists as each issue reaches an evidence checkpoint. Keep every status claim tied to its focused PR and independently verified result; leave unverified criteria open. Never copy private-only assets, personal data or private repository metadata into public evidence.
 
 ## Invariants
 
