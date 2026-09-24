@@ -8,6 +8,7 @@ import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.RawEvent
+import dev.hamstercage.domain.ReviewReason
 import dev.hamstercage.domain.Transition
 import dev.hamstercage.location.LocationPermissions
 import dev.hamstercage.offices.OfficeLocationServices
@@ -60,8 +61,23 @@ internal fun canOpenFromObservation(snapshot: AppSnapshot, officeId: String, cov
     if (open.isEmpty()) return null
     if (open.size != 1 || open.single().officeId != officeId)
         return ReconcileOutcome.OVERLAPPING_OFFICES
-    if (open.single().manualSessionId != null ||
-        coverage.presenceConfirmed(now, snapshot.policy.zoneId)) return ReconcileOutcome.ALREADY_PRESENT
+    val session = open.single()
+    if (session.manualSessionId != null) return ReconcileOutcome.ALREADY_PRESENT
+    // Ledger presence is global across offices. An A opening after recovery can
+    // still be stale if B was observed between that opening and this A fix.
+    val currentOpeningFact = snapshot.events.any { event ->
+        event.id in session.sourceEventIds && event.officeId == officeId &&
+            event.at == session.start && event.at >= (coverage.recoveryBoundaryAt ?: Instant.MAX) &&
+            event.at.atZone(snapshot.policy.zoneId).toLocalDate() == now.atZone(snapshot.policy.zoneId).toLocalDate() &&
+            event.transition in setOf(Transition.ENTER, Transition.PRESENCE)
+    }
+    val otherOfficeSinceOpening = snapshot.events.any { event ->
+        event.officeId != officeId && session.start?.let { event.at >= it } == true && event.at <= observedAt
+    }
+    val blockingReview = session.reviewReasons.any { it !in setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT) }
+    if (currentOpeningFact && !otherOfficeSinceOpening && !blockingReview &&
+        coverage.presenceConfirmed(now, snapshot.policy.zoneId))
+        return ReconcileOutcome.ALREADY_PRESENT
     // An unconfirmed old raw ENTER may span an outage. A PRESENCE fact splits
     // that old interval for review and starts a new observed interval now.
     return null

@@ -116,6 +116,91 @@ class ForegroundReconciliationTest {
             canOpenFromObservation(after, office.id, recovered.observed(observed), now, now))
     }
 
+    @Test fun otherOfficeObservationCannotConfirmOldOpenOfficeAcrossRecovery() {
+        val second = office.copy(id = "two", name = "Second office", latitude = 40.0)
+        val zone = Policy().zoneId
+        val oldAt = observed.minusSeconds(2_400)
+        val boundary = observed.minusSeconds(1_200)
+        val otherIn = observed.minusSeconds(900)
+        val otherOut = observed.minusSeconds(300)
+        val recovered = CoverageLedger(lastHealthyAt = oldAt, lastObservationAt = oldAt,
+            registration = RegistrationStatus.ACTIVE, policyZoneId = zone)
+            .outage(boundary.minusSeconds(300), zone)
+            .registrationSucceeded(boundary, zone, true).observed(otherOut)
+        val oldA = event("old-a", Transition.ENTER, oldAt)
+        val closedB = listOf(event("b-in", Transition.ENTER, otherIn, second.id),
+            event("b-out", Transition.EXIT, otherOut, second.id))
+        val before = snapshot(listOf(oldA) + closedB, listOf(office, second))
+        val now = observed.plusSeconds(360)
+        assertEquals(true, recovered.presenceConfirmed(now, zone))
+        assertNull(canOpenFromObservation(before, office.id, recovered, observed, now))
+        val after = snapshot(listOf(oldA) + closedB + event("fix-a", Transition.PRESENCE, observed),
+            listOf(office, second))
+        val result = after.derive(now)
+        assertEquals(3, result.sessions.size)
+        val oldSession = result.sessions.single { it.id == "session:old-a" }
+        val newSession = result.sessions.single { it.id == "session:fix-a" }
+        assertEquals(observed, oldSession.end)
+        assertEquals(true, ReviewReason.UNCONFIRMED_GAP in oldSession.reviewReasons)
+        assertEquals(observed, newSession.start)
+        assertEquals(true, newSession.isOpen)
+        assertEquals(0.0, result.intervals.filter { "session:old-a" in it.sessionIds }.sumOf { it.minutes }, 0.0)
+        assertEquals(6.0, result.intervals.sumOf { it.minutes }, 0.0)
+        assertEquals("In Synthetic office", dashboardPresence(after.input(now), result, true).label)
+        assertEquals(ReconcileOutcome.ALREADY_PRESENT,
+            canOpenFromObservation(after, office.id, recovered.observed(observed), now, now))
+    }
+
+    @Test fun postRecoveryAOpeningIsNotContinuousAfterClosedBVisit() {
+        val second = office.copy(id = "two", name = "Second office", latitude = 40.0)
+        val zone = Policy().zoneId
+        val boundary = observed.minusSeconds(1_200)
+        val aIn = observed.minusSeconds(1_000)
+        val bIn = observed.minusSeconds(900)
+        val bOut = observed.minusSeconds(300)
+        val recovered = CoverageLedger(lastHealthyAt = boundary.minusSeconds(600),
+            lastObservationAt = boundary.minusSeconds(600), registration = RegistrationStatus.ACTIVE,
+            policyZoneId = zone).outage(boundary.minusSeconds(300), zone)
+            .registrationSucceeded(boundary, zone, true).observed(bOut)
+        val a = event("a-in", Transition.ENTER, aIn)
+        val b = listOf(event("b-in", Transition.ENTER, bIn, second.id),
+            event("b-out", Transition.EXIT, bOut, second.id))
+        val before = snapshot(listOf(a) + b, listOf(office, second))
+        val now = observed.plusSeconds(360)
+        assertEquals(true, recovered.presenceConfirmed(now, zone))
+        assertNull(canOpenFromObservation(before, office.id, recovered, observed, now))
+        val after = snapshot(listOf(a) + b + event("a-fix", Transition.PRESENCE, observed),
+            listOf(office, second))
+        val result = after.derive(now)
+        assertEquals(3, result.sessions.size)
+        val oldA = result.sessions.single { it.id == "session:a-in" }
+        val newA = result.sessions.single { it.id == "session:a-fix" }
+        assertEquals(observed, oldA.end)
+        assertEquals(true, ReviewReason.UNCONFIRMED_GAP in oldA.reviewReasons)
+        assertEquals(observed, newA.start)
+        assertEquals(true, newA.isOpen)
+        assertEquals(0.0, result.intervals.filter { "session:a-in" in it.sessionIds }.sumOf { it.minutes }, 0.0)
+        assertEquals(6.0, result.intervals.sumOf { it.minutes }, 0.0)
+        assertEquals("In Synthetic office", dashboardPresence(after.input(now), result, true).label)
+        assertEquals(ReconcileOutcome.ALREADY_PRESENT,
+            canOpenFromObservation(after, office.id, recovered.observed(observed), now, now))
+        val sameTimeBExit = snapshot(listOf(a, b.first(),
+            event("b-out", Transition.EXIT, observed, second.id)), listOf(office, second))
+        assertNull(canOpenFromObservation(sameTimeBExit, office.id, recovered.observed(observed), observed, now))
+    }
+
+    @Test fun reviewedSameOfficeRepeatedEnterDoesNotSuppressCurrentFix() {
+        val zone = Policy().zoneId
+        val boundary = observed.minusSeconds(600)
+        val first = observed.minusSeconds(300)
+        val repeated = observed.minusSeconds(60)
+        val coverage = CoverageLedger().registrationSucceeded(boundary, zone, true).observed(repeated)
+        val snapshot = snapshot(listOf(event("first", Transition.ENTER, first),
+            event("repeat", Transition.ENTER, repeated)))
+        assertEquals(true, ReviewReason.REPEATED_ENTER in snapshot.derive(observed).sessions.single().reviewReasons)
+        assertNull(canOpenFromObservation(snapshot, office.id, coverage, observed, observed.plusSeconds(1)))
+    }
+
     @Test fun cachedPreRegistrationFixCannotClaimVisiblePresenceButPostBoundaryFixCan() {
         val zone = ZoneId.of("America/New_York")
         val boundary = observed
@@ -134,10 +219,10 @@ class ForegroundReconciliationTest {
             recoveryObservationGate(registered.outage(now, zone), postBoundary, requested, now, zone))
     }
 
-    private fun event(id: String, transition: Transition, at: Instant) = RecordedEvent(
-        RawEvent(id, office.id, transition, at), at, at,
+    private fun event(id: String, transition: Transition, at: Instant, officeId: String = office.id) = RecordedEvent(
+        RawEvent(id, officeId, transition, at), at, at,
         if (transition == Transition.PRESENCE) "FOREGROUND_LOCATION_RECONCILIATION" else "PLAY_SERVICES_GEOFENCE")
 
-    private fun snapshot(events: List<RecordedEvent> = emptyList()) =
-        AppSnapshot(listOf(office), events, emptyList(), emptyList(), Policy())
+    private fun snapshot(events: List<RecordedEvent> = emptyList(), offices: List<Office> = listOf(office)) =
+        AppSnapshot(offices, events, emptyList(), emptyList(), Policy())
 }
