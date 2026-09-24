@@ -81,7 +81,8 @@ fun HamsterApp(
     val displayZone = snapshot?.policy?.zoneId ?: zoneId
     val effectiveTrackingReady = privacyState is PrivacyResetState.Idle && !fullResetRequested &&
         (if (coverage == null) trackingReady else
-            captureStatus.registration == RegistrationStatus.ACTIVE && coverage.presenceConfirmed(now, displayZone))
+            captureStatus.registration == RegistrationStatus.ACTIVE && !captureStatus.deliveryFailure &&
+                coverage.presenceConfirmed(now, displayZone))
     HamsterTheme {
         Scaffold(bottomBar = {
             if (LocalDensity.current.fontScale >= CageStyle.LargeFontThreshold) {

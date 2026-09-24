@@ -11,7 +11,10 @@ import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 
@@ -23,37 +26,25 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
         val receivedAt = Instant.ofEpochMilli(System.currentTimeMillis())
         worker.launch {
             try {
-                withTimeout(9_000) {
-                    CaptureWriteGate.mutex.withLock {
+                withCaptureGateTimeout(CaptureWriteGate.mutex, 6_000, action = {
                         val reset = PrivacyResetStore.read(application)
                         if (reset !is PrivacyResetState.Idle) {
                             CaptureHealth.registration(RegistrationStatus.FAILED)
-                            return@withLock
+                            return@withCaptureGateTimeout
                         }
                         // Old queued callbacks cannot recreate facts after deletion, including
                         // deliveries without a trustworthy location-fix timestamp.
-                        if (intent?.action != GeofenceRegistrar.action(reset.generation)) return@withLock
-                        try {
-                            val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt)
-                            HamsterRepository.get(application).appendRawEvents(observations)
-                            CoverageStore.change(application) { ledger ->
-                                ledger.observed(observations.maxOf { it.event.at })
-                            }
-                            CaptureHealthStore.setDeliveryFailure(application, false)
-                            CaptureHealth.deliverySucceeded()
-                        } catch (_: Exception) {
-                            // Failure details and payloads never reach logs or UI.
-                            try { CoverageStore.change(application) { it.unlocatedOutage(receivedAt) } }
-                            catch (_: Exception) { Unit }
-                            try { CaptureHealthStore.setDeliveryFailure(application, true) }
-                            catch (_: Exception) { Unit }
-                            CaptureHealth.deliveryFailed()
+                        if (intent?.action != GeofenceRegistrar.action(reset.generation)) return@withCaptureGateTimeout
+                        val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt)
+                        HamsterRepository.get(application).appendRawEvents(observations)
+                        CoverageStore.change(application) { ledger ->
+                            ledger.observed(observations.maxOf { it.event.at })
                         }
-                    }
-                }
-            } catch (_: Exception) {
-                // A reset/journal failure or timeout cannot be mistaken for healthy capture.
-                CaptureHealth.registration(RegistrationStatus.FAILED)
+                        CaptureHealthStore.setDeliveryFailure(application, false)
+                        CaptureHealth.deliverySucceeded()
+                }, onFailure = { recordDeliveryFailure(application, receivedAt) })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } finally {
                 pending.finish()
             }
@@ -63,4 +54,28 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
     private companion object {
         val worker = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
+}
+
+/** A timeout before obtaining the gate is still a lost observation, not a healthy registration. */
+internal suspend fun withCaptureGateTimeout(gate: Mutex, timeoutMillis: Long,
+    action: suspend () -> Unit, onFailure: suspend () -> Unit): Boolean {
+    try {
+        withTimeout(timeoutMillis) { gate.withLock { action() } }
+        return true
+    } catch (_: TimeoutCancellationException) {
+        onFailure()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        onFailure()
+    }
+    return false
+}
+
+/** Sanitized, persistent uncertainty survives a later successful registration and process restart. */
+internal suspend fun recordDeliveryFailure(context: Context, receivedAt: Instant) {
+    CaptureHealth.registration(RegistrationStatus.FAILED)
+    CaptureHealth.deliveryFailed()
+    try { CaptureHealthStore.setDeliveryFailure(context, true) } catch (_: Exception) { Unit }
+    try { CoverageStore.change(context) { it.unlocatedOutage(receivedAt) } } catch (_: Exception) { Unit }
 }
