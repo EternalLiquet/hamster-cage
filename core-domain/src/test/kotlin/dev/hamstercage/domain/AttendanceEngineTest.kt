@@ -41,6 +41,31 @@ class AttendanceEngineTest {
         }
     }
 
+    @Test fun simultaneousExitAndNextEnterRetainBothVisitsWithoutDependingOnIds() {
+        val events = listOf(enter("first", "09:00"), exit("noon-out", "12:00"), enter("noon-in", "12:00"), exit("last", "15:00"))
+        val data = input(events, policy = Policy(shortGapMinutes = 0), offices = listOf(office.copy(entryGraceMinutes = 0, exitGraceMinutes = 0)))
+        val result = AttendanceEngine.derive(data)
+        assertMinutes(360.0, data)
+        assertEquals(2, result.sessions.size)
+        assertTrue(result.reviews.isEmpty())
+        assertEquals(setOf("first", "noon-out"), result.sessions[0].sourceEventIds)
+        assertEquals(setOf("noon-in", "last"), result.sessions[1].sourceEventIds)
+        assertEquals(result, AttendanceEngine.derive(data.copy(events = events.reversed())))
+        assertMinutes(360.0, data.copy(events = events + events + enter("a-replay", "12:00") + exit("z-replay", "12:00")))
+    }
+
+    @Test fun newerMalformedCorrectionCannotDiscardAnEarlierValidEdit() {
+        val valid = Correction("valid", "session:in", at("10:00"), at("14:00"), at("18:00"))
+        val invalid = valid.copy(id = "invalid", end = at("09:00"), createdAt = at("19:00"))
+        val data = input(listOf(enter("in", "09:00"), exit("out", "15:00")), corrections = listOf(valid, invalid))
+        val result = AttendanceEngine.derive(data)
+        assertMinutes(250.0, data)
+        assertEquals("valid", result.sessions.single().correctionId)
+        assertTrue(result.reviews.any { it.reason == ReviewReason.INVALID_CORRECTION })
+        assertEquals(result, AttendanceEngine.derive(data.copy(corrections = data.corrections.reversed())))
+        assertEquals(listOf(valid, invalid), data.corrections)
+    }
+
     @Test fun unpersistableTimesArePreservedForReviewWithoutOverflow() {
         val raw = enter("bad", "09:00").copy(at = Instant.MIN)
         val manual = ManualSession("m", "a", Instant.MIN, at("10:00"), at("18:00"))

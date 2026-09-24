@@ -50,14 +50,19 @@ object AttendanceEngine {
                 ids.clear()
                 flags.clear()
             }
-            observations.forEach { observation ->
-                ids += observation.ids
-                if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
-                when (observation.event.transition) {
-                    Transition.ENTER -> if (open == null) open = observation else flags += ReviewReason.REPEATED_ENTER
-                    Transition.EXIT -> {
-                        if (open == null) flags += ReviewReason.MISSING_ENTER
-                        addSession(observation)
+            observations.groupBy { it.event.at }.values.forEach { simultaneous ->
+                // Close a preceding visit before starting another at a simultaneous boundary.
+                // Without a preceding visit, ENTER+EXIT remains a zero-length observation.
+                val ordered = if (open != null) simultaneous.sortedByDescending { it.event.transition } else simultaneous
+                ordered.forEach { observation ->
+                    ids += observation.ids
+                    if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
+                    when (observation.event.transition) {
+                        Transition.ENTER -> if (open == null) open = observation else flags += ReviewReason.REPEATED_ENTER
+                        Transition.EXIT -> {
+                            if (open == null) flags += ReviewReason.MISSING_ENTER
+                            addSession(observation)
+                        }
                     }
                 }
             }
@@ -104,21 +109,25 @@ object AttendanceEngine {
             reviews += ReviewItem(ReviewReason.ORPHAN_CORRECTION, sessionId = it)
         }
         val effective = sessions.map { original ->
-            val correction = original.correctionTargetIds.flatMap { corrections[it].orEmpty() }
-                .maxWithOrNull(compareBy<Correction> { it.createdAt }.thenBy { it.id })
-            if (correction == null) original else if (
-                correction.id.isBlank() || !correction.createdAt.isStorageTime() || !correction.start.isStorageTime() ||
-                (correction.end != null && !correction.end.isStorageTime()) || correction.createdAt > input.now || correction.start > input.now ||
-                (correction.end != null && (correction.end <= correction.start || correction.end > input.now))
-            ) {
+            val candidates = original.correctionTargetIds.flatMap { corrections[it].orEmpty() }
+            val (valid, invalid) = candidates.partition { correction ->
+                correction.id.isNotBlank() && correction.createdAt.isStorageTime() && correction.start.isStorageTime() &&
+                    correction.createdAt <= input.now && correction.start <= input.now &&
+                    (correction.end == null || (correction.end.isStorageTime() && correction.end > correction.start && correction.end <= input.now))
+            }
+            if (invalid.isNotEmpty())
                 reviews += ReviewItem(ReviewReason.INVALID_CORRECTION, original.sourceEventIds, original.id)
-                original.copy(confidence = Confidence.LOW, reviewReasons = original.reviewReasons + ReviewReason.INVALID_CORRECTION)
+            val correction = valid.maxWithOrNull(compareBy<Correction> { it.createdAt }.thenBy { it.id })
+            if (correction == null) {
+                if (invalid.isEmpty()) original else original.copy(confidence = Confidence.LOW,
+                    reviewReasons = original.reviewReasons + ReviewReason.INVALID_CORRECTION)
             } else {
-                val flags = if (correction.end == null) {
+                val openFlags = if (correction.end == null) {
                     if (Duration.between(correction.start, input.now) > Duration.ofHours(input.policy.maxOpenSessionHours.toLong()))
                         setOf(ReviewReason.OPEN_SESSION, ReviewReason.STALE_OPEN_SESSION)
                     else setOf(ReviewReason.OPEN_SESSION)
                 } else emptySet()
+                val flags = openFlags + if (invalid.isNotEmpty()) setOf(ReviewReason.INVALID_CORRECTION) else emptySet()
                 // The original evidence remains in input/events; old warnings are resolved by explicit correction.
                 reviews.removeAll { it.sessionId == original.id && it.reason != ReviewReason.INVALID_CORRECTION }
                 flags.forEach { reviews += ReviewItem(it, original.sourceEventIds, original.id) }
