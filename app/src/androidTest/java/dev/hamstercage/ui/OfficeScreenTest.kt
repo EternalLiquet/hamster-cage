@@ -116,7 +116,7 @@ class OfficeScreenTest {
                     OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "synthetic-new" }, { null },
                         { office, _ -> saved.set(office) },
                         search = { listOf(OfficePlace("Synthetic A", 0.0, 0.0), OfficePlace("Synthetic B", 0.0, 0.01)) },
-                        tile = { _, _ -> if (tileAttempts.incrementAndGet() == 1) null else tile }))
+                        tile = { _, _, _ -> if (tileAttempts.incrementAndGet() == 1) null else tile }))
                 }
             }
         }
@@ -171,7 +171,7 @@ class OfficeScreenTest {
                     OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "synthetic-current" }, { null },
                         { office, _ -> saved.set(office) },
                         current = { OfficeFix(OfficePlace("Current location", 0.0, 0.0), 12f) },
-                        tile = { _, _ -> tile }))
+                        tile = { _, _, _ -> tile }))
                 }
             }
         }

@@ -43,7 +43,7 @@ data class OfficeActions(
     val save: suspend (Office, Long?) -> Unit,
     val search: suspend (String) -> List<OfficePlace> = { emptyList() },
     val current: suspend () -> OfficeFix = { error("Current location unavailable") },
-    val tile: suspend (Double, Double) -> OfficeMapTile? = { _, _ -> null },
+    val tile: suspend (Double, Double, Float) -> OfficeMapTile? = { _, _, _ -> null },
     val requestForeground: () -> Unit = {},
     val openDeviceSettings: () -> Unit = {},
 )
@@ -141,10 +141,10 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
         }
     }
 
-    LaunchedEffect(editing, reviewing, latitude, longitude, tileEpoch) {
+    LaunchedEffect(editing, reviewing, latitude, longitude, radius, tileEpoch) {
         val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull()
         if (editing && reviewing && lat != null && lon != null && lat in -85.0..85.0 && lon in -180.0..180.0) {
-            mapTile = try { actions.tile(lat, lon) } catch (failure: CancellationException) { throw failure }
+            mapTile = try { actions.tile(lat, lon, radius.toFloatOrNull()?.coerceIn(50f, 5000f) ?: 150f) } catch (failure: CancellationException) { throw failure }
             catch (_: Exception) { null }
         }
     }
