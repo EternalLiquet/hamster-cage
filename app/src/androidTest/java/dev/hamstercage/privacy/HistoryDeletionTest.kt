@@ -27,8 +27,9 @@ import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -42,6 +43,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HistoryDeletionTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+    private suspend fun CoroutineScope.stop() { coroutineContext[Job]?.cancelAndJoin() }
 
     @Test fun partialJournalFailsClosedAfterFreshStoreReopenWithoutChangingBytes() = runBlocking {
         for (partial in listOf("pending-without-generation", "idle-without-pending")) {
@@ -58,7 +60,7 @@ class HistoryDeletionTest {
                         saved[longPreferencesKey("generation")] = 1L
                     }
                 }
-                scope.cancel()
+                scope.stop()
                 val originalBytes = file.readBytes()
                 scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
                 val reopened = PrivacyResetJournal(PreferenceDataStoreFactory.create(scope = scope) { file })
@@ -75,7 +77,7 @@ class HistoryDeletionTest {
                 assertTrue("Partial $partial cannot authorize another reset", rejected)
                 assertArrayEquals(originalBytes, file.readBytes())
             } finally {
-                scope.cancel()
+                scope.stop()
                 file.delete()
             }
         }
@@ -83,6 +85,7 @@ class HistoryDeletionTest {
 
     @Test fun cancelDoesNothingAndFailedCleanupResumesFromFreshJournal() = runBlocking {
         val name = "privacy-journal-${UUID.randomUUID()}"
+        val file = context.preferencesDataStoreFile(name)
         var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         var journal = PrivacyResetJournal(PreferenceDataStoreFactory.create(scope = scope) {
             context.preferencesDataStoreFile(name)
@@ -106,7 +109,10 @@ class HistoryDeletionTest {
             assertTrue(coveragePresent && healthPresent)
 
             // A fresh DataStore scope simulates a new process, not the old in-memory cache.
-            scope.cancel()
+            val pendingBytes = file.readBytes()
+            assertTrue(pendingBytes.isNotEmpty())
+            scope.stop()
+            assertArrayEquals(pendingBytes, file.readBytes())
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             journal = PrivacyResetJournal(PreferenceDataStoreFactory.create(scope = scope) {
                 context.preferencesDataStoreFile(name)
@@ -117,15 +123,15 @@ class HistoryDeletionTest {
             assertFalse(coveragePresent || healthPresent)
             assertEquals(PrivacyResetState.Idle(1), journal.read())
             journal.markRetiredThrough(0)
-            scope.cancel()
+            scope.stop()
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             journal = PrivacyResetJournal(PreferenceDataStoreFactory.create(scope = scope) {
                 context.preferencesDataStoreFile(name)
             })
             assertEquals(0L, journal.retiredThrough())
         } finally {
-            scope.cancel()
-            context.preferencesDataStoreFile(name).delete()
+            scope.stop()
+            file.delete()
         }
     }
 
@@ -159,7 +165,7 @@ class HistoryDeletionTest {
             assertEquals(1, database.dao().labels().size)
 
             repository.deleteAttendanceAndCalendarHistory()
-            database.close(); scope.cancel()
+            database.close(); scope.stop()
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             preferences = PreferenceDataStoreFactory.create(scope = scope) { context.preferencesDataStoreFile(name) }
             database = HamsterDatabase.open(context, "$name.db")
@@ -176,7 +182,7 @@ class HistoryDeletionTest {
             assertTrue(state.snapshot.derive(now).sessions.isEmpty())
         } finally {
             database.close()
-            scope.cancel()
+            scope.stop()
             context.deleteDatabase("$name.db")
             context.preferencesDataStoreFile(name).delete()
         }
