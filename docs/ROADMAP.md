@@ -13,7 +13,7 @@ Product MVP ends at Phase 5. Deliver each feature and Security Pass as one focus
 
 The complete acceptance criteria remain in the [issue backlog](https://github.com/EternalLiquet/hamster-cage/issues) and [project board](https://github.com/users/EternalLiquet/projects/3). Features are implemented in dependency order; independent ready issues may use separate worktrees.
 
-Issue #10 establishes only the native app shell, four offline navigation destinations, testable time source, and documented module boundaries. The owner-selected hamster-at-computer launcher artwork and shared visual system belong to #11, within Phase 0. Persistence belongs to #12; attendance derivation to #13; expanded CI and security automation to #14. Placeholder pages do not establish feature acceptance.
+Issue #10 established the native app shell, four offline navigation destinations, testable time source, and documented module boundaries. Issue #11 adds the owner-selected hamster-at-computer launcher artwork and accessible shared visual system. Persistence belongs to #12; attendance derivation to #13; expanded CI and security automation to #14. Placeholder pages do not establish feature acceptance.
 
 The Product MVP must configure eligible offices, capture local immutable ENTER/EXIT facts, explain credited intervals, support corrections and calendar policy, and produce a traceable installable APK. Missing history must remain explicit. All feature and security acceptance criteria must be evidenced before their issues close. Phone geofencing, reboot recovery, permissions, and battery behavior need physical-device evidence.
 

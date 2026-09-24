@@ -2,25 +2,34 @@ package dev.hamstercage.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.selected
 import dev.hamstercage.domain.TimeSource
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -37,28 +46,61 @@ private enum class Destination(val label: String, val description: String) {
 fun HamsterApp(timeSource: TimeSource, zoneId: ZoneId = ZoneId.systemDefault()) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     val selected = Destination.valueOf(selectedName)
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    HamsterTheme {
         Scaffold(bottomBar = {
-            NavigationBar {
-                Destination.entries.forEach { destination ->
-                    NavigationBarItem(
-                        selected = selected == destination,
-                        onClick = { selectedName = destination.name },
-                        icon = { Text(destination.label.take(1)) },
-                        label = { Text(destination.label) },
-                    )
+            if (LocalDensity.current.fontScale >= CageStyle.LargeFontThreshold) {
+                Column(Modifier.navigationBarsPadding().padding(CageStyle.Small), verticalArrangement = Arrangement.spacedBy(CageStyle.Small)) {
+                    Destination.entries.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(CageStyle.Small)) {
+                            pair.forEach { destination ->
+                                FilledTonalButton(
+                                    onClick = { selectedName = destination.name },
+                                    modifier = Modifier.weight(1f).defaultMinSize(minHeight = CageStyle.TouchTarget)
+                                        .semantics { this.selected = selected == destination },
+                                    contentPadding = PaddingValues(CageStyle.Small),
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(destination.label, Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                            color = if (selected == destination) CageStyle.Amber else CageStyle.Secondary)
+                                        if (selected == destination) Text("✓", Modifier.clearAndSetSemantics { }, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                NavigationBar(containerColor = CageStyle.Surface) {
+                    Destination.entries.forEach { destination ->
+                        NavigationBarItem(
+                            selected = selected == destination,
+                            onClick = { selectedName = destination.name },
+                            icon = { DestinationIcon(when (destination) {
+                                Destination.DASHBOARD -> 0
+                                Destination.HISTORY -> 1
+                                Destination.OFFICES -> 2
+                                Destination.SETTINGS -> 3
+                            }, selected == destination) },
+                            label = { Text(destination.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedTextColor = CageStyle.Amber,
+                                unselectedTextColor = CageStyle.Secondary,
+                                indicatorColor = CageStyle.Warm,
+                            ),
+                        )
+                    }
                 }
             }
         }) { insets ->
             Column(
-                modifier = Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState()).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState()).padding(CageStyle.Space),
+                verticalArrangement = Arrangement.spacedBy(CageStyle.Gap),
             ) {
-                Text("Hamster Cage", style = MaterialTheme.typography.titleMedium)
-                Text(selected.label, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineLarge)
-                Text(timeSource.localDate(zoneId).format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")))
-                Text(selected.description, style = MaterialTheme.typography.bodyLarge)
-                Text("App shell preview · all four pages work offline. No attendance is collected yet.", style = MaterialTheme.typography.bodyMedium)
+                Text("Hamster Cage", style = MaterialTheme.typography.titleMedium, color = CageStyle.Peach)
+                PageHeading(selected.label, timeSource.localDate(zoneId).format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")))
+                Tag("LOCAL ONLY", warm = true)
+                Notice("Ready for the next step", selected.description)
+                Text("App shell preview · all four pages work offline. No attendance is collected yet.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
             }
         }
     }
