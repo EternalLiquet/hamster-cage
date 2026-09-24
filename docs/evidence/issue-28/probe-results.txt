@@ -5,3 +5,4 @@ Extracted test-only app-private screenshot; separately visually inspected.
 Recent logcat lines inspected: 3147; private note sentinel absent. This bounds the inspected run only.
 Debug APK binary manifest: no INTERNET; both compiled backup XML files retain all audited exclusions; no database/preferences/private key/test screenshot entries.
 Screenshot fixture corrected to use Material Surface as real app; HistorySecurityUiTest rerun OK (2 tests).
+Independent-verifier repair: distinct audit IDs retain visible escapes/digest; focused JVM 2/2 and API37 UI 2/2 rerun PASS; updated synthetic screenshot.

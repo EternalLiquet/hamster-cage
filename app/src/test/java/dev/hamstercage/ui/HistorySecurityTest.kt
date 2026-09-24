@@ -6,9 +6,14 @@ import org.junit.Test
 
 class HistorySecurityTest {
     @Test fun identifiersAndNotesAreBoundedLiteralDisplayValues() {
-        assertEquals("raw-id", evidenceId("\u202eraw\n-id\u0000\u2066"))
-        assertEquals("[invalid source ID]", evidenceId("\u0000\u202e"))
-        assertEquals(200, evidenceId("x".repeat(100_000)).length)
+        assertEquals("\\u{202E}raw\\u{A}-id\\u{0}\\u{2066}", evidenceId("\u202eraw\n-id\u0000\u2066"))
+        assertEquals("\\u{0}\\u{202E}", evidenceId("\u0000\u202e"))
+        assertTrue(evidenceId("x".repeat(100_000)).length <= 200)
+        val ids = listOf("raw-id", "raw\n-id", "raw\\u{A}-id", "", "\\u{}", "x".repeat(300) + "a", "x".repeat(300) + "b")
+        assertEquals(ids.size, ids.map(::evidenceId).distinct().size)
+        val longLabel = evidenceId("x".repeat(300))
+        assertTrue(longLabel.contains("sha256:"))
+        assertNotEquals(longLabel, evidenceId(longLabel))
         val note = "<script>synthetic</script>\n' OR 1=1;\u202e\u0000"
         assertEquals("<script>synthetic</script>\n' OR 1=1;", evidenceText(note))
         assertEquals(2000, evidenceText("x".repeat(100_000)).length)
