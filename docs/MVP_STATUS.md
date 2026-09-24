@@ -8,6 +8,13 @@ All 17 focused calendar tests pass alongside the 45 existing reconstruction/cloc
 
 Delivery uses one issue per PR, with separate implementation, verification and review agents. PR #50 remains an unmerged extraction reference. Only phases 0–5 are in scope; no scheduled continuation tasks or post-MVP work.
 
+## Local source storage issue #12
+
+The storage slice adds a versioned Room database for offices, raw observations, corrections, manual sessions, excluded dates and WFH labels, plus versioned DataStore policy. Raw observations and append-only edits have stable IDs and no normal update/delete path. Repository reads form a consistent transaction and derive attendance from source facts when requested; no aggregate is persisted. Failed reads emit a sanitized unavailable state that the app shell displays. Room has no destructive fallback, and its corruption callback preserves the file. The existing backup exclusions cover both database and policy files.
+
+Implementation checks: `:core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` and `python scripts/security_check.py` pass. All twelve Android instrumentation tests passed on the local Pixel 10 Pro XL emulator (API 37), including six storage cases and the visible-failure notice: all-fact Room and fresh DataStore restart, aggregate recomputation, atomic failed batch, delayed observation after office disable, version-one schema compatibility, legacy policy migration with future-version rejection, unsupported Room version and corrupt-file preservation. Independent verification/review, current-head CI and PR merge remain pending. No version-two schema exists; any future upgrade requires an explicit, preservation-tested migration.
+
+
 ## Merged foundation
 
 - Shell #10 / [PR #51](https://github.com/EternalLiquet/hamster-cage/pull/51): merge `e5b3eef41fd263996a8ca0058e552c43afb9e2d6`, verified source `e6deefc8621230ece676808ee4b816fe8153048c`. Kotlin/Compose, four offline destinations, framework-free time contract, explicit privacy/backup boundaries and `.preview` debug package. [Independent evidence](https://github.com/EternalLiquet/hamster-cage/pull/51#issuecomment-5806094303) includes actual offline installation and adversarial audit failures.
