@@ -48,4 +48,16 @@ class CorrectionRevertTest {
         val conflictResult = AttendanceEngine.derive(data.copy(corrections = listOf(edit, conflicting, conflicting.copy(revertToOriginal = false))))
         assertEquals("a", conflictResult.sessions.single().correctionId)
     }
+    @Test fun durableAppendOrderMakesImmediateSupersedeAndRevertWinRegardlessOfUuidOrder() {
+        val data = input(listOf(RawEvent("in", office.id, Transition.ENTER, now.minusSeconds(7200)),
+            RawEvent("out", office.id, Transition.EXIT, now.minusSeconds(3600))))
+        val first = Correction("z", "session:in", now.minusSeconds(6000), now.minusSeconds(3600), now, appendSequence = 1)
+        val next = first.copy(id = "b", start = now.minusSeconds(5400), appendSequence = 2)
+        assertEquals("b", AttendanceEngine.derive(data.copy(corrections = listOf(first, next))).sessions.single().correctionId)
+        val revert = next.copy(id = "a", revertToOriginal = true, appendSequence = 3)
+        val restored = AttendanceEngine.derive(data.copy(corrections = listOf(first, next, revert)))
+        assertEquals("a", restored.sessions.single().correctionId)
+        assertTrue(restored.sessions.single().correctionReverted)
+        assertEquals(AttendanceEngine.derive(data).intervals, restored.intervals)
+    }
 }

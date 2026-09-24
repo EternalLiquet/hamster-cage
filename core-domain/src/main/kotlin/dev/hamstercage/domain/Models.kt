@@ -66,6 +66,8 @@ data class Correction(
     val note: String = "",
     /** Append-only revert marker. Bounds are retained audit payload and ignored by derivation. */
     val revertToOriginal: Boolean = false,
+    /** Durable append order. Zero is legacy data ordered by timestamp/id. */
+    val appendSequence: Long = 0,
 )
 enum class Confidence { HIGH, MEDIUM, LOW, MANUAL }
 enum class ReviewReason { DUPLICATE_EVENT, REPEATED_ENTER, MISSING_ENTER, OPEN_SESSION, STALE_OPEN_SESSION, INVALID_CORRECTION, ORPHAN_CORRECTION, UNKNOWN_OFFICE, FUTURE_EVENT, CONFLICTING_EVENT_ID, INVALID_EVENT, ZERO_LENGTH_SESSION, INVALID_MANUAL_SESSION, CONFLICTING_MANUAL_SESSION_ID }

@@ -43,6 +43,7 @@ internal data class CorrectionRecord(
     @PrimaryKey val id: String, val sessionId: String, val start: Long, val end: Long?,
     val createdAt: Long, val note: String,
     @ColumnInfo(defaultValue = "0") val revertToOriginal: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val appendSequence: Long = 0,
 )
 
 @Entity(tableName = "manual_sessions")
@@ -90,6 +91,7 @@ internal abstract class HamsterDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE corrections ADD COLUMN revertToOriginal INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE corrections ADD COLUMN appendSequence INTEGER NOT NULL DEFAULT 0")
             }
         }
         fun open(context: Context, name: String = "hamster-cage.db"): HamsterDatabase =

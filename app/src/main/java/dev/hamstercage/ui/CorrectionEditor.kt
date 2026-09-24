@@ -43,14 +43,15 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
             val edit = if (session != null) {
                 val bounds = if (revert) CorrectionBounds(session.start ?: session.end ?: baseline.now, session.end)
                     else correctionBounds(start, end, baseline.now)
-                AttendanceEdit.Correct(baseline, Correction(id, session.id, bounds.start, bounds.end, baseline.now, note.trim(), revert))
+                val sequence = Math.addExact(baseline.corrections.maxOfOrNull { it.appendSequence } ?: 0, 1)
+                AttendanceEdit.Correct(baseline, Correction(id, session.id, bounds.start, bounds.end, baseline.now, note.trim(), revert, sequence))
             } else {
                 require(input.offices.any { it.id == officeId }) { "Choose a saved office first." }
                 val bounds = correctionBounds(start, end, baseline.now)
                 AttendanceEdit.AddManual(baseline, ManualSession(id, officeId, bounds.start, bounds.end, baseline.now, note.trim()))
             }
             val proposed = AttendanceEngine.derive(edit.proposedInput())
-            if (edit is AttendanceEdit.Correct && !edit.value.revertToOriginal)
+            if (edit is AttendanceEdit.Correct)
                 require(proposed.sessions.any { it.correctionId == edit.value.id }) { "A newer correction exists. Reopen and preview again." }
             preview = edit
         } catch (failure: IllegalArgumentException) { error = failure.message }

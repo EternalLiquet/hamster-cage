@@ -115,14 +115,14 @@ object AttendanceEngine {
         val effective = sessions.map { original ->
             val candidates = original.correctionTargetIds.flatMap { corrections[it].orEmpty() }
             val (valid, invalid) = candidates.partition { correction ->
-                correction.id.isNotBlank() && correction.createdAt.isStorageTime() && correction.start.isStorageTime() &&
+                correction.id.isNotBlank() && correction.appendSequence >= 0 && correction.createdAt.isStorageTime() && correction.start.isStorageTime() &&
                     correction.createdAt <= input.now && correction.start <= input.now &&
                     (correction.end == null || (correction.end.isStorageTime() && correction.end <= input.now &&
                         (correction.revertToOriginal || correction.end > correction.start)))
             }
             if (invalid.isNotEmpty())
                 reviews += ReviewItem(ReviewReason.INVALID_CORRECTION, original.sourceEventIds, original.id)
-            val correction = valid.maxWithOrNull(compareBy<Correction> { it.createdAt }.thenBy { it.id })
+            val correction = valid.maxWithOrNull(compareBy<Correction> { it.appendSequence }.thenBy { it.createdAt }.thenBy { it.id })
             if (correction == null) {
                 if (invalid.isEmpty()) original else original.copy(confidence = Confidence.LOW,
                     reviewReasons = original.reviewReasons + ReviewReason.INVALID_CORRECTION)

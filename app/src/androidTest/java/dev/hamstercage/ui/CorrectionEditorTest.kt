@@ -70,4 +70,23 @@ class CorrectionEditorTest {
         compose.onNodeWithText("Preview attendance change").performScrollTo().assertIsEnabled()
         compose.onNodeWithTag("correction_start").performScrollTo().assertTextContains("2026-09-23T14:30Z")
     }
+    @Test fun sameMillisecondRevertWithSmallerIdWinsAndPreviewMatchesSavedMarker() {
+        val existing = Correction("z", session.id, now.minusSeconds(5400), now.minusSeconds(3600), now, appendSequence = 1)
+        val corrected = input.copy(corrections = listOf(existing))
+        var saved: AttendanceEdit? = null
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            CorrectionEditor(corrected, AttendanceEngine.derive(corrected).sessions.single(),
+                CorrectionActions({ now }, { "a" }, { saved = it })) {}
+        } } }
+        compose.onNodeWithText("Preview revert to original").performScrollTo().performClick()
+        compose.onNodeWithTag("correction_preview_total").performScrollTo().assertTextEquals("All recorded credited time: 40m → 0m")
+        compose.onNodeWithText("Confirm attendance change").performScrollTo().performClick()
+        compose.onNodeWithText("Attendance change saved").assertIsDisplayed()
+        val marker = (saved as AttendanceEdit.Correct).value
+        assertEquals(2L, marker.appendSequence)
+        val restored = AttendanceEngine.derive(saved!!.proposedInput())
+        assertEquals("a", restored.sessions.single().correctionId)
+        assertTrue(restored.sessions.single().correctionReverted)
+        assertTrue(restored.intervals.isEmpty())
+    }
 }

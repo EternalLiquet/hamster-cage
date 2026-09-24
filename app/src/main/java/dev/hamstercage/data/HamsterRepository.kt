@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class RecordedEvent(
     val event: RawEvent, val receivedAt: Instant,
@@ -56,6 +58,7 @@ class HamsterRepository internal constructor(
 ) {
     private val dao = database.dao()
     private val policy = PolicyStore(preferences)
+    private val policyEditLock = Mutex()
     private val facts = dao.changes(SimpleSQLiteQuery("SELECT COUNT(*) FROM raw_events")).map {
         database.withTransaction {
             val offices = dao.offices().map { it.toDomain() }
@@ -89,7 +92,7 @@ class HamsterRepository internal constructor(
     }
 
     suspend fun officeVersion(id: String): Long? = dao.office(id)?.version
-    suspend fun savePolicy(settings: PolicySettings, expected: PolicySettings? = null) = policy.save(settings, expected)
+    suspend fun savePolicy(settings: PolicySettings, expected: PolicySettings? = null) = policyEditLock.withLock { policy.save(settings, expected) }
 
     /** Entire batch commits or rolls back. Identical replay is a no-op; conflicting IDs fail. */
     suspend fun appendRawEvents(events: List<RecordedEvent>) = database.withTransaction {
@@ -114,15 +117,19 @@ class HamsterRepository internal constructor(
 
     suspend fun appendCorrection(correction: Correction) = database.withTransaction {
         validId(correction.id); validId(correction.sessionId); validNote(correction.note)
+        require(correction.appendSequence >= 0) { "Invalid correction order." }
         if (correction.revertToOriginal) {
             require(correction.createdAt <= clock.now() && correction.start <= clock.now() &&
                 (correction.end?.let { it <= clock.now() } != false)) { "Future attendance is invalid." }
         } else validBounds(correction.start, correction.end, correction.createdAt)
         val record = CorrectionRecord(correction.id, correction.sessionId, correction.start.persistedMillis(),
-            correction.end?.persistedMillis(), correction.createdAt.persistedMillis(), correction.note, correction.revertToOriginal)
+            correction.end?.persistedMillis(), correction.createdAt.persistedMillis(), correction.note, correction.revertToOriginal, correction.appendSequence)
         val previous = dao.correction(correction.id)
         require(previous == null || previous == record) { "Conflicting correction ID." }
         if (previous == null) {
+            if (correction.appendSequence > 0) require(correction.appendSequence == Math.addExact(dao.corrections().maxOfOrNull { it.appendSequence } ?: 0, 1)) {
+                "Correction order changed; preview again."
+            }
             val input = AttendanceInput(dao.offices().map { it.toDomain() }, dao.events().map { it.toEvidence().event },
                 now = clock.now(), manualSessions = dao.manualSessions().map { it.toDomain() })
             require(AttendanceEngine.derive(input).sessions.any { correction.sessionId in it.correctionTargetIds }) { "Session was not found." }
@@ -152,7 +159,7 @@ class HamsterRepository internal constructor(
 
     /** Compare all preview source facts inside the Room transaction; a new observation/edit
      * rejects a stale confirmation instead of silently applying a different preview. */
-    suspend fun commitAttendanceEdit(edit: AttendanceEdit) = database.withTransaction {
+    suspend fun commitAttendanceEdit(edit: AttendanceEdit) = policyEditLock.withLock { database.withTransaction {
         val settings = policy.settings.first()
         val current = AttendanceInput(dao.offices().map { it.toDomain() }, dao.events().map { it.toEvidence().event },
             corrections = dao.corrections().map { it.toDomain() },
@@ -166,7 +173,7 @@ class HamsterRepository internal constructor(
             is AttendanceEdit.Correct -> appendCorrection(edit.value)
             is AttendanceEdit.AddManual -> appendManualSession(edit.value)
         }
-    }
+    } }
 
     private fun validBounds(start: Instant, end: Instant?, createdAt: Instant) {
         val now = clock.now()
@@ -195,5 +202,5 @@ private fun EventRecord.toEvidence(): RecordedEvent {
     return RecordedEvent(RawEvent(id, officeId, Transition.valueOf(transition), Instant.ofEpochMilli(at)),
         Instant.ofEpochMilli(receivedAt), observedLocationAt?.let(Instant::ofEpochMilli), source)
 }
-private fun CorrectionRecord.toDomain() = Correction(id, sessionId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note, revertToOriginal)
+private fun CorrectionRecord.toDomain() = Correction(id, sessionId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note, revertToOriginal, appendSequence)
 private fun ManualSessionRecord.toDomain() = ManualSession(id, officeId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note)

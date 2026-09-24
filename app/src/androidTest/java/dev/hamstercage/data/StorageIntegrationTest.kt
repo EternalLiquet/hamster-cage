@@ -205,6 +205,7 @@ class StorageIntegrationTest {
             assertEquals(1, database.dao().events().size)
             assertEquals(1, database.dao().corrections().size)
             assertFalse(database.dao().corrections().single().revertToOriginal)
+            assertEquals(0L, database.dao().corrections().single().appendSequence)
             assertEquals(1, database.dao().manualSessions().size)
             assertEquals(1, database.dao().exclusions().size)
             assertEquals(1, database.dao().labels().size)

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "8169f84d8982065796023bdf9348db6e",
+    "identityHash": "ecae4a7f0b5ab285cc4ca851fd2b7431",
     "entities": [
       {
         "tableName": "offices",
@@ -169,7 +169,7 @@
       },
       {
         "tableName": "corrections",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessionId` TEXT NOT NULL, `start` INTEGER NOT NULL, `end` INTEGER, `createdAt` INTEGER NOT NULL, `note` TEXT NOT NULL, `revertToOriginal` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessionId` TEXT NOT NULL, `start` INTEGER NOT NULL, `end` INTEGER, `createdAt` INTEGER NOT NULL, `note` TEXT NOT NULL, `revertToOriginal` INTEGER NOT NULL DEFAULT 0, `appendSequence` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -209,6 +209,13 @@
           {
             "fieldPath": "revertToOriginal",
             "columnName": "revertToOriginal",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "appendSequence",
+            "columnName": "appendSequence",
             "affinity": "INTEGER",
             "notNull": true,
             "defaultValue": "0"
@@ -348,7 +355,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '8169f84d8982065796023bdf9348db6e')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ecae4a7f0b5ab285cc4ca851fd2b7431')"
     ]
   }
 }
