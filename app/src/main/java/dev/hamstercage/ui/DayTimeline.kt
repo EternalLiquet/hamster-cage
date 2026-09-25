@@ -14,21 +14,25 @@ internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<D
     val officeNames = input.offices.associate { it.id to dashboardOfficeName(it.name) }
     val events = input.events.associateBy { it.id }
     val sessions = detail.sessions.filter { session ->
-        (session.start ?: session.end ?: return@filter false) < dayEnd &&
-            (session.end ?: input.now) >= dayStart
+        val start = session.start
+        val end = session.end
+        if (start == null) end != null && end >= dayStart && end < dayEnd
+        else start < dayEnd && (end ?: input.now) > dayStart
     }.sortedWith(compareBy<Session> { it.start ?: it.end }.thenBy { it.id })
     val rows = mutableListOf<DayTimelineRow>()
-    var prior: Session? = null
+    var latestCoveredEnd: Instant? = null
+    var latestCoverageUncertain = false
+    val completedByOffice = mutableMapOf<String, Instant>()
     for (session in sessions) {
         val name = officeNames[session.officeId] ?: "unknown office"
         val start = session.start
         val end = session.end
-        val priorEnd = prior?.end
-        if (priorEnd != null && start != null && start > priorEnd && priorEnd < dayEnd) {
-            val gapStart = maxOf(priorEnd, dayStart)
+        val coveredUntil = latestCoveredEnd
+        if (coveredUntil != null && start != null && start > coveredUntil && coveredUntil < dayEnd) {
+            val gapStart = maxOf(coveredUntil, dayStart)
             val gapEnd = minOf(start, dayEnd)
             if (gapEnd > gapStart) rows += DayTimelineRow(gapStart,
-                if (ReviewReason.UNCONFIRMED_GAP in prior.reviewReasons) "Unconfirmed time between checks" else "No active recorded session",
+                if (latestCoverageUncertain) "Unconfirmed time between checks" else "No active recorded session",
                 "Until ${instantText(gapEnd, input.policy.zoneId)} · ${minutesText(Duration.between(gapStart, gapEnd).toMinutes().toDouble())}. Short-gap credit, if applicable, is shown in credited intervals.")
         }
         val startEvent = session.sourceEventIds.mapNotNull(events::get).firstOrNull {
@@ -39,7 +43,7 @@ internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<D
                 rows += DayTimelineRow(end, "Arrival time unknown at $name",
                     "An office-area end was observed without an opening boundary; no arrival was invented.", session.id)
         } else if (start >= dayStart && start < dayEnd) {
-            val returning = priorEnd != null && priorEnd <= start && prior?.officeId == session.officeId
+            val returning = completedByOffice[session.officeId]?.let { it <= start } == true
             val title = when {
                 session.manualSessionId != null -> "Manual session at $name"
                 session.correctionId != null && !session.correctionReverted -> "Corrected session at $name"
@@ -49,7 +53,7 @@ internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<D
             }
             val source = when (startEvent?.transition) {
                 Transition.PRESENCE -> "Current-location presence was checked here; earlier arrival is unknown."
-                Transition.ENTER -> "Office-area ENTER was observed; this is not a building badge time."
+                Transition.ENTER -> "A crossing into the configured office area was recorded; this is not a building badge time."
                 else -> if (session.manualSessionId != null || session.correctionId != null) "Entered or corrected by you; original observations remain below."
                     else "Opening boundary needs review."
             }
@@ -71,17 +75,29 @@ internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<D
                     else -> "Left office area · $name"
                 }, when {
                     uncertain -> "The actual exit time is unknown. The uncertain earlier span earns no credit until reviewed."
-                    endEvent?.transition == Transition.EXIT -> "Office-area EXIT was observed; physical building exit may differ."
+                    endEvent?.transition == Transition.EXIT -> "A crossing out of the configured office area was recorded; physical building exit may differ."
                     else -> "This boundary is manual or needs review; original observations remain below."
                 }, session.id)
         } else if (end == null && detail.date == input.now.atZone(input.policy.zoneId).toLocalDate()) {
             rows += DayTimelineRow(input.now, "Ongoing at $name",
                 "Started ${instantText(start ?: dayStart, input.policy.zoneId)}. Live credit is evaluated through the time shown above.", session.id)
-        } else if (end != null && end >= dayEnd) {
+        } else if (end == dayEnd) {
+            rows += DayTimelineRow(dayEnd, "Session ended at policy midnight · $name",
+                "This boundary ends the prior day's visit; it does not create a next-day session.", session.id)
+        } else if (end != null && end > dayEnd) {
             rows += DayTimelineRow(dayEnd, "Continues into the next day at $name",
                 "The session crosses this policy-local midnight.", session.id)
         }
-        prior = session
+        if (start != null) {
+            val candidateEnd = end ?: input.now
+            val currentCoveredEnd = latestCoveredEnd
+            if (currentCoveredEnd == null || candidateEnd > currentCoveredEnd) {
+                latestCoveredEnd = candidateEnd
+                latestCoverageUncertain = ReviewReason.UNCONFIRMED_GAP in session.reviewReasons
+            }
+            if (end != null) completedByOffice[session.officeId] =
+                maxOf(completedByOffice[session.officeId] ?: end, end)
+        }
     }
     return rows.sortedWith(compareBy<DayTimelineRow> { it.at }.thenBy { it.title })
 }

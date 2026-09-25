@@ -1,5 +1,9 @@
 package dev.hamstercage.ui
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import dev.hamstercage.data.AppSnapshot
@@ -73,5 +77,20 @@ class DayTimelineRouteTest {
         compose.onNodeWithText("Back to History").performScrollTo().performClick()
         compose.onNodeWithText("Newer 14 days").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("history_before_explanation").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun uncertainOutsideCheckUsesPlainReviewLanguageInTimeline() {
+        val input = AttendanceInput(listOf(office), listOf(
+            RawEvent("in", office.id, Transition.ENTER, Instant.parse("2026-09-23T09:00:00Z")),
+            RawEvent("outside", office.id, Transition.ABSENCE, Instant.parse("2026-09-23T10:00:00Z"))),
+            policy = policy, now = now)
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            DayDetailScreen(input, AttendanceEngine.derive(input), date, back = {})
+        } } }
+        compose.onNodeWithText("Outside Westerville Office at a later check", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("This session needs review.", substring = true)
+            .performScrollTo().assertTextContains("exit time is unknown", substring = true)
+        compose.onNodeWithText("unconfirmed gap", substring = true).assertDoesNotExist()
     }
 }

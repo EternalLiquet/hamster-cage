@@ -60,14 +60,18 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             else "No office-area session was recorded for this date. Missing coverage is unknown, not confirmed absence.",
             Modifier.testTag("day_timeline_empty"))
         val offeredEdit = mutableSetOf<String>()
+        val shownReview = mutableSetOf<String>()
         timeline.forEachIndexed { index, row ->
             Panel {
                 Text("${instantText(row.at, input.policy.zoneId)} · ${row.title}",
                     Modifier.testTag("day_timeline_$index"), style = MaterialTheme.typography.titleMedium)
                 Text(row.detail)
                 val session = detail.sessions.find { it.id == row.sessionId }
-                if (session != null && session.reviewReasons.any { it != ReviewReason.OPEN_SESSION && it != ReviewReason.DUPLICATE_EVENT })
-                    Text("This session needs review: ${session.reviewReasons.filter { it != ReviewReason.OPEN_SESSION }.joinToString { it.name.replace('_', ' ').lowercase() }}.")
+                val reviewReasons = session?.reviewReasons?.filter {
+                    it != ReviewReason.OPEN_SESSION && it != ReviewReason.DUPLICATE_EVENT
+                }.orEmpty()
+                if (session != null && reviewReasons.isNotEmpty() && shownReview.add(session.id))
+                    Text("This session needs review. ${reviewReasons.joinToString(" ") { reviewExplanation(it) }}")
                 if (session != null && offeredEdit.add(session.id)) edit?.let { action ->
                     OutlinedButton(onClick = { action(session) }, modifier = Modifier.testTag("timeline_edit_${session.id}")) {
                         Text("Review or correct this session")

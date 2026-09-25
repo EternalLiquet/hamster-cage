@@ -81,4 +81,54 @@ class DayTimelineTest {
             it.detail.contains("earlier arrival is unknown") })
         assertFalse(timeline.any { it.title == "Arrived in office area · East office" })
     }
+
+    @Test fun overlappingOfficesUseFurthestEndForGapAndEarlierSameOfficeForReturn() {
+        val second = Office("east", "East office", 0.0, 0.0)
+        fun time(hour: Int) = Instant.parse("2026-09-23T${hour.toString().padStart(2, '0')}:00:00Z")
+        val sessions = listOf(
+            Session("a1", office.id, time(9), time(12), emptySet(), Confidence.HIGH),
+            Session("b", second.id, time(10), time(11), emptySet(), Confidence.HIGH),
+            Session("a2", office.id, time(13), time(14), emptySet(), Confidence.HIGH))
+        val input = AttendanceInput(listOf(office, second), emptyList(), policy = policy, now = time(15))
+        val detail = explainDay(input, AttendanceResult(sessions, emptyList(), emptyList()), LocalDate.parse("2026-09-23"))
+        val timeline = dayTimeline(input, detail)
+        val gaps = timeline.filter { it.title == "No active recorded session" }
+        assertEquals(1, gaps.size)
+        assertEquals(time(12), gaps.single().at)
+        assertTrue(gaps.single().detail.contains("Until 1:00 PM"))
+        assertTrue(timeline.any { it.title == "Returned to office area · Westerville Office" && it.at == time(13) })
+
+        val open = sessions.first().copy(end = null)
+        val withOpen = explainDay(input, AttendanceResult(listOf(open, sessions[1], sessions[2]), emptyList(), emptyList()),
+            LocalDate.parse("2026-09-23"))
+        assertFalse(dayTimeline(input, withOpen).any { it.title == "No active recorded session" })
+    }
+
+    @Test fun orphanExitDoesNotMakeFirstLaterEntryAReturn() {
+        val input = AttendanceInput(listOf(office), emptyList(), policy = policy,
+            now = Instant.parse("2026-09-23T13:00:00Z"))
+        val orphan = Session("orphan", office.id, null, Instant.parse("2026-09-23T10:00:00Z"),
+            emptySet(), Confidence.LOW, setOf(ReviewReason.MISSING_ENTER))
+        val first = Session("first", office.id, Instant.parse("2026-09-23T11:00:00Z"),
+            Instant.parse("2026-09-23T12:00:00Z"), emptySet(), Confidence.HIGH)
+        val detail = explainDay(input, AttendanceResult(listOf(orphan, first), emptyList(), emptyList()),
+            LocalDate.parse("2026-09-23"))
+        assertTrue(dayTimeline(input, detail).any { it.title == "Arrived in office area · Westerville Office" })
+        assertFalse(dayTimeline(input, detail).any { it.title == "Returned to office area · Westerville Office" })
+    }
+
+    @Test fun exitExactlyAtPolicyMidnightDoesNotCreateNextDaySession() {
+        val zone = ZoneId.of("America/New_York")
+        val date = LocalDate.parse("2026-09-23")
+        val entered = date.atTime(23, 30).atZone(zone).toInstant()
+        val exited = date.plusDays(1).atStartOfDay(zone).toInstant()
+        val input = AttendanceInput(listOf(office), listOf(
+            RawEvent("in", office.id, Transition.ENTER, entered),
+            RawEvent("out", office.id, Transition.EXIT, exited)),
+            policy = Policy(zoneId = zone), now = exited.plusSeconds(3600))
+        val prior = rows(input, date.toString())
+        assertTrue(prior.any { it.title.startsWith("Session ended at policy midnight") })
+        assertFalse(prior.any { it.title.startsWith("Continues into") })
+        assertTrue(rows(input, date.plusDays(1).toString()).isEmpty())
+    }
 }
