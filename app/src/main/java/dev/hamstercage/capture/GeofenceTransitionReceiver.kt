@@ -27,7 +27,7 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
         val application = context.applicationContext
         val receivedAt = Instant.ofEpochMilli(System.currentTimeMillis())
         worker.launch {
-            var factsStored = false
+            var captureCommitted = false
             try {
                 withCaptureGateTimeout(CaptureWriteGate.mutex, 6_000, action = {
                         val reset = PrivacyResetStore.read(application)
@@ -42,7 +42,6 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                         val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt)
                         val repository = HamsterRepository.get(application)
                         val inserted = repository.appendRawEvents(observations)
-                        factsStored = true
                         CoverageStore.change(application) { ledger ->
                             ledger.observed(observations.maxOf { it.event.at })
                         }
@@ -51,6 +50,9 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                             inserted, it) }
                         CaptureHealthStore.setDeliveryFailure(application, false)
                         CaptureHealth.deliverySucceeded()
+                        // Only confirmation scheduling is optional. A coverage or
+                        // capture-health write failure still needs recovery health.
+                        captureCommitted = true
                         if (delivery != null) try {
                             val officeIds = delivery.events.map { it.event.officeId }
                             val versions = repository.officeVersions(officeIds)
@@ -60,7 +62,7 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                         } catch (cancelled: CancellationException) { throw cancelled }
                           catch (_: Exception) { recordConfirmationSchedulingFailure(application) }
                 }, onFailure = {
-                    if (factsStored) recordConfirmationSchedulingFailure(application)
+                    if (captureCommitted) recordConfirmationSchedulingFailure(application)
                     else recordDeliveryFailure(application, receivedAt)
                 })
             } catch (cancelled: CancellationException) {
