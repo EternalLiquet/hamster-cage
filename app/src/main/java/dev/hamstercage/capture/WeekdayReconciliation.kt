@@ -57,7 +57,8 @@ internal fun reconciliationFacts(snapshot: AppSnapshot, coverage: CoverageLedger
     val open = snapshot.derive(now).sessions.filter { it.isOpen && it.manualSessionId == null }
     // An EXIT can close the derived session before confirmation arrives. A later
     // decisive outside fix must still resolve that final uncertain boundary.
-    val unresolvedExits = snapshot.events.filter { it.id in snapshot.input(now).unconfirmedExitIds }
+    val unconfirmedIds = snapshot.input(now).unconfirmedExitIds
+    val unresolvedExits = snapshot.events.filter { it.id in unconfirmedIds }
         .map { it.officeId }
     val absent = (open.map { it.officeId } + unresolvedExits).filter { it != officeId }.distinct()
     val facts = absent.map { id -> RecordedEvent(RawEvent(HamsterRepository.newId(), id,
