@@ -23,13 +23,15 @@ class LocationSetupPanelTest {
 
     private fun show(setup: LocationSetup, foreground: () -> Unit = {}, background: () -> Unit = {},
         offices: Int = 0, reconcile: (suspend () -> ReconcileOutcome)? = null,
-        registration: RegistrationStatus = RegistrationStatus.UNKNOWN) {
+        registration: RegistrationStatus = RegistrationStatus.UNKNOWN,
+        setMonitoringEnabled: suspend (Boolean) -> Unit = {}) {
         rule.activityRule.scenario.onActivity { activity ->
             activity.setContent {
                 HamsterTheme {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
                         LocationSetupPanel(setup, "Allow all the time", foreground, background, {}, {},
-                            registration, offices, reconcile)
+                            registration, offices, reconcile,
+                            setMonitoringEnabled = setMonitoringEnabled)
                     }
                 }
             }
@@ -39,14 +41,17 @@ class LocationSetupPanelTest {
     @Test fun foregroundAndBackgroundActionsAreStagedAndDeclineRemainsPossible() {
         var foregroundCalls = 0
         var backgroundCalls = 0
-        show(LocationSetup(), { foregroundCalls++ }, { backgroundCalls++ })
+        var monitoringEnabled: Boolean? = null
+        show(LocationSetup(), { foregroundCalls++ }, { backgroundCalls++ },
+            setMonitoringEnabled = { monitoringEnabled = it })
         rule.onNodeWithText("Set up background location").assertDoesNotExist()
         rule.onNodeWithText("Allow precise location").performScrollTo().performClick()
         rule.runOnIdle { assertEquals(1, foregroundCalls); assertEquals(0, backgroundCalls) }
         rule.onNodeWithText("Continue without detection").performScrollTo().performClick()
-        rule.onNodeWithText("Detection setup skipped").assertIsDisplayed()
-        rule.onNodeWithText("Review location setup").performClick()
-        rule.onNodeWithText("Precise location not allowed").assertIsDisplayed()
+        rule.onNodeWithText("Attendance monitoring disabled").performScrollTo().assertIsDisplayed()
+        rule.runOnIdle { assertEquals(false, monitoringEnabled) }
+        rule.onNodeWithText("Review and re-enable detection").performScrollTo().performClick()
+        rule.onNodeWithText("Precise location not allowed").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun approximateAndMissingServicesCannotClaimMonitoring() {

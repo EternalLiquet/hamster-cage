@@ -32,7 +32,7 @@ class FoundationPrivacyTest {
     private val context get() = instrumentation.targetContext
 
     @Suppress("DEPRECATION")
-    @Test fun installedPackageHasNoNetworkBackupOrDataProviderSurface() {
+    @Test fun installedPackageRestrictsNetworkBackupAndDataProviderSurface() {
         val info = context.packageManager.getPackageInfo(context.packageName,
             PackageManager.GET_PERMISSIONS or PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or
                 PackageManager.GET_RECEIVERS or PackageManager.GET_PROVIDERS)
@@ -42,7 +42,16 @@ class FoundationPrivacyTest {
         assertEquals(0, info.applicationInfo!!.flags and ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC)
         assertTrue(info.providers.orEmpty().all { !it.exported && !it.grantUriPermissions })
         assertTrue(info.activities.orEmpty().filter { it.exported }.all { it.name == "dev.hamstercage.MainActivity" })
-        assertTrue(info.services.orEmpty().none { it.exported })
+        val services = info.services.orEmpty()
+        // WorkManager's JobScheduler entry is OS-bound. It is the sole exported
+        // service; the optional foreground service is removed from the package.
+        assertEquals(setOf("androidx.work.impl.background.systemjob.SystemJobService"),
+            services.filter { it.exported }.map { it.name }.toSet())
+        assertTrue(services.filter { it.exported }.all {
+            it.name == "androidx.work.impl.background.systemjob.SystemJobService" &&
+                it.permission == "android.permission.BIND_JOB_SERVICE"
+        })
+        assertTrue(services.none { it.name == "androidx.work.impl.foreground.SystemForegroundService" })
         val exported = info.receivers.orEmpty().filter { it.exported }
         assertEquals(setOf("androidx.profileinstaller.ProfileInstallReceiver",
             "dev.hamstercage.capture.CaptureRecoveryReceiver"), exported.map { it.name }.toSet())
