@@ -215,6 +215,45 @@ class StorageIntegrationTest {
         }
     }
 
+    @Test fun versionTwoFactsMigrateWithoutRewritingAndAccuracySurvivesRestart() = runBlocking {
+        val name = "accuracy-${UUID.randomUUID()}.db"
+        migration.createDatabase(name, 2).use { sqlite ->
+            sqlite.execSQL("INSERT INTO offices VALUES ('fixture-office','Synthetic office',0,0,150,1,1,0,0,1,1,1)")
+            sqlite.execSQL("INSERT INTO raw_events VALUES ('old-enter','fixture-office','ENTER',1741597200000,1741597200000,NULL,'PLAY_SERVICES_GEOFENCE',1)")
+        }
+        val database = HamsterDatabase.open(context, name)
+        try {
+            val old = database.dao().events().single()
+            assertEquals("old-enter", old.id)
+            assertEquals(null, old.accuracyMeters)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            val preferenceName = "accuracy-${UUID.randomUUID()}"
+            val preferences = PreferenceDataStoreFactory.create(scope = scope) {
+                context.preferencesDataStoreFile(preferenceName)
+            }
+            try {
+                val repository = HamsterRepository(database, preferences, clock)
+                val at = fixedNow.minusSeconds(300)
+                val fix = RecordedEvent(RawEvent("inside-fix", "fixture-office", Transition.PRESENCE, at),
+                    fixedNow, at, "ADAPTIVE_LOCATION_CONFIRMATION", 18f)
+                repository.appendRawEvents(listOf(fix))
+                repository.appendRawEvents(listOf(fix.copy(receivedAt = fixedNow.plusSeconds(1))))
+                assertEquals(2, database.dao().events().size)
+                assertEquals(18f, database.dao().event("inside-fix")!!.accuracyMeters!!, 0f)
+            } finally {
+                scope.cancel()
+                context.preferencesDataStoreFile(preferenceName).delete()
+            }
+        } finally {
+            database.close()
+            val reopened = HamsterDatabase.open(context, name)
+            try {
+                assertEquals(18f, reopened.dao().event("inside-fix")!!.accuracyMeters!!, 0f)
+                assertEquals(null, reopened.dao().event("old-enter")!!.accuracyMeters)
+            } finally { reopened.close(); context.deleteDatabase(name) }
+        }
+    }
+
     @Test fun legacyPolicyMigrationPreservesValuesAndRejectsUnknownVersion() = runBlocking {
         val legacy = emptyPreferences().toMutablePreferences().apply {
             this[stringPreferencesKey("zone")] = "America/Chicago"

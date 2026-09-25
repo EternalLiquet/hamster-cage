@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.google.android.gms.location.GeofencingEvent
 import dev.hamstercage.data.HamsterRepository
+import dev.hamstercage.data.StorageState
 import dev.hamstercage.privacy.PrivacyResetState
 import dev.hamstercage.privacy.PrivacyResetStore
 import java.time.Instant
@@ -14,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -37,9 +39,21 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                         // deliveries without a trustworthy location-fix timestamp.
                         if (intent?.action != GeofenceRegistrar.action(reset.generation)) return@withCaptureGateTimeout
                         val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt)
-                        HamsterRepository.get(application).appendRawEvents(observations)
+                        val repository = HamsterRepository.get(application)
+                        val inserted = repository.appendRawEvents(observations)
                         CoverageStore.change(application) { ledger ->
                             ledger.observed(observations.maxOf { it.event.at })
+                        }
+                        val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot
+                        observations.forEach { observation ->
+                            if (observation.event.id in inserted && snapshot?.offices?.any { it.id == observation.event.officeId &&
+                                    it.enabled && it.countsTowardAttendance } == true &&
+                                confirmableCandidate(snapshot.eventEvidence, observation.event.id,
+                                    observation.event.officeId)) {
+                                repository.officeVersion(observation.event.officeId)?.let { version ->
+                                    AdaptiveConfirmation.schedule(application, observation, reset.generation, version)
+                                }
+                            }
                         }
                         CaptureHealthStore.setDeliveryFailure(application, false)
                         CaptureHealth.deliverySucceeded()

@@ -89,14 +89,15 @@ class CaptureIntegrationTest {
             val repository = HamsterRepository(database, prefs, TimeSource { receipt.plusSeconds(7200) })
             repository.saveOffice(Office("a", "Synthetic A", 0.0, 0.0, entryGraceMinutes = 0, exitGraceMinutes = 0))
             repository.saveOffice(Office("b", "Synthetic B", 1.0, 1.0, entryGraceMinutes = 0, exitGraceMinutes = 0))
-            val observed = Location("synthetic").apply { time = receipt.minusSeconds(2).toEpochMilli() }
+            val observed = Location("synthetic").apply { time = receipt.minusSeconds(2).toEpochMilli(); accuracy = 23f }
             val enters = GeofenceObservation.records(listOf("a", "b"), Transition.ENTER, observed, receipt)
             repository.appendRawEvents(enters)
             repository.appendRawEvents(GeofenceObservation.records(listOf("a", "b"), Transition.ENTER,
-                observed, receipt.plusSeconds(30)))
+                Location("synthetic").apply { time = observed.time; accuracy = 31f }, receipt.plusSeconds(30)))
             assertEquals(2, database.dao().events().size)
             assertEquals(receipt.minusSeconds(2), enters.single { it.event.officeId == "a" }.event.at)
             assertEquals(receipt, database.dao().events().first().let { Instant.ofEpochMilli(it.receivedAt) })
+            assertEquals(23f, database.dao().events().first().accuracyMeters!!, 0f)
 
             val exits = GeofenceObservation.records(listOf("a", "b"), Transition.EXIT,
                 Location("synthetic").apply { time = receipt.minusSeconds(2).plusSeconds(1800).toEpochMilli() }, receipt.plusSeconds(1802))
@@ -125,6 +126,7 @@ class CaptureIntegrationTest {
             Location("synthetic").apply { time = receipt.plusSeconds(60).toEpochMilli() }, receipt).single()
         assertEquals(receipt, absent.event.at)
         assertEquals(null, absent.observedLocationAt)
+        assertEquals(null, absent.accuracyMeters)
         assertEquals(receipt, future.event.at)
         assertEquals(null, future.observedLocationAt)
         assertNotEquals(absent.event.id, GeofenceObservation.records(listOf("b"), Transition.ENTER, null, receipt).single().event.id)

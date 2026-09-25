@@ -39,6 +39,23 @@ import org.junit.Test
 class OfficeScreenTest {
     @get:Rule val compose = createAndroidComposeRule<OfficeTestActivity>()
 
+    @Test fun savedSmallAndTouchingOfficeAreasShowWarningsWithoutChangingRadii() {
+        val first = Office("office-a", "Synthetic A", 0.0, 0.0, 50f)
+        val second = Office("office-b", "Synthetic B", 0.0, 0.001, 200f)
+        val snapshot = AppSnapshot(listOf(first, second), emptyList(), emptyList(), emptyList(), Policy())
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "new" }, { 1L }, { _, _ -> }))
+        } } }
+        compose.onNodeWithText("Small office area may make background boundaries unreliable.").assertExists()
+        assertEquals(2, compose.onAllNodesWithText(
+            "Touches another enabled attendance office area; location may be ambiguous.",
+            useUnmergedTree = true).fetchSemanticsNodes().size)
+        compose.onNodeWithText("Edit Synthetic A").performScrollTo().performClick()
+        compose.onNodeWithTag("officeRadius").assertExists()
+        compose.onNodeWithText("Small office area: background geofencing may fluctuate.", substring = true)
+            .assertExists()
+    }
+
     @Test fun providerDiagnosticsNeverAppearInOfficeSetupErrors() {
         val snapshot = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -160,7 +177,7 @@ class OfficeScreenTest {
         compose.onNodeWithText("Save office").performScrollTo().performClick()
         compose.waitUntil(5_000) { saved.get() != null }
         assertEquals(0.01, saved.get()!!.longitude, 0.000001)
-        assertEquals(150f, saved.get()!!.radiusMeters, 0f)
+        assertEquals(200f, saved.get()!!.radiusMeters, 0f)
     }
 
     @Test fun changedQueryCannotShowOrSelectOlderAddressResults() {
@@ -283,7 +300,7 @@ class OfficeScreenTest {
         val saved = AtomicReference<Office?>(null)
         val secondTile = CompletableDeferred<OfficeMapTile>()
         val loads = AtomicInteger()
-        val zoom = OfficeMapProjection.reviewZoom(0.0, 150f)
+        val zoom = OfficeMapProjection.reviewZoom(0.0, 200f)
         val (x, y) = OfficeMapProjection.reviewOrigin(0.0, 0.0, zoom)
         val tile = OfficeMapTile(Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888), zoom, x, y)
         compose.setContent {
@@ -302,16 +319,16 @@ class OfficeScreenTest {
         compose.onNodeWithTag("searchAddressButton").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Select Synthetic center").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Select Synthetic center").performScrollTo().performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Move pin east 75 meters").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Move pin east 75 meters").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Move pin east 100 meters").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Move pin east 100 meters").performScrollTo().performClick()
         compose.waitUntil(5_000) { loads.get() >= 2 }
         compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
         compose.onNodeWithText("Save office").performScrollTo().performClick()
         assertEquals(null, saved.get())
-        val moved = OfficeMapProjection.moveByMeters(0.0, 0.0, 0.0, 75.0)
+        val moved = OfficeMapProjection.moveByMeters(0.0, 0.0, 0.0, 100.0)
         val (movedX, movedY) = OfficeMapProjection.reviewOrigin(moved.first, moved.second, zoom)
         secondTile.complete(OfficeMapTile(Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888), zoom, movedX, movedY))
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("Move pin east 75 meters").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Move pin east 100 meters").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Confirm pin and radius").performScrollTo().performClick()
         compose.onNodeWithText("Save office").performScrollTo().performClick()
         compose.waitUntil(5_000) { saved.get() != null }

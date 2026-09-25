@@ -94,7 +94,7 @@ internal fun recoveryObservationGate(coverage: CoverageLedger, observedAt: Insta
     return null
 }
 
-private fun metersBetween(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Double {
+internal fun metersBetween(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Double {
     val dLat = Math.toRadians(bLat - aLat)
     val dLon = Math.toRadians(bLon - aLon)
     val arc = sin(dLat / 2) * sin(dLat / 2) + cos(Math.toRadians(aLat)) *
@@ -150,7 +150,7 @@ class ForegroundReconciliation(private val context: Context,
                 ?.let { return@withLock it }
             repository.appendRawEvents(listOf(RecordedEvent(
                 RawEvent(HamsterRepository.newId(), office.id, Transition.PRESENCE, observedAt),
-                now, observedAt, "FOREGROUND_LOCATION_RECONCILIATION")))
+                now, observedAt, "FOREGROUND_LOCATION_RECONCILIATION", fix.accuracy)))
             CoverageStore.change(application) { it.observed(observedAt) }
             ReconcileOutcome.CONFIRMED
         } } } catch (_: TimeoutCancellationException) { ReconcileOutcome.TIMEOUT }
