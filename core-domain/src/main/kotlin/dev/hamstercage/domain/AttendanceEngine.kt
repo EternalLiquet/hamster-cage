@@ -46,7 +46,8 @@ object AttendanceEngine {
                 val sourceIds = ids.toSet()
                 val sessionId = "session:${enter?.event?.id ?: exit!!.event.id}"
                 val reasons = flags.toSet() +
-                    (if (exit?.ids?.any { it in input.unconfirmedExitIds } == true)
+                    (if (exit?.ids?.any { it in input.unconfirmedExitIds } == true &&
+                        ReviewReason.TRANSIENT_BOUNDARY !in flags)
                         setOf(ReviewReason.UNCONFIRMED_BOUNDARY) else emptySet()) +
                     (if (enter != null && exit != null && enter.event.at == exit.event.at)
                         setOf(ReviewReason.ZERO_LENGTH_SESSION) else emptySet())

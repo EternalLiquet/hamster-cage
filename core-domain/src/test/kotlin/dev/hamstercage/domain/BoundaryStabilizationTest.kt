@@ -79,6 +79,16 @@ class BoundaryStabilizationTest {
         assertTrue(confirmedOutside.reviews.none { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
     }
 
+    @Test fun shortEnterExitHasOneUncertaintyReviewEvenWhenConfirmationIsPending() {
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("exit", Transition.EXIT, "09:00:30"))
+        val data = input(facts, now = "09:02").copy(unconfirmedExitIds = setOf("exit"))
+        val result = AttendanceEngine.derive(data)
+        assertEquals(setOf(ReviewReason.TRANSIENT_BOUNDARY), result.sessions.single().reviewReasons)
+        assertEquals(1, result.reviews.size)
+        assertEquals(facts, data.events)
+    }
+
     @Test fun adaptiveContinuityRetainsExitAndFixCorrectionAliases() {
         val facts = listOf(event("in", Transition.ENTER, "09:00"),
             event("jitter-exit", Transition.EXIT, "11:00"),
