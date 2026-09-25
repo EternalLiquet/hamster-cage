@@ -142,6 +142,28 @@ class CorrectionEditorTest {
         compose.onNodeWithText("Confirm attendance change").performScrollTo().performClick()
         assertEquals(Instant.parse("2026-11-01T06:30:00Z"), (saved as AttendanceEdit.AddManual).value.start)
     }
+    @Test fun subMinutePrefillAndTwentyFourHourPreviewMatchPersistedBounds() {
+        val subMinuteExit = Instant.parse("2026-09-23T15:00:00.002Z")
+        val source = AttendanceInput(listOf(office),
+            listOf(RawEvent("exit-with-millis", office.id, Transition.EXIT, subMinuteExit)), now = now)
+        var saved: AttendanceEdit? = null
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            CorrectionEditor(source, AttendanceEngine.derive(source).sessions.single(),
+                CorrectionActions({ now }, { "rounded-edit" }, { saved = it }), clockIs24Hour = true) {}
+        } } }
+        compose.onNodeWithTag("correction_end_time").performScrollTo()
+            .assert(hasText("11:00", substring = true))
+            .assert(!hasText("AM", substring = true))
+        pickTime("correction_start_time", 10, 30)
+        compose.onNodeWithText("Preview attendance change").performScrollTo().performClick()
+        compose.onNodeWithTag("correction_preview_bounds").performScrollTo()
+            .assert(hasText("10:30 EDT →", substring = true))
+            .assert(!hasText("AM", substring = true))
+        compose.onNodeWithText("Confirm attendance change").performScrollTo().performClick()
+        val correction = (saved as AttendanceEdit.Correct).value
+        assertEquals(Instant.parse("2026-09-23T14:30:00Z"), correction.start)
+        assertEquals(Instant.parse("2026-09-23T15:00:00Z"), correction.end)
+    }
     @Test fun sameMillisecondRevertWithSmallerIdWinsAndPreviewMatchesSavedMarker() {
         val existing = Correction("z", session.id, now.minusSeconds(5400), now.minusSeconds(3600), now, appendSequence = 1)
         val corrected = input.copy(corrections = listOf(existing))

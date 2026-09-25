@@ -70,5 +70,19 @@ class CorrectionDraftTest {
         val local = LocalDateTime.parse("2026-09-23T17:05")
         assertEquals("5:05 PM", correctionTimeText(local, false))
         assertEquals("17:05", correctionTimeText(local, true))
+        val instant = Instant.parse("2026-09-23T21:05:00Z")
+        assertTrue(correctionPreviewText(instant, eastern, false).contains("5:05 PM EDT"))
+        assertTrue(correctionPreviewText(instant, eastern, true).contains("17:05 EDT"))
+        assertFalse(correctionPreviewText(instant, eastern, true).contains("PM"))
+    }
+
+    @Test fun prefilledSecondsAndMillisAreRemovedBeforeAnyPickerOrDateOnlyChange() {
+        val observed = Instant.parse("2026-09-23T13:49:00.002Z")
+        val local = correctionPickerMinute(observed, eastern)
+        assertEquals(LocalDateTime.parse("2026-09-23T09:49"), local)
+        val unchangedDate = local.toLocalDate().atTime(local.toLocalTime())
+        val bounds = localCorrectionBounds(LocalBoundary(unchangedDate), null, eastern, now)
+        assertEquals(Instant.parse("2026-09-23T13:49:00Z"), bounds.start)
+        assertEquals(0, bounds.start.nano)
     }
 }

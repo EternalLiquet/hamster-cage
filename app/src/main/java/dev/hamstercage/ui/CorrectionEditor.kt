@@ -22,6 +22,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -29,11 +30,12 @@ import kotlinx.coroutines.launch
 data class CorrectionActions(val now: () -> Instant, val newId: () -> String, val save: suspend (AttendanceEdit) -> Unit)
 
 @Composable
-fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: CorrectionActions, close: () -> Unit) {
+fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: CorrectionActions,
+    clockIs24Hour: Boolean? = null, close: () -> Unit) {
     val zone = input.policy.zoneId
-    fun local(value: Instant) = value.atZone(zone).toLocalDateTime().toString()
-    fun display(value: Instant) = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy · h:mm a z")
-        .withZone(zone).format(value)
+    val use24Hour = clockIs24Hour ?: DateFormat.is24HourFormat(LocalContext.current)
+    fun local(value: Instant) = correctionPickerMinute(value, zone).toString()
+    fun display(value: Instant) = correctionPreviewText(value, zone, use24Hour)
     val initialStart = session?.start ?: session?.end ?: input.now
     var startLocal by rememberSaveable(session?.id) { mutableStateOf(local(initialStart)) }
     var startOverlap by rememberSaveable(session?.id) { mutableStateOf(overlapChoiceFor(initialStart, zone)) }
@@ -81,6 +83,7 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
         Text(if (session == null) "Add manual attendance" else "Correct session", style = MaterialTheme.typography.headlineSmall)
         Text("Original observations stay unchanged. This adds a visible manual audit entry. Location permission is not required.")
         Text("Times use ${zone.getDisplayName(TextStyle.FULL, Locale.getDefault())} (${zone.id}). Select local dates and times; repeated clock hours ask for a choice.")
+        Text("Picker choices use whole minutes. Review the proposed times before saving.")
         FormError(error)
         if (preview == null) {
             if (session == null) input.offices.forEach { office ->
@@ -88,13 +91,13 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
                     Text("${if (officeId == office.id) "✓ " else ""}${evidenceText(office.name)}${if (!office.enabled || !office.countsTowardAttendance) " (no attendance credit)" else ""}")
                 }
             }
-            LocalBoundaryPicker("Start", LocalDateTime.parse(startLocal), startOverlap, zone, busy,
+            LocalBoundaryPicker("Start", LocalDateTime.parse(startLocal), startOverlap, zone, use24Hour, busy,
                 onChange = { value -> startLocal = value.toString(); startOverlap = null },
                 onOverlap = { startOverlap = it })
             Checkbox(checked = hasEnd, onCheckedChange = { hasEnd = it }, enabled = !busy,
                 modifier = Modifier.testTag("correction_has_end").semantics { contentDescription = "Include an end time" })
             Text(if (hasEnd) "End time selected" else "No end selected · this creates an open session.")
-            if (hasEnd) LocalBoundaryPicker("End", LocalDateTime.parse(endLocal), endOverlap, zone, busy,
+            if (hasEnd) LocalBoundaryPicker("End", LocalDateTime.parse(endLocal), endOverlap, zone, use24Hour, busy,
                 onChange = { value -> endLocal = value.toString(); endOverlap = null },
                 onOverlap = { endOverlap = it })
             OutlinedTextField(note, { note = it }, label = { Text("Private note (optional)") }, enabled = !busy,
@@ -140,15 +143,21 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
 internal fun correctionTimeText(value: LocalDateTime, use24Hour: Boolean): String =
     value.format(DateTimeFormatter.ofPattern(if (use24Hour) "HH:mm" else "h:mm a"))
 
+internal fun correctionPickerMinute(value: Instant, zone: ZoneId): LocalDateTime =
+    value.atZone(zone).toLocalDateTime().truncatedTo(ChronoUnit.MINUTES)
+
+internal fun correctionPreviewText(value: Instant, zone: ZoneId, use24Hour: Boolean): String =
+    DateTimeFormatter.ofPattern(if (use24Hour) "EEE, MMM d, yyyy · HH:mm z" else "EEE, MMM d, yyyy · h:mm a z")
+        .withZone(zone).format(value)
+
 @Composable
 private fun LocalBoundaryPicker(label: String, value: LocalDateTime, overlap: Int?, zone: ZoneId,
-    busy: Boolean, onChange: (LocalDateTime) -> Unit, onOverlap: (Int) -> Unit) {
+    use24Hour: Boolean, busy: Boolean, onChange: (LocalDateTime) -> Unit, onOverlap: (Int) -> Unit) {
     val context = LocalContext.current
-    val use24Hour = DateFormat.is24HourFormat(context)
     Text(label, style = MaterialTheme.typography.titleMedium)
     OutlinedButton(onClick = {
         DatePickerDialog(context, { _, year, month, day ->
-            onChange(LocalDate.of(year, month + 1, day).atTime(value.toLocalTime()))
+            onChange(LocalDate.of(year, month + 1, day).atTime(value.toLocalTime().truncatedTo(ChronoUnit.MINUTES)))
         }, value.year, value.monthValue - 1, value.dayOfMonth).show()
     }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("correction_${label.lowercase()}_date")) {
         Text("Choose $label date · ${value.toLocalDate().format(DateTimeFormatter.ofPattern("MMM d, yyyy"))}")
