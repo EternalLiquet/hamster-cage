@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -22,7 +23,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun DashboardScreen(
     input: AttendanceInput, result: AttendanceResult, trackingReady: Boolean = false,
-    openOffices: () -> Unit = {}, openHistory: () -> Unit = {},
+    openOffices: () -> Unit = {}, openHistory: () -> Unit = {}, openToday: () -> Unit = {},
 ) {
     val today = input.now.atZone(input.policy.zoneId).toLocalDate()
     val daily = AttendanceEngine.daily(input, result, today)
@@ -34,6 +35,7 @@ fun DashboardScreen(
     Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }, verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Panel(warm = true) {
             Text("TODAY", style = MaterialTheme.typography.labelMedium, color = CageStyle.Amber)
+            OutlinedButton(onClick = openToday, modifier = Modifier.testTag("open_today_timeline")) { Text("View today's timeline") }
             Text(presence.label, Modifier.testTag("office_state"), style = MaterialTheme.typography.titleMedium)
             Text(minutesText(daily.creditedMinutes), Modifier.fillMaxWidth().testTag("today_credit"), style = MaterialTheme.typography.displaySmall)
             Text(if (daily.hasCompleteHistory) "Credited office time" else "Provisional credit · coverage incomplete",
