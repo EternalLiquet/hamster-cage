@@ -129,4 +129,29 @@ class BoundaryStabilizationTest {
         assertEquals(end, result.sessions.single().end)
         assertEquals(55.0, result.intervals.single().minutes, 0.0001)
     }
+
+    @Test fun explicitRecoveryPresenceAfterExitDoesNotBridgeOldVisit() {
+        val facts = listOf(event("old", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "11:00:00"),
+            event("fix", Transition.PRESENCE, "11:00:30"))
+        val result = AttendanceEngine.derive(input(facts, now = "11:10", recovery = setOf("fix")))
+        assertEquals(2, result.sessions.size)
+        assertEquals(at("11:00:00"), result.sessions.first().end)
+        assertEquals(at("11:00:30"), result.sessions.last().start)
+        assertEquals(at("11:05:30"), result.intervals.last().start)
+        assertTrue(result.intervals.none { it.start < at("11:00:30") && it.end > at("11:00:00") })
+    }
+
+    @Test fun otherOfficeEvidencePreventsSameMinuteBounceAcrossOffices() {
+        val facts = listOf(event("a-in", Transition.ENTER, "09:00"),
+            event("a-out", Transition.EXIT, "11:00:00"),
+            event("b-in", Transition.ENTER, "11:00:10", "b"),
+            event("b-out", Transition.EXIT, "11:00:20", "b"),
+            event("a-back", Transition.ENTER, "11:00:30"))
+        val result = AttendanceEngine.derive(input(facts, now = "11:10", offices = listOf(a, b)))
+        assertEquals(2, result.sessions.count { it.officeId == "a" })
+        assertEquals(at("11:00:00"), result.sessions.first { it.id == "session:a-in" }.end)
+        assertEquals(at("11:00:30"), result.sessions.first { it.id == "session:a-back" }.start)
+        assertTrue(result.intervals.none { it.start < at("11:00:30") && it.end > at("11:00:00") })
+    }
 }

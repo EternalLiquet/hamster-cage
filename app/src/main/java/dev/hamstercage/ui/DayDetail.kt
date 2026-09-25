@@ -132,9 +132,13 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                 currentFix && event.transition == Transition.PRESENCE -> "Current-location presence"
                 else -> event.transition.name
             }} · ${office(event.officeId)} · ${at(event.at)}")
-            if (currentFix) Text(if (event.transition == Transition.ABSENCE)
-                "One-shot precise fix establishes outside at this check. The exit time is unknown; the old span earns no credit until reviewed."
-                else "One-shot precise fix. The session starts at this observation, not at a guessed arrival.")
+            if (currentFix) Text(when {
+                event.transition == Transition.ABSENCE ->
+                    "One-shot precise fix establishes outside at this check. The exit time is unknown; the old span earns no credit until reviewed."
+                detail.sessions.any { it.start == event.at && event.id in it.sourceEventIds } ->
+                    "One-shot precise fix. The session starts at this observation, not at a guessed arrival."
+                else -> "One-shot precise fix corroborates the recorded office-area visit; it does not restart arrival grace."
+            })
             Text("Source event: ${evidenceId(event.id)}", style = MaterialTheme.typography.bodySmall)
         }
         EvidenceSection("Manual source intervals", detail.manualSessions) { manual ->

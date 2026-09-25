@@ -40,7 +40,8 @@ data class AppSnapshot(
 ) {
     val events: List<RawEvent> get() = eventEvidence.map { it.event }
     fun input(now: Instant) = AttendanceInput(offices, events, corrections, policy, now, manualSessions = manualSessions,
-        recoveryPresenceIds = eventEvidence.filter { it.source == "FOREGROUND_LOCATION_RECONCILIATION" }
+        recoveryPresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
+            it.source in setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION") }
             .map { it.event.id }.toSet())
     fun derive(now: Instant) = AttendanceEngine.derive(input(now))
 }

@@ -35,6 +35,20 @@ class DayDetailTest {
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("ENTER · Synthetic office", substring = true).assertDoesNotExist()
     }
+    @Test fun corroboratingPresenceDoesNotClaimASecondSessionStart() {
+        val entered = RawEvent("in", office.id, Transition.ENTER, now.minusSeconds(3600))
+        val fix = RawEvent("fix", office.id, Transition.PRESENCE, now.minusSeconds(600))
+        val input = AttendanceInput(listOf(office), listOf(entered, fix), now = now)
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            DayDetailScreen(input, AttendanceEngine.derive(input), day, {}, eventEvidence = listOf(
+                RecordedEvent(entered, entered.at),
+                RecordedEvent(fix, fix.at, fix.at, "BACKGROUND_LOCATION_RECONCILIATION")))
+        } } }
+        compose.onNodeWithText("One-shot precise fix corroborates the recorded office-area visit; it does not restart arrival grace.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("One-shot precise fix. The session starts at this observation, not at a guessed arrival.")
+            .assertDoesNotExist()
+    }
     @Test fun crossOfficeGapShowsElapsedSpanWithoutClaimingContinuousInZoneTime() {
         val evaluated = Instant.parse("2026-09-23T14:40:00Z")
         val second = office.copy(id = "second", name = "Second office")

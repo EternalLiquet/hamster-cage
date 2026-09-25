@@ -69,8 +69,11 @@ object AttendanceEngine {
                     val pending = pendingExit
                     if (pending != null) {
                         val elapsed = Duration.between(pending.event.at, observation.event.at)
+                        val otherOfficeBetween = usable.any { it.officeId != officeId &&
+                            it.at >= pending.event.at && it.at <= observation.event.at }
                         if (observation.event.transition in setOf(Transition.ENTER, Transition.PRESENCE) &&
-                            !elapsed.isNegative && elapsed <= boundaryBounceWindow) {
+                            observation.ids.none { it in input.recoveryPresenceIds } &&
+                            !otherOfficeBetween && !elapsed.isNegative && elapsed <= boundaryBounceWindow) {
                             // Both immutable observations stay attached to the original
                             // session. Neither a second grace window nor a departure is
                             // derived from this near-immediate opposite pair.
@@ -233,8 +236,11 @@ object AttendanceEngine {
                     val previousCredit = creditBySession[before.id]
                     val nextCredit = creditBySession[after.id]
                     val nextEntry = after.start
+                    val contradictoryGap = nextEntry != null && before.end != null &&
+                        (usable.any { it.officeId != before.officeId && it.at >= before.end && it.at <= nextEntry } ||
+                            after.sourceEventIds.any { it in input.recoveryPresenceIds })
                     if (previousCredit == null || nextCredit == null || nextEntry == null ||
-                        previousCredit.end >= nextEntry || Duration.between(previousCredit.end, nextEntry) >
+                        contradictoryGap || previousCredit.end >= nextEntry || Duration.between(previousCredit.end, nextEntry) >
                         Duration.ofMinutes(input.policy.shortGapMinutes.toLong())) null
                     else CreditedInterval(previousCredit.end, nextEntry, setOf(before.id, after.id), reconciledGap = true)
                 }
