@@ -42,18 +42,21 @@ data class OfficePlace(val label: String, val latitude: Double, val longitude: D
 data class OfficeFix(val place: OfficePlace, val accuracyMeters: Float)
 data class OfficeMapTile(val bitmap: Bitmap, val zoom: Int, val x: Int, val y: Int)
 
-internal fun currentRequestFailure(failure: Exception): IllegalStateException = if (failure is SecurityException)
-    IllegalStateException("Precise foreground location was revoked. Grant it in Settings, then retry; or search an address.")
-else IllegalStateException("Current location service is unavailable. Retry outdoors, check Play Services, or search an address.")
+/** Only app-authored messages of this type may cross into the office setup UI. */
+internal class OfficeLocationFailure(message: String) : IllegalStateException(message)
+
+internal fun currentRequestFailure(failure: Exception): OfficeLocationFailure = if (failure is SecurityException)
+    OfficeLocationFailure("Precise foreground location was revoked. Grant it in Settings, then retry; or search an address.")
+else OfficeLocationFailure("Current location service is unavailable. Retry outdoors, check Play Services, or search an address.")
 
 internal fun validatedOfficeFix(fix: Location?, nowElapsedNanos: Long): OfficeFix {
-    fix ?: throw IllegalStateException("No current fix. Move into open sky and retry, or search an address.")
+    fix ?: throw OfficeLocationFailure("No current fix. Move into open sky and retry, or search an address.")
     if (!fix.hasAccuracy() || !fix.accuracy.isFinite() || fix.accuracy !in 0f..100f)
-        throw IllegalStateException("Location is too approximate for an office boundary. Retry outdoors or search an address.")
+        throw OfficeLocationFailure("Location is too approximate for an office boundary. Retry outdoors or search an address.")
     if (!fix.latitude.isFinite() || !fix.longitude.isFinite() || fix.latitude !in -85.0511..85.0511 || fix.longitude !in -180.0..180.0)
-        throw IllegalStateException("The fix has no usable map center. Retry or search an address.")
+        throw OfficeLocationFailure("The fix has no usable map center. Retry or search an address.")
     if (fix.elapsedRealtimeNanos <= 0 || nowElapsedNanos - fix.elapsedRealtimeNanos !in 0..30_000_000_000L)
-        throw IllegalStateException("The location fix is stale. Retry to get a fresh position.")
+        throw OfficeLocationFailure("The location fix is stale. Retry to get a fresh position.")
     return OfficeFix(OfficePlace("Current location", fix.latitude, fix.longitude), fix.accuracy)
 }
 
@@ -75,8 +78,8 @@ class OfficeLocationServices(private val context: Context) {
 
     suspend fun search(query: String): List<OfficePlace> {
         val text = query.trim().take(160)
-        require(text.length >= 3) { "Enter at least three address characters." }
-        if (!Geocoder.isPresent()) throw IllegalStateException("Address search is unavailable on this device. Use current location or Advanced coordinates.")
+        if (text.length < 3) throw OfficeLocationFailure("Enter at least three address characters.")
+        if (!Geocoder.isPresent()) throw OfficeLocationFailure("Address search is unavailable on this device. Use current location or Advanced coordinates.")
         fun places(matches: List<Address>): List<OfficePlace> = matches.mapIndexedNotNull { index, address ->
             val lat = address.latitude; val lon = address.longitude
             if (!lat.isFinite() || !lon.isFinite() || lat !in -85.0511..85.0511 || lon !in -180.0..180.0) null
@@ -100,7 +103,7 @@ class OfficeLocationServices(private val context: Context) {
                             }
                             override fun onError(errorMessage: String?) {
                                 if (activeSearch.compareAndSet(requestId, 0) && continuation.isActive)
-                                    continuation.resumeWithException(IllegalStateException("Address search unavailable. Retry or use another location method."))
+                                    continuation.resumeWithException(OfficeLocationFailure("Address search unavailable. Retry or use another location method."))
                             }
                         })
                     })
@@ -110,7 +113,7 @@ class OfficeLocationServices(private val context: Context) {
                 }
             }
         } catch (_: TimeoutCancellationException) {
-            throw IllegalStateException("Address search timed out. Retry later, or use current location or Advanced coordinates.")
+            throw OfficeLocationFailure("Address search timed out. Retry later, or use current location or Advanced coordinates.")
         } finally { if (requestId != 0L) activeSearch.compareAndSet(requestId, 0) }
     }
 
@@ -122,9 +125,9 @@ class OfficeLocationServices(private val context: Context) {
     /** One request only. The caller owns its lifecycle; no fix is cached or persisted. */
     suspend fun captureFix(freshAfterRequest: Boolean = false): Location {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-            throw IllegalStateException("Precise foreground location is needed. Grant it below, then retry; background access is not needed to set up an office.")
+            throw OfficeLocationFailure("Precise foreground location is needed. Grant it below, then retry; background access is not needed to set up an office.")
         if (!LocationManagerCompat.isLocationEnabled(context.getSystemService(Context.LOCATION_SERVICE) as LocationManager))
-            throw IllegalStateException("Device location is off. Turn it on in Settings, then retry.")
+            throw OfficeLocationFailure("Device location is off. Turn it on in Settings, then retry.")
         val cancellation = CancellationTokenSource()
         try {
             val fix = try {
@@ -136,13 +139,13 @@ class OfficeLocationServices(private val context: Context) {
                     else client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancellation.token).await()
                 }
             } catch (_: TimeoutCancellationException) {
-                throw IllegalStateException("Current location timed out. Retry outdoors or search an address.")
+                throw OfficeLocationFailure("Current location timed out. Retry outdoors or search an address.")
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
                 throw currentRequestFailure(failure)
             }
-            return fix ?: throw IllegalStateException("No current fix. Retry outdoors or search an address.")
+            return fix ?: throw OfficeLocationFailure("No current fix. Retry outdoors or search an address.")
         } finally { cancellation.cancel() }
     }
 

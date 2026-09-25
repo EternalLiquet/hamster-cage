@@ -28,6 +28,7 @@ import dev.hamstercage.offices.OfficeMapTile
 import dev.hamstercage.offices.OfficePlace
 import dev.hamstercage.offices.OfficeFix
 import dev.hamstercage.offices.validatedOfficeFix
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
@@ -37,6 +38,26 @@ import org.junit.Test
 
 class OfficeScreenTest {
     @get:Rule val compose = createAndroidComposeRule<OfficeTestActivity>()
+
+    @Test fun providerDiagnosticsNeverAppearInOfficeSetupErrors() {
+        val snapshot = AppSnapshot(emptyList(), emptyList(), emptyList(), emptyList(), Policy())
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            OfficeScreen(StorageState.Ready(snapshot), OfficeActions({ "new" }, { null }, { _, _ -> },
+                search = { throw IOException("private geocoder provider secret") },
+                current = { throw SecurityException("private location provider stack") }))
+        } } }
+        compose.onNode(hasText("Add office") and hasClickAction()).performScrollTo().performClick()
+        compose.onNodeWithTag("officeAddress").performTextReplacement("synthetic address")
+        compose.onNodeWithTag("searchAddressButton").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText(
+            "Error: Address search unavailable. Retry or use current location or Advanced coordinates.")
+            .fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(0, compose.onAllNodesWithText("private geocoder provider secret", substring = true).fetchSemanticsNodes().size)
+        compose.onNodeWithText("Use my current location").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText(
+            "Error: Current location unavailable. Retry or search an address.").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(0, compose.onAllNodesWithText("private location provider stack", substring = true).fetchSemanticsNodes().size)
+    }
 
     @Test fun userCanSelectEitherOfficeForEditing() {
         val first = Office("office-a", "Synthetic A", 0.0, 0.0)
