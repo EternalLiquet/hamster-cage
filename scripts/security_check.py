@@ -45,6 +45,7 @@ def audit(root, variant="debug"):
     # Location is staged by #17. New permission surfaces need an explicit reviewed audit change.
     reviewed_permissions = {"android.permission.INTERNET", "android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION",
                             "android.permission.ACCESS_BACKGROUND_LOCATION", "android.permission.RECEIVE_BOOT_COMPLETED",
+                            "android.permission.WAKE_LOCK",
                             internal_permission}
     require(permissions <= reviewed_permissions, "Unreviewed Android permission")
     if internal_permission in permissions:
@@ -64,6 +65,8 @@ def audit(root, variant="debug"):
         if component.tag not in {"activity", "activity-alias", "service", "receiver", "provider"}:
             continue
         name = component.get(A + "name", "")
+        require(name != "androidx.work.impl.foreground.SystemForegroundService",
+                "No WorkManager foreground service")
         require(component.get(A + "exported") in {"true", "false"}, f"Component needs explicit exported state: {name}")
         if name == "dev.hamstercage.capture.GeofenceTransitionReceiver":
             require(component.tag == "receiver" and component.get(A + "exported") == "false" and
@@ -86,6 +89,10 @@ def audit(root, variant="debug"):
                             ("action", "android.intent.action.BOOT_COMPLETED"),
                             ("action", "android.intent.action.MY_PACKAGE_REPLACED")},
                         "Recovery receiver must accept only reviewed protected system actions")
+            elif name == "androidx.work.impl.background.systemjob.SystemJobService" and component.tag == "service":
+                require(component.get(A + "permission") == "android.permission.BIND_JOB_SERVICE" and
+                        not component.findall("intent-filter"),
+                        "WorkManager job entry must require Android's binding permission")
             else:
                 # A permission string alone must not authorize an arbitrary new endpoint.
                 require((component.tag, name, component.get(A + "permission")) == (

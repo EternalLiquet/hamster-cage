@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,7 @@ import dev.hamstercage.ui.CalendarActions
 import dev.hamstercage.ui.PrivacyActions
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
@@ -91,6 +93,9 @@ class MainActivity : ComponentActivity() {
                 openDeviceSettings = { openSettings(LocationPermissions.deviceSettings()) },
                 reconcileOffice = { foregroundReconciliation.check {
                     lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                } },
+                setMonitoringEnabled = { enabled -> lifecycleScope.launch {
+                    CaptureController.get(this@MainActivity).setMonitoringEnabled(enabled)
                 } },
                 officeActions = OfficeActions(
                     newId = HamsterRepository::newId,

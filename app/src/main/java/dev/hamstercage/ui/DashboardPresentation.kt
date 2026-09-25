@@ -32,7 +32,8 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
         liveReview -> "Needs review"
         open.size == 1 -> if (open.single().manualSessionId != null) "Manual session active" else
             "In ${dashboardOfficeName(input.offices.single { it.id == open.single().officeId }.name)}"
-        latest?.transition == Transition.EXIT && latest.at.atZone(input.policy.zoneId).toLocalDate() == today -> "Outside office"
+        latest?.transition in setOf(Transition.EXIT, Transition.ABSENCE) &&
+            latest?.at?.atZone(input.policy.zoneId)?.toLocalDate() == today -> "Outside office"
         else -> "Office state unknown"
     }
     return DashboardPresence(label, review, open.mapNotNull { it.start }.minOrNull(), open.any { it.manualSessionId != null || it.correctionId != null })

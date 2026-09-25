@@ -27,7 +27,7 @@ data class Office(
 }
 
 /** PRESENCE is a current observation, not a claim that entry happened at that instant. */
-enum class Transition { ENTER, EXIT, PRESENCE }
+enum class Transition { ENTER, EXIT, PRESENCE, ABSENCE }
 data class RawEvent(val id: String, val officeId: String, val transition: Transition, val at: Instant)
 /** User-entered evidence is a complete interval, never synthetic geofence transitions. */
 data class ManualSession(
