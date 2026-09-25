@@ -4,9 +4,18 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Process
+import android.view.View
+import android.widget.DatePicker
+import android.widget.TimePicker
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.UiController
+import androidx.test.espresso.ViewAction
+import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.hamstercage.MainActivity
 import dev.hamstercage.capture.GeofenceObservation
@@ -18,6 +27,8 @@ import dev.hamstercage.privacy.PrivacyResetState
 import dev.hamstercage.privacy.PrivacyResetStore
 import java.io.File
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -36,6 +47,27 @@ class OfflineJourneyHostTest {
     private fun click(text: String) = compose.onNode(hasText(text) and hasClickAction()).performScrollTo().performClick()
     private fun nav(text: String) = compose.onNode(hasText(text) and hasClickAction()).performClick()
     private fun field(label: String, value: String) = compose.onNode(hasText(label) and hasSetTextAction()).performScrollTo().performTextReplacement(value)
+    private fun pickStart(value: LocalDateTime) {
+        compose.onNodeWithTag("correction_start_date").performScrollTo().performClick()
+        onView(isAssignableFrom(DatePicker::class.java)).perform(object : ViewAction {
+            override fun getConstraints() = isAssignableFrom(DatePicker::class.java)
+            override fun getDescription() = "Choose synthetic correction date"
+            override fun perform(uiController: UiController, view: View) {
+                (view as DatePicker).updateDate(value.year, value.monthValue - 1, value.dayOfMonth)
+            }
+        })
+        onView(withId(android.R.id.button1)).perform(click())
+        compose.onNodeWithTag("correction_start_time").performScrollTo().performClick()
+        onView(isAssignableFrom(TimePicker::class.java)).perform(object : ViewAction {
+            override fun getConstraints() = isAssignableFrom(TimePicker::class.java)
+            override fun getDescription() = "Choose synthetic correction time"
+            override fun perform(uiController: UiController, view: View) {
+                (view as TimePicker).hour = value.hour
+                view.minute = value.minute
+            }
+        })
+        onView(withId(android.R.id.button1)).perform(click())
+    }
     private fun awaitText(text: String) = compose.waitUntil(15_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
     private fun requireFreshRecord(facts: AppSnapshot, reset: PrivacyResetState, coverage: CoverageLedger) {
         check(facts.offices.isEmpty() && facts.events.isEmpty() && facts.corrections.isEmpty() && facts.manualSessions.isEmpty() &&
@@ -112,12 +144,21 @@ class OfflineJourneyHostTest {
                 nav("History")
                 val day = session.start!!.atZone(before.policy.zoneId).toLocalDate()
                 click("Explain $day"); click("Correct ${session.id}")
-                compose.onNodeWithTag("correction_start").performScrollTo().performTextReplacement(now.minusSeconds(7500).toString())
+                val selectedInstant = session.start!!.minusSeconds(300)
+                val selectedLocal = selectedInstant.atZone(before.policy.zoneId).toLocalDateTime()
+                    .truncatedTo(ChronoUnit.MINUTES)
+                pickStart(selectedLocal)
+                overlapChoiceFor(selectedInstant, before.policy.zoneId)?.let { choice ->
+                    compose.onNodeWithTag("correction_start_overlap_$choice").performScrollTo().performClick()
+                }
+                val expectedStart = resolveLocalBoundary(LocalBoundary(selectedLocal,
+                    overlapChoiceFor(selectedInstant, before.policy.zoneId)), before.policy.zoneId)
                 click("Preview attendance change")
                 assertTrue(snapshot().corrections.isEmpty())
                 click("Confirm attendance change"); awaitText("Attendance change saved")
                 assertEquals(observations.map { it.event }, snapshot().events)
                 assertEquals(1, snapshot().corrections.size)
+                assertEquals(expectedStart, snapshot().corrections.single().start)
                 click("Back to history")
                 nav("Settings"); click("Edit policy")
                 compose.onNodeWithTag("policy_target").performScrollTo().performTextReplacement("420")
