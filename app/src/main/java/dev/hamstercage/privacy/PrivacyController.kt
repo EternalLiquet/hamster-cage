@@ -9,6 +9,7 @@ import dev.hamstercage.capture.CaptureWriteGate
 import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.capture.CoverageStore
 import dev.hamstercage.capture.RegistrationStatus
+import dev.hamstercage.capture.WeekdayReconciliation
 import dev.hamstercage.data.HamsterRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -54,8 +55,11 @@ class PrivacyController private constructor(context: Context) {
     }
 
     /** Android clears every app-private store and terminates this process; reopening starts fresh. */
-    fun resetAllAppData(): Boolean = (application.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
-        .clearApplicationUserData()
+    fun resetAllAppData(): Boolean {
+        WeekdayReconciliation.cancel(application)
+        return (application.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+            .clearApplicationUserData()
+    }
 
     companion object {
         @Volatile private var instance: PrivacyController? = null

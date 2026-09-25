@@ -32,6 +32,7 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                             CaptureHealth.registration(RegistrationStatus.FAILED)
                             return@withCaptureGateTimeout
                         }
+                        if (!MonitoringStore.read(application).enabled) return@withCaptureGateTimeout
                         // Old queued callbacks cannot recreate facts after deletion, including
                         // deliveries without a trustworthy location-fix timestamp.
                         if (intent?.action != GeofenceRegistrar.action(reset.generation)) return@withCaptureGateTimeout

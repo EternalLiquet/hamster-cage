@@ -16,6 +16,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.hamstercage.capture.ReconcileOutcome
 import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.capture.RegistrationStatus
+import dev.hamstercage.capture.CaptureStatus
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -31,13 +34,30 @@ fun LocationSetupPanel(
     registration: RegistrationStatus = RegistrationStatus.UNKNOWN,
     eligibleOfficeCount: Int = 0,
     reconcile: (suspend () -> ReconcileOutcome)? = null,
+    captureStatus: CaptureStatus = CaptureStatus(),
+    policyZone: ZoneId = ZoneId.systemDefault(),
+    setMonitoringEnabled: suspend (Boolean) -> Unit = {},
 ) {
     var skipped by rememberSaveable { mutableStateOf(false) }
     var result by rememberSaveable { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
+    var changingMonitoring by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     var checkJob by remember { mutableStateOf<Job?>(null) }
+    fun changeMonitoring(enabled: Boolean, onSuccess: () -> Unit = {}) {
+        if (changingMonitoring) return
+        changingMonitoring = true
+        result = null
+        scope.launch {
+            try {
+                setMonitoringEnabled(enabled)
+                onSuccess()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { result = "Attendance monitoring could not be changed. Retry or review app settings." }
+            finally { changingMonitoring = false }
+        }
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) { checkJob?.cancel(); checking = false }
@@ -46,8 +66,8 @@ fun LocationSetupPanel(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer); checkJob?.cancel() }
     }
     if (skipped) {
-        Notice("Detection setup skipped", "You can keep browsing and use manual attendance features without granting location.",
-            "Review location setup", { skipped = false })
+        Notice("Attendance monitoring disabled", "Office boundaries and weekday checks are off. You can still browse and enter attendance manually.",
+            "Review and re-enable detection", { skipped = false })
         return
     }
     Panel {
@@ -55,6 +75,16 @@ fun LocationSetupPanel(
         Tag(setup.status, warm = !setup.prerequisitesReady)
         Text("Office detection uses configured office boundaries, not a continuous travel history. Location is optional; browsing, corrections and settings remain available.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+        Text("With monitoring on, office boundary events are primary. A current location check can recover missed events about every 30 minutes, Monday–Friday, 7 AM–7 PM in $policyZone. Android may delay checks. Location and attendance stay on this device; neither is used for advertising or analytics.",
+            style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+        Text(if (captureStatus.monitoringEnabled) "Monitoring on" else "Monitoring disabled")
+        CageButton(if (changingMonitoring) "Updating attendance monitoring…" else if (captureStatus.monitoringEnabled)
+            "Disable attendance monitoring" else "Enable attendance monitoring",
+            { changeMonitoring(!captureStatus.monitoringEnabled) })
+        captureStatus.lastVerifiedAt?.let { verified ->
+            Text("Last verified ${verified.atZone(policyZone).format(DateTimeFormatter.ofPattern("EEE h:mm a"))} · weekday checks 7 AM–7 PM")
+        }
+        captureStatus.lastCheckResult?.let { Text("Latest check: $it") }
         Text("If you force-stop the app, Android pauses boundary detection. Open Hamster Cage again to request recovery; any uncertain time needs review.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         when {
@@ -75,6 +105,7 @@ fun LocationSetupPanel(
                 RegistrationStatus.NO_OFFICES -> "Permissions are ready. Add an enabled office to request boundary detection."
                 RegistrationStatus.FAILED -> "Permissions are ready, but office boundary registration needs attention."
                 RegistrationStatus.REGISTERING -> "Registering office boundaries on this device."
+                RegistrationStatus.DISABLED -> "Attendance monitoring is disabled."
                 RegistrationStatus.UNKNOWN, RegistrationStatus.NEEDS_SETUP ->
                     "Permissions are ready. Automatic detection is not running: office registration has not been configured."
             })
@@ -104,8 +135,14 @@ fun LocationSetupPanel(
                     }
                 }
             })
-            result?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
-        CageButton("Continue without detection", { checkJob?.cancel(); checking = false; skipped = true })
+        result?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        CageButton(if (changingMonitoring) "Stopping attendance monitoring…" else "Continue without detection", {
+            if (!changingMonitoring) {
+                checkJob?.cancel()
+                checking = false
+                changeMonitoring(false) { skipped = true }
+            }
+        })
     }
 }

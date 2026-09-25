@@ -47,7 +47,7 @@ class DayDetailTest {
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
             DayDetailScreen(input, AttendanceEngine.derive(input), day, {})
         } } }
-        compose.onNodeWithText("Original elapsed span between opening and next presence check (continuity unconfirmed): 30m")
+        compose.onNodeWithText("Original elapsed span between opening and later current-location check (continuity unconfirmed): 30m")
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Effective elapsed span (continuity unconfirmed): 30m.")
             .performScrollTo().assertIsDisplayed()
@@ -55,7 +55,27 @@ class DayDetailTest {
         compose.onNodeWithText("Effective session duration: 30m.").assertDoesNotExist()
         compose.onAllNodesWithText("Device-observed in-zone time: 10m")[0]
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("The listed end is the next presence check, not an observed EXIT. This earlier segment earns no credit until corrected.")
+        compose.onNodeWithText("The listed end is a later current-location check, not an observed EXIT. The exit time is unknown, and this earlier segment earns no credit until corrected.")
+            .performScrollTo().assertIsDisplayed()
+    }
+    @Test fun missedExitOutsideCheckExplainsUnknownTimeAndZeroCredit() {
+        val entered = RawEvent("enter", office.id, Transition.ENTER, now.minusSeconds(3600))
+        val checked = RawEvent("outside", office.id, Transition.ABSENCE, now.minusSeconds(60))
+        val input = AttendanceInput(listOf(office), listOf(entered, checked),
+            policy = Policy(zoneId = ZoneId.of("UTC")), now = now)
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            DayDetailScreen(input, AttendanceEngine.derive(input), day, {}, eventEvidence = listOf(
+                RecordedEvent(entered, entered.at),
+                RecordedEvent(checked, checked.at, checked.at, "BACKGROUND_LOCATION_RECONCILIATION")))
+        } } }
+        compose.onNodeWithTag("detail_credit").performScrollTo().assertTextEquals("Recorded credit: 0m")
+        compose.onNodeWithTag("detail_observed").performScrollTo()
+            .assertTextEquals("Confirmed in-zone time: 0m")
+        compose.onNodeWithText("Current-location outside · Synthetic office", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("One-shot precise fix establishes outside at this check. The exit time is unknown; the old span earns no credit until reviewed.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("The listed end is a later current-location check, not an observed EXIT. The exit time is unknown, and this earlier segment earns no credit until corrected.")
             .performScrollTo().assertIsDisplayed()
     }
     @Test fun historyNavigationShowsCorrectedTotalAndRetainedRawEvidenceAtLargeText() {

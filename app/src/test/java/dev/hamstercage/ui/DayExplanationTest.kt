@@ -31,6 +31,19 @@ class DayExplanationTest {
         assertTrue(detail.denominator.contains("1 day × 360 minutes"))
     }
 
+    @Test fun laterOutsideCheckKeepsUnknownExitAndUncreditedSpanVisible() {
+        val data = input(raw("in", Transition.ENTER, "09:00"),
+            raw("outside", Transition.ABSENCE, "10:00"))
+        val detail = explain(data)
+        assertEquals(0.0, detail.summary.creditedMinutes, 0.001)
+        assertEquals(listOf("in", "outside"), detail.rawEvents.map { it.id })
+        assertEquals(at("10:00"), detail.sessions.single().end)
+        assertTrue(ReviewReason.UNCONFIRMED_GAP in detail.sessions.single().reviewReasons)
+        val explanation = reviewExplanation(ReviewReason.UNCONFIRMED_GAP)
+        assertTrue(explanation.contains("exit time is unknown"))
+        assertFalse(explanation.contains("restarted presence"))
+    }
+
     @Test fun overlapAndReconciledGapKeepAllProvenanceWithoutDoubleCredit() {
         val data = input(raw("a", Transition.ENTER, "09:00"), raw("b", Transition.EXIT, "14:00"),
             raw("c", Transition.ENTER, "14:04"), raw("d", Transition.EXIT, "17:00"))

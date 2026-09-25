@@ -32,7 +32,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         Text("${input.policy.zoneId.id} · evaluated ${at(input.now)}", style = MaterialTheme.typography.bodyMedium)
         Panel {
             Text("Recorded credit: ${minutesText(detail.summary.creditedMinutes)}", Modifier.testTag("detail_credit"), style = MaterialTheme.typography.titleLarge)
-            Text("Device-observed time: ${minutesText(AttendanceEngine.observedDailyMinutes(input, date))}", Modifier.testTag("detail_observed"))
+            Text("${if (detail.sessions.any { ReviewReason.UNCONFIRMED_GAP in it.reviewReasons }) "Confirmed in-zone time" else "Device-observed time"}: ${minutesText(AttendanceEngine.observedDailyMinutes(input, date))}", Modifier.testTag("detail_observed"))
             if (beforeTracking) {
                 Text("Before tracking began. No attendance requirement or balance applies to this date.",
                     Modifier.testTag("detail_before_tracking"))
@@ -55,7 +55,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             val original = detail.originalSessions.find { it.id == session.id }
             Text("Original bounds: ${at(original?.start)} → ${at(original?.end)}")
             if (original?.reviewReasons?.contains(ReviewReason.UNCONFIRMED_GAP) == true)
-                Text("The listed end is the next presence check, not an observed EXIT. This earlier segment earns no credit until corrected.")
+                Text("The listed end is a later current-location check, not an observed EXIT. The exit time is unknown, and this earlier segment earns no credit until corrected.")
             if (session.correctionId != null && !session.correctionReverted) original?.reviewReasons?.forEach {
                 Text("Original evidence: ${reviewExplanation(it)} The applied correction supplies effective bounds.")
             }
@@ -63,7 +63,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             if (original?.manualSessionId == null) {
                 if (original?.start != null)
                     Text(if (ReviewReason.UNCONFIRMED_GAP in original.reviewReasons)
-                        "Original elapsed span between opening and next presence check (continuity unconfirmed): ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}"
+                        "Original elapsed span between opening and later current-location check (continuity unconfirmed): ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}"
                         else "Device-observed in-zone time: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
                 else Text("Device-observed in-zone duration unknown: no ENTER was recorded.")
             } else Text("Original manually entered duration: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
@@ -91,9 +91,15 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             edit?.let { action -> OutlinedButton(onClick = { action(session) }) { Text("Correct ${evidenceId(session.id)}") } }
         }
         EvidenceSection("Raw observations", detail.rawEvents) { event ->
-            val oneShot = evidenceById[event.id]?.source == "FOREGROUND_LOCATION_RECONCILIATION"
-            Text("${if (oneShot) "Current-location presence" else event.transition.name} · ${office(event.officeId)} · ${at(event.at)}")
-            if (oneShot) Text("One-shot precise fix. The session starts at this observation, not at a guessed arrival.")
+            val currentFix = evidenceById[event.id]?.source in setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION")
+            Text("${when {
+                currentFix && event.transition == Transition.ABSENCE -> "Current-location outside"
+                currentFix && event.transition == Transition.PRESENCE -> "Current-location presence"
+                else -> event.transition.name
+            }} · ${office(event.officeId)} · ${at(event.at)}")
+            if (currentFix) Text(if (event.transition == Transition.ABSENCE)
+                "One-shot precise fix establishes outside at this check. The exit time is unknown; the old span earns no credit until reviewed."
+                else "One-shot precise fix. The session starts at this observation, not at a guessed arrival.")
             Text("Source event: ${evidenceId(event.id)}", style = MaterialTheme.typography.bodySmall)
         }
         EvidenceSection("Manual source intervals", detail.manualSessions) { manual ->

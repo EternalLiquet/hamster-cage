@@ -67,6 +67,7 @@ fun HamsterApp(
     setupError: String? = null, requestForeground: () -> Unit = {}, requestBackground: () -> Unit = {},
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
     reconcileOffice: (suspend () -> ReconcileOutcome)? = null,
+    setMonitoringEnabled: suspend (Boolean) -> Unit = {},
     trackingReady: Boolean = false,
     officeActions: OfficeActions? = null,
     correctionActions: CorrectionActions? = null,
@@ -210,7 +211,7 @@ fun HamsterApp(
                         LocationSetupPanel(locationSetup, backgroundOptionLabel, requestForeground, requestBackground,
                             openAppSettings, openDeviceSettings, captureStatus.registration,
                             snapshot?.offices?.count { it.enabled && it.countsTowardAttendance } ?: 0,
-                            reconcileOffice)
+                            reconcileOffice, captureStatus, displayZone, setMonitoringEnabled)
                     }
                 }
             }
