@@ -19,6 +19,9 @@ import java.time.format.DateTimeFormatter
 fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: LocalDate, back: () -> Unit,
     edit: ((Session) -> Unit)? = null, eventEvidence: List<RecordedEvent> = emptyList()) {
     val detail = remember(input, result, date) { explainDay(input, result, date) }
+    val beforeTracking = remember(input, result, date) {
+        date in AttendanceEngine.reportingCoverage(input, result, date, date).unavailableBeforeTracking
+    }
     val evidenceById = remember(eventEvidence) { eventEvidence.associateBy { it.event.id } }
     val offices = input.offices.associateBy { it.id }
     fun at(time: Instant?) = time?.atZone(input.policy.zoneId)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) ?: "Missing boundary"
@@ -30,10 +33,16 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         Panel {
             Text("Recorded credit: ${minutesText(detail.summary.creditedMinutes)}", Modifier.testTag("detail_credit"), style = MaterialTheme.typography.titleLarge)
             Text("${if (detail.sessions.any { ReviewReason.UNCONFIRMED_GAP in it.reviewReasons }) "Confirmed in-zone time" else "Device-observed time"}: ${minutesText(AttendanceEngine.observedDailyMinutes(input, date))}", Modifier.testTag("detail_observed"))
-            Text("Required: ${minutesText(detail.summary.requiredMinutes.toDouble())}", Modifier.testTag("detail_required"))
-            Text(detail.denominator)
-            if (!detail.summary.hasCompleteHistory) Notice("Unknown coverage", "The recorded credit is provisional. Missing history is not proof of zero attendance.")
-            Text("These are the same daily engine totals used by Dashboard and History. Overlapping intervals count only once.")
+            if (beforeTracking) {
+                Text("Before tracking began. No attendance requirement or balance applies to this date.",
+                    Modifier.testTag("detail_before_tracking"))
+                if (detail.reviews.isNotEmpty()) Text("A saved attendance record for this date needs review. The evidence is below.")
+            } else {
+                Text("Required: ${minutesText(detail.summary.requiredMinutes.toDouble())}", Modifier.testTag("detail_required"))
+                Text(detail.denominator)
+                if (!detail.summary.hasCompleteHistory) Notice("Unknown coverage", "The recorded credit is provisional. Missing history is not proof of zero attendance.")
+                Text("These are the same daily engine totals used by Dashboard and History. Overlapping intervals count only once.")
+            }
         }
         EvidenceSection("Credited intervals", detail.intervals) { interval ->
             Text("${at(interval.start)} → ${at(interval.end)}")

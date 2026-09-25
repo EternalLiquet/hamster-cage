@@ -42,13 +42,48 @@ class HistoryTest {
         }
     }
 
-    @Test fun emptyHistoryShowsExpectedZeroWithUnknownBalanceAtLargeText() {
+    @Test fun emptyHistoryOffersOptionalBrowseWithoutAReviewListAtLargeText() {
         show(source(), 2f)
         compose.onNodeWithText("No attendance recorded yet").assertIsDisplayed()
+        compose.onNodeWithTag("history_review_alert").assertDoesNotExist()
+        compose.onNodeWithTag("history_date_$today").assertDoesNotExist()
+        compose.onNodeWithTag("history_browse_before").performScrollTo().performClick()
+        compose.onNodeWithTag("history_before_explanation").performScrollTo().assertTextEquals(
+            "Before tracking · ordinary dates were not captured and need no review. Saved attendance records that need review stay visible. Add attendance only if you choose.")
         compose.onNodeWithTag("history_date_$today").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("history_credit_$today").performScrollTo().assertTextContains("0m")
-        compose.onNodeWithTag("history_required_$today").performScrollTo().assertTextContains("6h 0m")
-        compose.onNodeWithTag("history_balance_$today").performScrollTo().assertTextContains("Unknown")
+        compose.onNodeWithTag("history_required_$today").assertDoesNotExist()
+        compose.onNodeWithText("Explain $today").performScrollTo().performClick()
+        compose.onNodeWithTag("detail_before_tracking").performScrollTo().assertTextEquals(
+            "Before tracking began. No attendance requirement or balance applies to this date.")
+        compose.onNodeWithTag("detail_required").assertDoesNotExist()
+        compose.onNodeWithText("Expected weekday", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun capturedDayIsPrimaryAndLaterGapPromptsReview() {
+        val entered = source().copy(events = listOf(RawEvent("enter", office.id, Transition.ENTER, now.minusSeconds(2 * 86400L + 3600)),
+            RawEvent("exit", office.id, Transition.EXIT, now.minusSeconds(2 * 86400L))),
+            unknownDates = setOf(today.minusDays(1)))
+        show(entered)
+        compose.onNodeWithTag("history_review_alert").performScrollTo().assertTextEquals("2 days have missing attendance coverage.")
+        compose.onNodeWithTag("history_review_action").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("history_date_${today.minusDays(3)}").assertDoesNotExist()
+        compose.onNodeWithTag("history_date_${today.minusDays(1)}").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun rejectedRawFactsBeforeTrackingRemainInDefaultReviewFlow() {
+        show(source().copy(events = listOf(
+            RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(3600)),
+            RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(86400 + 3600)))))
+        compose.onNodeWithTag("history_review_alert").performScrollTo().assertTextEquals("2 days have saved attendance records to review.")
+        compose.onNodeWithTag("history_date_$today").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("history_date_${today.minusDays(1)}").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("history_before_message_$today").performScrollTo()
+            .assertTextEquals("Tracking had not begun for this date. A saved attendance record needs review.")
+        compose.onNodeWithTag("history_required_$today").assertDoesNotExist()
+        compose.onNodeWithTag("history_review_action").performScrollTo().performClick()
+        compose.onNodeWithTag("detail_before_tracking").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("detail_required").assertDoesNotExist()
+        compose.onNodeWithText("Review explanations", substring = true).performScrollTo().assertIsDisplayed()
     }
 
     @Test fun largeHistoryRendersOnlyFourteenDaysAndPagesToOlderSource() {
