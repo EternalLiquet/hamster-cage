@@ -5,7 +5,10 @@ import java.time.LocalDate
 
 internal const val HISTORY_PAGE_DAYS = 14
 
-data class HistoryDay(val date: LocalDate, val summary: PeriodSummary, val observedMinutes: Double, val badges: List<String>)
+enum class HistoryCoverage { COVERED, BEFORE_TRACKING, UNKNOWN_AFTER_TRACKING }
+
+data class HistoryDay(val date: LocalDate, val summary: PeriodSummary, val observedMinutes: Double,
+                      val badges: List<String>, val coverage: HistoryCoverage)
 
 /** Bounded presentation only. Totals and policy-local date clipping belong to the shared engine. */
 fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: Int = 0): List<HistoryDay> {
@@ -14,6 +17,7 @@ fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: In
     val eventsById = input.events.groupBy { it.id }
     val dates = (0 until HISTORY_PAGE_DAYS).map { last.minusDays(it.toLong()) }
     val observed = AttendanceEngine.observedDailyMinutes(input, dates)
+    val coverage = AttendanceEngine.reportingCoverage(input, result, dates.last(), dates.first())
     return dates.map { date ->
         val start = date.atStartOfDay(input.policy.zoneId).toInstant()
         val end = date.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()
@@ -35,6 +39,11 @@ fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: In
                 sessions.any { item.sessionId in it.correctionTargetIds } ||
                     item.sourceEventIds.any { id -> eventsById[id].orEmpty().any { onDay(it.at) } } || retainedSourceOnDay(item.sessionId))
         }
+        val state = when (date) {
+            in coverage.unavailableBeforeTracking -> HistoryCoverage.BEFORE_TRACKING
+            in coverage.unknownAfterTracking -> HistoryCoverage.UNKNOWN_AFTER_TRACKING
+            else -> HistoryCoverage.COVERED
+        }
         val badges = buildList {
             input.policy.excludedDates.find { it.date == date }?.let {
                 add(if (it.reason == ExclusionReason.BANK_HOLIDAY) "HOLIDAY" else "EXCLUDED")
@@ -42,9 +51,13 @@ fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: In
             if (date in input.policy.wfhDates) add("WFH")
             if (review) add("REVIEW")
             if (sessions.any { it.manualSessionId != null || it.correctionId != null }) add("MANUAL")
-            if (!summary.hasCompleteHistory) add("UNKNOWN COVERAGE")
+            when (state) {
+                HistoryCoverage.BEFORE_TRACKING -> add("BEFORE TRACKING")
+                HistoryCoverage.UNKNOWN_AFTER_TRACKING -> add("UNKNOWN COVERAGE")
+                HistoryCoverage.COVERED -> Unit
+            }
         }
-        HistoryDay(date, summary, observed.getValue(date), badges)
+        HistoryDay(date, summary, observed.getValue(date), badges, state)
     }
 }
 

@@ -21,10 +21,14 @@ import java.time.Duration
 @Composable
 fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionActions: CorrectionActions? = null,
     eventEvidence: List<RecordedEvent> = emptyList()) {
-    var offsetDays by rememberSaveable { mutableIntStateOf(0) }
-    var selectedDay by rememberSaveable { mutableStateOf<String?>(null) }
-    var editingSessionId by rememberSaveable { mutableStateOf<String?>(null) }
-    var addingManual by rememberSaveable { mutableStateOf(false) }
+    val freshRecord = input.historyStartDate == null && input.events.isEmpty() &&
+        input.manualSessions.isEmpty() && input.corrections.isEmpty()
+    // A full privacy reset changes this key and discards stale paging/detail/browse state.
+    var offsetDays by rememberSaveable(freshRecord) { mutableIntStateOf(0) }
+    var selectedDay by rememberSaveable(freshRecord) { mutableStateOf<String?>(null) }
+    var editingSessionId by rememberSaveable(freshRecord) { mutableStateOf<String?>(null) }
+    var addingManual by rememberSaveable(freshRecord) { mutableStateOf(false) }
+    var browseBeforeTracking by rememberSaveable(freshRecord) { mutableStateOf(false) }
     if (correctionActions != null && (editingSessionId != null || addingManual)) {
         val session = result.sessions.find { it.id == editingSessionId }
         if (addingManual || session != null) {
@@ -40,20 +44,47 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
     }
     val days = remember(input, result, offsetDays) { historyDays(input, result, offsetDays) }
     val earliest = remember(input) { earliestHistoryDate(input) }
+    val beforeTracking = days.filter { it.coverage == HistoryCoverage.BEFORE_TRACKING }
+    val visibleDays = if (browseBeforeTracking) days else days - beforeTracking.toSet()
+    val needsReview = days.filter { it.coverage != HistoryCoverage.BEFORE_TRACKING &&
+        (it.coverage == HistoryCoverage.UNKNOWN_AFTER_TRACKING || "REVIEW" in it.badges) }
+    val hasAttendance = input.events.isNotEmpty() || input.manualSessions.isNotEmpty() || input.corrections.isNotEmpty()
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Text("Every total comes from your local record.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-        if (correctionActions != null) OutlinedButton(onClick = { addingManual = true }) { Text("Add manual attendance") }
-        Text("${days.last().date} – ${days.first().date} · ${input.policy.zoneId.id}", Modifier.testTag("history_range"), style = MaterialTheme.typography.bodyMedium)
-        if (input.events.isEmpty() && input.manualSessions.isEmpty())
-            Notice("No attendance recorded yet", "Expected days still appear below. Unknown coverage is not proof that you were absent.")
-        if (days.any { !it.summary.hasCompleteHistory })
+        if (freshRecord)
+            Notice("No attendance recorded yet", "History begins when attendance is captured. Earlier dates were not tracked and need no review.")
+        if (needsReview.isNotEmpty()) {
+            Text("${needsReview.size} ${if (needsReview.size == 1) "day needs review or has" else "days need review or have"} unknown coverage since tracking began.",
+                Modifier.testTag("history_review_alert"), style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick = { selectedDay = needsReview.first().date.toString() },
+                modifier = Modifier.fillMaxWidth().testTag("history_review_action")) { Text("Review ${needsReview.first().date}") }
+        }
+        if (correctionActions != null) {
+            Text("Optional: add attendance you remember. This does not imply that other earlier days were captured.",
+                style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+            OutlinedButton(onClick = { addingManual = true }) { Text("Add manual attendance") }
+        }
+        if (visibleDays.isNotEmpty())
+            Text("${days.last().date} – ${days.first().date} · ${input.policy.zoneId.id}", Modifier.testTag("history_range"), style = MaterialTheme.typography.bodyMedium)
+        if (days.any { it.coverage == HistoryCoverage.UNKNOWN_AFTER_TRACKING })
             Text("Recorded credit is provisional on days with unknown coverage. A balance is shown only for complete history.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+        if (beforeTracking.isNotEmpty() && !browseBeforeTracking)
+            OutlinedButton(onClick = { browseBeforeTracking = true }, modifier = Modifier.fillMaxWidth().testTag("history_browse_before")) {
+                Text("Browse ${beforeTracking.size} earlier ${if (beforeTracking.size == 1) "date" else "dates"} before tracking")
+            }
+        if (browseBeforeTracking && beforeTracking.isNotEmpty())
+            Text("Before tracking · these dates were not captured and need no review. Add attendance only if you choose.",
+                Modifier.testTag("history_before_explanation"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         if (offsetDays > 0) OutlinedButton(onClick = { offsetDays = (offsetDays - HISTORY_PAGE_DAYS).coerceAtLeast(0) }, modifier = Modifier.fillMaxWidth()) { Text("Newer 14 days") }
-        days.forEach { day ->
+        visibleDays.forEach { day ->
             Panel {
                 Text(day.date.format(DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")), Modifier.testTag("history_date_${day.date}"), style = MaterialTheme.typography.titleMedium)
                 // Vertical badges remain readable at large font sizes and never rely on color.
                 day.badges.forEach { Tag(it, warm = it == "REVIEW") }
+                if (day.coverage == HistoryCoverage.BEFORE_TRACKING) {
+                    Text("No attendance was captured for this date. No attendance coverage review is required.",
+                        style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+                } else {
                 Column(Modifier.testTag("history_credit_${day.date}").semantics(mergeDescendants = true) {}) {
                     MetricRow("Recorded credit", minutesText(day.summary.creditedMinutes))
                 }
@@ -76,6 +107,7 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
                 }
                 Column(Modifier.testTag("history_balance_${day.date}").semantics(mergeDescendants = true) {}) {
                     MetricRow("Balance", if (day.summary.hasCompleteHistory) balanceText(day.summary.balanceMinutes) else "Unknown", true)
+                }
                 }
                 OutlinedButton(onClick = { selectedDay = day.date.toString() }) { Text("Explain ${day.date}") }
             }

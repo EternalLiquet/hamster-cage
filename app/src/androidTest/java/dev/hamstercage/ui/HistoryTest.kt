@@ -42,13 +42,26 @@ class HistoryTest {
         }
     }
 
-    @Test fun emptyHistoryShowsExpectedZeroWithUnknownBalanceAtLargeText() {
+    @Test fun emptyHistoryOffersOptionalBrowseWithoutAReviewListAtLargeText() {
         show(source(), 2f)
         compose.onNodeWithText("No attendance recorded yet").assertIsDisplayed()
+        compose.onNodeWithTag("history_review_alert").assertDoesNotExist()
+        compose.onNodeWithTag("history_date_$today").assertDoesNotExist()
+        compose.onNodeWithTag("history_browse_before").performScrollTo().performClick()
         compose.onNodeWithTag("history_date_$today").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("history_credit_$today").performScrollTo().assertTextContains("0m")
-        compose.onNodeWithTag("history_required_$today").performScrollTo().assertTextContains("6h 0m")
-        compose.onNodeWithTag("history_balance_$today").performScrollTo().assertTextContains("Unknown")
+        compose.onNodeWithTag("history_before_explanation").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("history_required_$today").assertDoesNotExist()
+    }
+
+    @Test fun capturedDayIsPrimaryAndLaterGapPromptsReview() {
+        val entered = source().copy(events = listOf(RawEvent("enter", office.id, Transition.ENTER, now.minusSeconds(2 * 86400L + 3600)),
+            RawEvent("exit", office.id, Transition.EXIT, now.minusSeconds(2 * 86400L))),
+            unknownDates = setOf(today.minusDays(1)))
+        show(entered)
+        compose.onNodeWithTag("history_review_alert").performScrollTo().assertTextContains("review or have unknown coverage", substring = true)
+        compose.onNodeWithTag("history_review_action").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("history_date_${today.minusDays(3)}").assertDoesNotExist()
+        compose.onNodeWithTag("history_date_${today.minusDays(1)}").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun largeHistoryRendersOnlyFourteenDaysAndPagesToOlderSource() {
