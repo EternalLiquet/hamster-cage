@@ -135,15 +135,26 @@ class ForegroundReconciliation(private val context: Context,
             val observedAt = Instant.ofEpochMilli(fix.time)
             val age = SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos
             val wallAge = now.toEpochMilli() - fix.time
-            if (age !in 0..30_000_000_000L || wallAge !in 0..30_000L)
+            val accuracy = fix.accuracy.takeIf { fix.hasAccuracy() && it.isFinite() && it in 0f..10000f }
+            if (age !in 0..30_000_000_000L || wallAge !in 0..30_000L) {
+                MonitoringStore.record(application, "Stale location; retry later", accuracyMeters = accuracy)
                 return@withLock ReconcileOutcome.STALE
+            }
             if (!fix.hasAccuracy()) return@withLock ReconcileOutcome.INACCURATE
             val coverage = CoverageStore.state(application).first()
             recoveryObservationGate(coverage, observedAt, requestedAt, now, state.snapshot.policy.zoneId)
                 ?.let { return@withLock it }
             val (outcome, office) = decidePresence(state.snapshot.offices, fix.latitude,
                 fix.longitude, fix.accuracy, wallAge)
-            if (office == null) return@withLock outcome
+            if (office == null) {
+                MonitoringStore.record(application, when (outcome) {
+                    ReconcileOutcome.OUTSIDE -> "Outside offices"
+                    ReconcileOutcome.UNCERTAIN_BOUNDARY, ReconcileOutcome.OVERLAPPING_OFFICES -> "Office boundary uncertain"
+                    else -> "Location not precise enough"
+                },
+                    accuracyMeters = accuracy)
+                return@withLock outcome
+            }
             // A queued transition later than this sample, or any current open session,
             // supersedes the sampled location. The write gate serializes receiver writes.
             canOpenFromObservation(state.snapshot, office.id, coverage, observedAt, now)

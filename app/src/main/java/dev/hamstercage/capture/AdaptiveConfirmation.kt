@@ -19,6 +19,7 @@ import dev.hamstercage.location.LocationSetup
 import dev.hamstercage.offices.OfficeLocationServices
 import dev.hamstercage.privacy.PrivacyResetState
 import dev.hamstercage.privacy.PrivacyResetStore
+import java.security.MessageDigest
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
@@ -33,17 +34,33 @@ internal object AdaptiveConfirmation {
     private const val ID = "event-id"
     private const val OFFICE = "office-id"
     private const val GENERATION = "generation"
-    private const val VERSION = "office-version"
+    private const val FINGERPRINT = "batch-versions"
 
-    data class Candidate(val eventId: String, val officeId: String, val generation: Long, val officeVersion: Long)
+    data class Candidate(val eventId: String, val officeId: String, val generation: Long,
+        val versionsFingerprint: String)
+    data class DeliveryBatch(val events: List<RecordedEvent>, val representative: RecordedEvent)
 
-    fun schedule(context: Context, event: RecordedEvent, generation: Long, officeVersion: Long) {
+    fun selectDelivery(observations: List<RecordedEvent>, inserted: Set<String>,
+        snapshot: AppSnapshot): DeliveryBatch? {
+        val eligible = observations.filter { observation -> observation.event.id in inserted &&
+            snapshot.offices.any { it.id == observation.event.officeId &&
+                it.enabled && it.countsTowardAttendance } }
+        val latest = eligible.maxByOrNull { it.event.id } ?: return null
+        return if (confirmableCandidate(snapshot.eventEvidence, latest.event.id, latest.event.officeId))
+            DeliveryBatch(eligible, latest) else null
+    }
+
+    suspend fun schedule(context: Context, event: RecordedEvent, generation: Long,
+        versionsFingerprint: String) {
         val input = Data.Builder().putString(ID, event.event.id).putString(OFFICE, event.event.officeId)
-            .putLong(GENERATION, generation).putLong(VERSION, officeVersion).build()
+            .putLong(GENERATION, generation).putString(FINGERPRINT, versionsFingerprint).build()
         val request = OneTimeWorkRequestBuilder<AdaptiveConfirmationWorker>()
-            .setInputData(input).setInitialDelay(DELAY_SECONDS, TimeUnit.SECONDS).addTag(TAG).build()
-        WorkManager.getInstance(context).enqueueUniqueWork("$TAG:${event.event.officeId}",
-            ExistingWorkPolicy.REPLACE, request)
+            .setInputData(input).setInitialDelay(DELAY_SECONDS, TimeUnit.SECONDS)
+            .addTag(TAG).addTag("candidate:${event.event.id}").build()
+        // The receiver gate serializes calls. Awaiting WorkManager's commit prevents
+        // a delayed old enqueue from replacing the newer candidate out of order.
+        WorkManager.getInstance(context).enqueueUniqueWork(TAG, ExistingWorkPolicy.REPLACE, request)
+            .result.get(3, TimeUnit.SECONDS)
     }
 
     fun cancelAll(context: Context) { WorkManager.getInstance(context).cancelAllWorkByTag(TAG) }
@@ -52,10 +69,21 @@ internal object AdaptiveConfirmation {
         val id = data.getString(ID) ?: return null
         val office = data.getString(OFFICE) ?: return null
         val generation = data.getLong(GENERATION, -1)
-        val version = data.getLong(VERSION, -1)
-        return if (id.isBlank() || office.isBlank() || generation < 0 || version < 0) null
-            else Candidate(id, office, generation, version)
+        val fingerprint = data.getString(FINGERPRINT) ?: return null
+        return if (id.isBlank() || office.isBlank() || generation < 0 || fingerprint.length != 64) null
+            else Candidate(id, office, generation, fingerprint)
     }
+
+    fun batch(events: List<RecordedEvent>, candidateId: String): List<RecordedEvent> {
+        val candidate = events.singleOrNull { it.event.id == candidateId } ?: return emptyList()
+        return events.filter { it.source == "PLAY_SERVICES_GEOFENCE" &&
+            it.event.at == candidate.event.at && it.receivedAt == candidate.receivedAt &&
+            it.event.transition == candidate.event.transition }.sortedBy { it.event.officeId }
+    }
+
+    fun fingerprint(versions: Map<String, Long>): String = MessageDigest.getInstance("SHA-256")
+        .digest(versions.toSortedMap().entries.joinToString("|") { "${it.key}:${it.value}" }
+            .toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }
 
 /** A newer observation supersedes the candidate, including one from another office. */
@@ -70,22 +98,47 @@ internal fun canRequestAdaptiveFix(setup: LocationSetup, enabled: Boolean, priva
     registration: RegistrationStatus): Boolean = enabled && privacyIdle && setup.prerequisitesReady &&
     registration == RegistrationStatus.ACTIVE
 
-internal fun adaptiveFacts(candidateOfficeId: String, confirmedOfficeId: String?,
+/** All worker gates are checked again under the write mutex after the location request. */
+internal fun eligibleAdaptiveBatch(snapshot: AppSnapshot, candidate: AdaptiveConfirmation.Candidate,
+    versions: Map<String, Long>, currentGeneration: Long, monitoringEnabled: Boolean,
+    privacyIdle: Boolean, setup: LocationSetup, coverage: CoverageLedger): List<RecordedEvent>? {
+    if (candidate.generation != currentGeneration ||
+        !canRequestAdaptiveFix(setup, monitoringEnabled, privacyIdle, coverage.registration) ||
+        coverage.outageStartedAt != null) return null
+    val batch = AdaptiveConfirmation.batch(snapshot.eventEvidence, candidate.eventId)
+    if (batch.isEmpty() || batch.any { event -> snapshot.offices.none { office ->
+            office.id == event.event.officeId && office.enabled && office.countsTowardAttendance } } ||
+        AdaptiveConfirmation.fingerprint(versions) != candidate.versionsFingerprint ||
+        !confirmableCandidate(snapshot.eventEvidence, candidate.eventId, candidate.officeId)) return null
+    return batch
+}
+
+internal fun adaptiveFacts(candidateOfficeIds: List<String>, confirmedOfficeId: String?,
     observedAt: Instant, receivedAt: Instant, accuracyMeters: Float,
     recoveryPresence: Boolean = false,
     newId: () -> String = HamsterRepository::newId): List<RecordedEvent> = buildList {
-    if (confirmedOfficeId != candidateOfficeId) add(RecordedEvent(RawEvent(newId(), candidateOfficeId,
-        Transition.ABSENCE, observedAt), receivedAt, observedAt, "ADAPTIVE_LOCATION_CONFIRMATION", accuracyMeters))
+    candidateOfficeIds.distinct().filter { it != confirmedOfficeId }.forEach { candidateOfficeId ->
+        add(RecordedEvent(RawEvent(newId(), candidateOfficeId, Transition.ABSENCE, observedAt),
+            receivedAt, observedAt, "ADAPTIVE_LOCATION_CONFIRMATION", accuracyMeters))
+    }
     if (confirmedOfficeId != null) add(RecordedEvent(RawEvent(newId(), confirmedOfficeId,
         Transition.PRESENCE, observedAt), receivedAt, observedAt,
         if (recoveryPresence) "ADAPTIVE_RECOVERY_CONFIRMATION" else "ADAPTIVE_LOCATION_CONFIRMATION", accuracyMeters))
 }
 
+internal fun adaptiveFacts(candidateOfficeId: String, confirmedOfficeId: String?,
+    observedAt: Instant, receivedAt: Instant, accuracyMeters: Float,
+    recoveryPresence: Boolean = false,
+    newId: () -> String = HamsterRepository::newId): List<RecordedEvent> =
+    adaptiveFacts(listOf(candidateOfficeId), confirmedOfficeId, observedAt, receivedAt,
+        accuracyMeters, recoveryPresence, newId)
+
 /** An old visit spanning registration recovery cannot be confirmed retroactively. */
 internal fun requiresAdaptiveRecoverySplit(snapshot: AppSnapshot, coverage: CoverageLedger,
     candidateId: String, officeId: String, now: Instant): Boolean {
-    val old = snapshot.derive(now).sessions.firstOrNull { it.officeId == officeId &&
-        candidateId in it.sourceEventIds && it.manualSessionId == null } ?: return false
+    val sessions = snapshot.derive(now).sessions.filter { it.officeId == officeId && it.manualSessionId == null }
+    val old = sessions.firstOrNull { candidateId in it.sourceEventIds }
+        ?: sessions.firstOrNull { it.isOpen } ?: return false
     val start = old.start ?: return false
     val boundary = coverage.recoveryBoundaryAt ?: return true
     return start < boundary || snapshot.events.any { it.officeId != officeId &&
@@ -95,7 +148,8 @@ internal fun requiresAdaptiveRecoverySplit(snapshot: AppSnapshot, coverage: Cove
 /** WorkManager may start later under Doze; a late fix only establishes state at its own time. */
 class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val (id, officeId, generation, officeVersion) = AdaptiveConfirmation.candidate(inputData) ?: return Result.success()
+        val candidate = AdaptiveConfirmation.candidate(inputData) ?: return Result.success()
+        val (id, officeId, generation) = candidate
         val context = applicationContext
         val repository = HamsterRepository.get(context)
         val reset = PrivacyResetStore.read(context)
@@ -118,9 +172,10 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             return Result.success()
         }
         val initial = repository.state.first() as? StorageState.Ready ?: return Result.success()
-        if (initial.snapshot.offices.none { it.id == officeId && it.enabled && it.countsTowardAttendance } ||
-            repository.officeVersion(officeId) != officeVersion ||
-            !confirmableCandidate(initial.snapshot.eventEvidence, id, officeId)) return Result.success()
+        val initialBatch = AdaptiveConfirmation.batch(initial.snapshot.eventEvidence, id)
+        if (eligibleAdaptiveBatch(initial.snapshot, candidate,
+                repository.officeVersions(initialBatch.map { it.event.officeId }), reset.generation,
+                MonitoringStore.read(context).enabled, true, setup, initialCoverage) == null) return Result.success()
         val requestedAt = Instant.now()
         val fix = try { OfficeLocationServices(context).captureFix(freshAfterRequest = true) }
         catch (cancelled: CancellationException) { throw cancelled }
@@ -134,35 +189,37 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             if (currentReset !is PrivacyResetState.Idle || currentReset.generation != generation)
                 return@withLock
             val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot ?: return@withLock
-            if (snapshot.offices.none { it.id == officeId && it.enabled && it.countsTowardAttendance } ||
-                repository.officeVersion(officeId) != officeVersion ||
-                !confirmableCandidate(snapshot.eventEvidence, id, officeId)) return@withLock
+            val batch = AdaptiveConfirmation.batch(snapshot.eventEvidence, id)
             val coverage = CoverageStore.state(context).first()
-            if (!canRequestAdaptiveFix(LocationPermissions.read(context),
-                    MonitoringStore.read(context).enabled, true, coverage.registration) ||
-                coverage.outageStartedAt != null) return@withLock
+            if (eligibleAdaptiveBatch(snapshot, candidate,
+                    repository.officeVersions(batch.map { it.event.officeId }), currentReset.generation,
+                    MonitoringStore.read(context).enabled, true, LocationPermissions.read(context),
+                    coverage) == null) return@withLock
             val wallAge = now.toEpochMilli() - fix.time
             val age = SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos
+            val accuracy = fix.accuracy.takeIf { fix.hasAccuracy() && it.isFinite() && it in 0f..10000f }
             if (fix.time < requestedAt.toEpochMilli() || wallAge !in 0..30_000 ||
                 age !in 0..30_000_000_000L || !fix.hasAccuracy()) {
-                MonitoringStore.record(context, "Boundary check stale or inaccurate")
+                MonitoringStore.record(context, "Boundary check stale or inaccurate", accuracyMeters = accuracy)
                 return@withLock
             }
             val (outcome, office) = decidePresence(snapshot.offices, fix.latitude, fix.longitude,
                 fix.accuracy, wallAge)
             if (outcome !in setOf(ReconcileOutcome.CONFIRMED, ReconcileOutcome.OUTSIDE)) {
                 MonitoringStore.record(context, if (outcome in setOf(ReconcileOutcome.UNCERTAIN_BOUNDARY,
-                        ReconcileOutcome.OVERLAPPING_OFFICES)) "Office boundary uncertain" else "Location not precise enough")
+                        ReconcileOutcome.OVERLAPPING_OFFICES)) "Office boundary uncertain" else "Location not precise enough",
+                    accuracyMeters = accuracy)
                 return@withLock
             }
             val observedAt = Instant.ofEpochMilli(fix.time)
-            val recovery = office?.id == officeId && requiresAdaptiveRecoverySplit(snapshot,
-                coverage, id, officeId, now)
-            val facts = adaptiveFacts(officeId, office?.id, observedAt, now, fix.accuracy,
+            val recovery = office != null && requiresAdaptiveRecoverySplit(snapshot,
+                coverage, id, office.id, now)
+            val facts = adaptiveFacts(batch.map { it.event.officeId }, office?.id, observedAt, now, fix.accuracy,
                 recoveryPresence = recovery)
             repository.appendRawEvents(facts)
             CoverageStore.change(context) { it.observed(observedAt) }
-            MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", observedAt)
+            MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", observedAt,
+                fix.accuracy)
         } } } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Boundary check unavailable; retry from the app") }
         return Result.success()

@@ -102,6 +102,25 @@ class ForegroundReconciliationTest {
         assertEquals(0, result.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
     }
 
+    @Test fun rawOtherOfficeEnterDoesNotEraseUnconfirmedFirstOfficeExit() {
+        val b = office.copy(id = "two", name = "B", latitude = 40.0)
+        val facts = listOf(event("a-in", Transition.ENTER, observed.minusSeconds(600)),
+            event("a-out", Transition.EXIT, observed),
+            event("b-in", Transition.ENTER, observed.plusSeconds(30), b.id))
+        val rawOnly = snapshot(facts, listOf(office, b))
+        assertEquals(setOf("a-out"), rawOnly.input(observed.plusSeconds(60)).unconfirmedExitIds)
+        assertEquals(1, rawOnly.derive(observed.plusSeconds(60)).reviews.count {
+            it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        val confirmedB = snapshot(facts + RecordedEvent(RawEvent("b-fix", b.id, Transition.PRESENCE,
+            observed.plusSeconds(60)), observed.plusSeconds(60), observed.plusSeconds(60),
+            "ADAPTIVE_LOCATION_CONFIRMATION", 10f), listOf(office, b))
+        assertEquals(emptySet<String>(), confirmedB.input(observed.plusSeconds(120)).unconfirmedExitIds)
+        val futureB = snapshot(facts + RecordedEvent(RawEvent("future-b-fix", b.id, Transition.PRESENCE,
+            observed.plusSeconds(600)), observed.plusSeconds(600), observed.plusSeconds(600),
+            "ADAPTIVE_LOCATION_CONFIRMATION", 10f), listOf(office, b))
+        assertEquals(setOf("a-out"), futureB.input(observed.plusSeconds(120)).unconfirmedExitIds)
+    }
+
     @Test fun retainedPreOutageEnterIsSplitWithoutBackdatedOrOverlappingCredit() {
         val oldAt = observed.minusSeconds(1_200)
         val zone = Policy().zoneId

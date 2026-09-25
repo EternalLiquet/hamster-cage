@@ -143,7 +143,7 @@ class OfflineJourneyHostTest {
                 nav("Dashboard"); assertTotals(Instant.now())
                 nav("History")
                 val day = session.start!!.atZone(before.policy.zoneId).toLocalDate()
-                click("Explain $day"); click("Correct ${session.id}")
+                click("Explain $day"); click("Correct session")
                 val selectedInstant = session.start!!.minusSeconds(300)
                 val selectedLocal = selectedInstant.atZone(before.policy.zoneId).toLocalDateTime()
                     .truncatedTo(ChronoUnit.MINUTES)

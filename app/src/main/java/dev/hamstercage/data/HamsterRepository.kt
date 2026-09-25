@@ -47,9 +47,20 @@ data class AppSnapshot(
             .map { it.event.id }.toSet(),
         adaptivePresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
             it.source == "ADAPTIVE_LOCATION_CONFIRMATION" }.map { it.event.id }.toSet(),
-        unconfirmedExitIds = eventEvidence.maxWithOrNull(compareBy<RecordedEvent> { it.event.at }
-            .thenBy { it.event.id })?.takeIf { it.event.transition == Transition.EXIT &&
-                it.source == "PLAY_SERVICES_GEOFENCE" }?.let { setOf(it.event.id) } ?: emptySet(),
+        unconfirmedExitIds = eventEvidence.filter { it.event.at <= now &&
+            offices.any { office -> office.id == it.event.officeId && office.enabled && office.countsTowardAttendance } }
+            .groupBy { it.event.officeId }.values.mapNotNull { officeEvidence ->
+            val latest = officeEvidence.maxWithOrNull(compareBy<RecordedEvent> { it.event.at }
+                .thenBy { it.event.id }) ?: return@mapNotNull null
+            if (latest.event.transition != Transition.EXIT || latest.source != "PLAY_SERVICES_GEOFENCE")
+                return@mapNotNull null
+            val outsideCorroboration = eventEvidence.any { other -> other.event.officeId != latest.event.officeId &&
+                other.event.at > latest.event.at && other.event.at <= now &&
+                other.event.transition == Transition.PRESENCE &&
+                other.source in setOf("ADAPTIVE_LOCATION_CONFIRMATION", "ADAPTIVE_RECOVERY_CONFIRMATION",
+                    "FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION") }
+            latest.event.id.takeUnless { outsideCorroboration }
+        }.toSet(),
         unsafeRecoveryPresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
             it.source == "ADAPTIVE_RECOVERY_CONFIRMATION" }.map { it.event.id }.toSet())
     fun derive(now: Instant) = AttendanceEngine.derive(input(now))
@@ -104,6 +115,9 @@ class HamsterRepository internal constructor(
     }
 
     suspend fun officeVersion(id: String): Long? = dao.office(id)?.version
+    suspend fun officeVersions(ids: List<String>): Map<String, Long> = ids.distinct().mapNotNull { id ->
+        dao.office(id)?.let { id to it.version }
+    }.toMap()
     suspend fun savePolicy(settings: PolicySettings, expected: PolicySettings? = null) = policyEditLock.withLock { policy.save(settings, expected) }
 
     /** Entire batch commits or rolls back. Identical replay is a no-op; conflicting IDs fail. */

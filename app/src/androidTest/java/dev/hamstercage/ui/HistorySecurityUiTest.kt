@@ -27,8 +27,8 @@ class HistorySecurityUiTest {
         compose.setContent { HamsterTheme { Surface { Column(Modifier.verticalScroll(rememberScrollState())) {
             DayDetailScreen(input, AttendanceEngine.derive(input), now.atZone(input.policy.zoneId).toLocalDate(), {})
         } } } }
-        compose.onNodeWithText("Source event: raw\\u{202E}\\u{A}-id").performScrollTo().assertIsDisplayed()
-        listOf("\u202e", "0.125", "-0.25").forEach { compose.onNodeWithText(it, substring = true, useUnmergedTree = true).assertDoesNotExist() }
+        compose.onNodeWithText("EXIT · Synthetic history", substring = true).performScrollTo().assertIsDisplayed()
+        listOf("raw", "Source event:", "\u202e", "0.125", "-0.25").forEach { compose.onNodeWithText(it, substring = true, useUnmergedTree = true).assertDoesNotExist() }
         if (InstrumentationRegistry.getArguments().getString("historySecurityScreenshot") == "true") {
             File(compose.activity.cacheDir, "history-security-28.png").outputStream().use {
                 compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)

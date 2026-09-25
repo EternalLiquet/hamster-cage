@@ -45,15 +45,12 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                             ledger.observed(observations.maxOf { it.event.at })
                         }
                         val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot
-                        observations.forEach { observation ->
-                            if (observation.event.id in inserted && snapshot?.offices?.any { it.id == observation.event.officeId &&
-                                    it.enabled && it.countsTowardAttendance } == true &&
-                                confirmableCandidate(snapshot.eventEvidence, observation.event.id,
-                                    observation.event.officeId)) {
-                                repository.officeVersion(observation.event.officeId)?.let { version ->
-                                    AdaptiveConfirmation.schedule(application, observation, reset.generation, version)
-                                }
-                            }
+                        val delivery = snapshot?.let { AdaptiveConfirmation.selectDelivery(observations,
+                            inserted, it) }
+                        if (delivery != null) {
+                            val versions = repository.officeVersions(delivery.events.map { it.event.officeId })
+                            if (versions.size == delivery.events.size) AdaptiveConfirmation.schedule(application,
+                                delivery.representative, reset.generation, AdaptiveConfirmation.fingerprint(versions))
                         }
                         CaptureHealthStore.setDeliveryFailure(application, false)
                         CaptureHealth.deliverySucceeded()
