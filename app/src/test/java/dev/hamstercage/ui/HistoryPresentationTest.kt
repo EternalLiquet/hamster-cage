@@ -130,6 +130,29 @@ class HistoryPresentationTest {
         assertTrue("REVIEW" in page[1].badges)
     }
 
+    @Test fun rejectedSourceFindingsRemainActionableWithoutReliableTrackingStart() {
+        val raw = input().copy(historyStartDate = null, events = listOf(
+            RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(3600)),
+            RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(86400 + 3600))))
+        val rawPage = days(raw)
+        assertTrue(rawPage.take(2).all { it.coverage == HistoryCoverage.BEFORE_TRACKING && "REVIEW" in it.badges })
+        assertEquals(listOf(today, today.minusDays(1)), historyVisibleDays(rawPage, false).map { it.date })
+        assertEquals(listOf(today, today.minusDays(1)), historyNeedsReview(rawPage).map { it.date })
+
+        val invalidManual = input().copy(historyStartDate = null,
+            manualSessions = listOf(ManualSession("bad", office.id, now.minusSeconds(3600), now.minusSeconds(7200), now)))
+        val manualPage = days(invalidManual)
+        assertEquals(HistoryCoverage.BEFORE_TRACKING, manualPage.first().coverage)
+        assertEquals(listOf(today), historyNeedsReview(manualPage).map { it.date })
+        assertEquals(listOf(today), historyVisibleDays(manualPage, false).map { it.date })
+
+        val orphan = input().copy(historyStartDate = null, corrections = listOf(
+            Correction("orphan", "missing", now.minusSeconds(86400 + 3600), now.minusSeconds(86400), now)))
+        val orphanPage = days(orphan)
+        assertEquals(listOf(today, today.minusDays(1)), historyNeedsReview(orphanPage).map { it.date })
+        assertEquals(listOf(today, today.minusDays(1)), historyVisibleDays(orphanPage, false).map { it.date })
+    }
+
     @Test fun firstObservedDayStartsHistoryButOlderDaysDoNotNeedReview() {
         val source = input().copy(historyStartDate = null, policy = Policy(zoneId = ZoneId.of("UTC")),
             events = listOf(RawEvent("enter", office.id, Transition.ENTER, now.minusSeconds(3600))))

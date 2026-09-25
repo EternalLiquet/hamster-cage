@@ -10,6 +10,17 @@ enum class HistoryCoverage { COVERED, BEFORE_TRACKING, UNKNOWN_AFTER_TRACKING }
 data class HistoryDay(val date: LocalDate, val summary: PeriodSummary, val observedMinutes: Double,
                       val badges: List<String>, val coverage: HistoryCoverage)
 
+/** A source finding remains actionable even when no reliable tracking start can be established. */
+fun historyNeedsReview(days: List<HistoryDay>): List<HistoryDay> = days.filter {
+    "REVIEW" in it.badges || it.coverage == HistoryCoverage.UNKNOWN_AFTER_TRACKING
+}
+
+/** Only empty pretracking dates are collapsed; retained problem facts never disappear. */
+fun historyVisibleDays(days: List<HistoryDay>, browseBeforeTracking: Boolean): List<HistoryDay> =
+    if (browseBeforeTracking) days else days.filter {
+        it.coverage != HistoryCoverage.BEFORE_TRACKING || "REVIEW" in it.badges
+    }
+
 /** Bounded presentation only. Totals and policy-local date clipping belong to the shared engine. */
 fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: Int = 0): List<HistoryDay> {
     require(offsetDays >= 0)
