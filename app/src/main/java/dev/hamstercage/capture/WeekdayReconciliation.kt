@@ -55,13 +55,17 @@ internal fun canRequestReconciliationFix(now: Instant, zone: ZoneId, enabled: Bo
 internal fun reconciliationFacts(snapshot: AppSnapshot, coverage: CoverageLedger, now: Instant,
     fixAt: Instant, officeId: String?, accuracyMeters: Float? = null): List<RecordedEvent> {
     val open = snapshot.derive(now).sessions.filter { it.isOpen && it.manualSessionId == null }
-    val absent = open.filter { it.officeId != officeId }.map { it.officeId }.distinct()
+    // An EXIT can close the derived session before confirmation arrives. A later
+    // decisive outside fix must still resolve that final uncertain boundary.
+    val unresolvedExits = snapshot.events.filter { it.id in snapshot.input(now).unconfirmedExitIds }
+        .map { it.officeId }
+    val absent = (open.map { it.officeId } + unresolvedExits).filter { it != officeId }.distinct()
     val facts = absent.map { id -> RecordedEvent(RawEvent(HamsterRepository.newId(), id,
-        Transition.ABSENCE, now), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters) }.toMutableList()
-    if (officeId != null && canOpenFromObservation(snapshot, officeId, coverage, now, now) !=
+        Transition.ABSENCE, fixAt), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters) }.toMutableList()
+    if (officeId != null && canOpenFromObservation(snapshot, officeId, coverage, fixAt, now) !=
         ReconcileOutcome.ALREADY_PRESENT) {
         facts += RecordedEvent(RawEvent(HamsterRepository.newId(), officeId,
-            Transition.PRESENCE, now), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters)
+            Transition.PRESENCE, fixAt), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters)
     }
     return facts
 }
@@ -122,8 +126,9 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
             }
             val events = reconciliationFacts(snapshot, currentCoverage, now, Instant.ofEpochMilli(fix.time), office?.id, fix.accuracy)
             if (events.isNotEmpty()) repository.appendRawEvents(events)
-            CoverageStore.change(context) { it.observed(now) }
-            MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", now,
+            val observedAt = Instant.ofEpochMilli(fix.time)
+            CoverageStore.change(context) { it.observed(observedAt) }
+            MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", observedAt,
                 fix.accuracy)
         } } } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Check unavailable; open app to retry") }

@@ -58,15 +58,91 @@ class WeekdayReconciliationTest {
 
     @Test fun missedEnterStartsAtCheckAndDuplicateChecksDoNotAddFacts() {
         val check = time("2026-09-28T14:00:00Z")
-        val first = reconciliationFacts(snapshot(), ledger(check.minusSeconds(60)), check, check, office.id)
+        val receipt = check.plusSeconds(20)
+        val first = reconciliationFacts(snapshot(), ledger(check.minusSeconds(60)), receipt, check, office.id)
         assertEquals(1, first.size)
         assertEquals(Transition.PRESENCE, first.single().event.transition)
         assertEquals(check, first.single().event.at)
+        assertEquals(check, first.single().observedLocationAt)
+        assertEquals(receipt, first.single().receivedAt)
         val saved = snapshot(first.single().event)
         assertEquals(0, reconciliationFacts(saved, ledger(check), check.plusSeconds(1800),
             check.plusSeconds(1800), office.id).size)
         val result = saved.derive(check.plusSeconds(360))
         assertEquals(check.plusSeconds(300), result.intervals.single().start)
+    }
+
+    @Test fun outsideFixResolvesUnconfirmedFinalExitWithoutAddingCreditOrNewReview() {
+        val enter = RawEvent("enter", office.id, Transition.ENTER, time("2026-09-28T13:00:00Z"))
+        val exit = RawEvent("exit", office.id, Transition.EXIT, time("2026-09-28T14:00:00Z"))
+        val fixAt = time("2026-09-28T14:29:45Z")
+        val receipt = fixAt.plusSeconds(15)
+        val before = snapshot(enter, exit)
+        val pending = before.derive(receipt)
+        assertEquals(1, pending.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        val facts = reconciliationFacts(before, ledger(exit.at), receipt, fixAt, null, 12f)
+        assertEquals(listOf(office.id to Transition.ABSENCE),
+            facts.map { it.event.officeId to it.event.transition })
+        assertEquals(fixAt, facts.single().event.at)
+        assertEquals(fixAt, facts.single().observedLocationAt)
+        assertEquals(receipt, facts.single().receivedAt)
+        assertEquals(12f, facts.single().accuracyMeters!!, 0f)
+        val saved = before.copy(eventEvidence = before.eventEvidence + facts)
+        assertEquals(listOf(enter, exit), saved.events.take(2))
+        val resolved = saved.derive(receipt)
+        assertTrue(resolved.reviews.none { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        assertEquals(pending.intervals.sumOf { it.minutes }, resolved.intervals.sumOf { it.minutes }, 0.0)
+        assertEquals(0, reconciliationFacts(saved, ledger(fixAt), fixAt.plusSeconds(1800),
+            fixAt.plusSeconds(1800), null).size)
+    }
+
+    @Test fun insideOtherOfficeConfirmsPriorExitAndStartsOnlyAtNewFixTime() {
+        val enter = RawEvent("enter-a", office.id, Transition.ENTER, time("2026-09-28T13:00:00Z"))
+        val exit = RawEvent("exit-a", office.id, Transition.EXIT, time("2026-09-28T14:00:00Z"))
+        val fixAt = time("2026-09-28T14:30:00Z")
+        val before = snapshot(enter, exit)
+        val facts = reconciliationFacts(before, ledger(exit.at), fixAt.plusSeconds(10), fixAt, second.id)
+        assertEquals(setOf(office.id to Transition.ABSENCE, second.id to Transition.PRESENCE),
+            facts.map { it.event.officeId to it.event.transition }.toSet())
+        assertTrue(facts.all { it.event.at == fixAt })
+        val saved = before.copy(eventEvidence = before.eventEvidence + facts)
+        val result = saved.derive(fixAt.plusSeconds(360))
+        assertTrue(result.reviews.none { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        assertEquals(fixAt, result.sessions.single { it.officeId == second.id }.start)
+        assertEquals(fixAt.plusSeconds(300), result.intervals.last().start)
+        assertEquals(result.intervals.sumOf { it.minutes },
+            dev.hamstercage.domain.AttendanceEngine.daily(saved.input(fixAt.plusSeconds(360)), result,
+                fixAt.atZone(zone).toLocalDate()).creditedMinutes, 0.0)
+    }
+
+    @Test fun falseFinalExitCannotLeaveCreditStoppedAfterLaterInsideCheck() {
+        val enter = RawEvent("enter", office.id, Transition.ENTER, time("2026-09-28T13:00:00Z"))
+        val exit = RawEvent("exit", office.id, Transition.EXIT, time("2026-09-28T14:00:00Z"))
+        val fixAt = time("2026-09-28T14:30:00Z")
+        val before = snapshot(enter, exit)
+        val facts = reconciliationFacts(before, ledger(exit.at), fixAt.plusSeconds(12), fixAt, office.id)
+        assertEquals(listOf(Transition.PRESENCE), facts.map { it.event.transition })
+        assertEquals(fixAt, facts.single().event.at)
+        val saved = before.copy(eventEvidence = before.eventEvidence + facts)
+        val result = saved.derive(fixAt.plusSeconds(360))
+        assertEquals(listOf(enter, exit), saved.events.take(2))
+        assertEquals(2, result.sessions.size)
+        assertEquals(fixAt, result.sessions.last().start)
+        assertEquals(fixAt.plusSeconds(300), result.intervals.last().start)
+        assertTrue(result.intervals.none { it.start < fixAt && it.end > exit.at })
+        assertTrue(result.reviews.none { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        assertTrue(reconciliationFacts(saved, ledger(fixAt), fixAt.plusSeconds(1800),
+            fixAt.plusSeconds(1800), office.id).isEmpty())
+    }
+
+    @Test fun priorDecisiveConfirmationPreventsRepeatedFinalExitResolution() {
+        val enter = RawEvent("enter", office.id, Transition.ENTER, time("2026-09-28T13:00:00Z"))
+        val exit = RawEvent("exit", office.id, Transition.EXIT, time("2026-09-28T14:00:00Z"))
+        val confirmed = RawEvent("outside", office.id, Transition.ABSENCE, time("2026-09-28T14:01:00Z"))
+        val before = snapshotEvidence(RecordedEvent(enter, enter.at), RecordedEvent(exit, exit.at),
+            RecordedEvent(confirmed, confirmed.at, confirmed.at, "ADAPTIVE_LOCATION_CONFIRMATION", 15f))
+        val check = time("2026-09-28T14:30:00Z")
+        assertTrue(reconciliationFacts(before, ledger(check.minusSeconds(60)), check, check, null).isEmpty())
     }
 
     @Test fun missedExitClosesForReviewWithoutCreditingUnknownSpan() {
@@ -123,13 +199,16 @@ class WeekdayReconciliationTest {
         val coverage = ledger(oldAt).observed(bOut)
         val before = snapshot(old, secondIn, secondOut)
         val fix = reconciliationFacts(before, coverage, check, check, office.id)
-        assertEquals(listOf(Transition.PRESENCE), fix.map { it.event.transition })
+        assertEquals(setOf(second.id to Transition.ABSENCE, office.id to Transition.PRESENCE),
+            fix.map { it.event.officeId to it.event.transition }.toSet())
+        val presence = fix.single { it.event.transition == Transition.PRESENCE }
         val after = snapshotEvidence(RecordedEvent(old, old.at), RecordedEvent(secondIn, bIn),
-            RecordedEvent(secondOut, bOut), fix.single())
+            RecordedEvent(secondOut, bOut), *fix.toTypedArray())
         val result = after.derive(check.plusSeconds(360))
         assertEquals(3, result.sessions.size)
         assertTrue(ReviewReason.UNCONFIRMED_GAP in result.sessions.single { it.id == "session:old-a" }.reviewReasons)
-        assertEquals(check, result.sessions.single { it.id == "session:${fix.single().event.id}" }.start)
+        assertEquals(check, result.sessions.single { it.id == "session:${presence.event.id}" }.start)
         assertTrue(result.intervals.none { "session:old-a" in it.sessionIds })
+        assertTrue(result.reviews.none { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
     }
 }
