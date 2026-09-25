@@ -20,7 +20,8 @@ import java.time.Duration
 
 @Composable
 fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionActions: CorrectionActions? = null,
-    eventEvidence: List<RecordedEvent> = emptyList()) {
+    eventEvidence: List<RecordedEvent> = emptyList(), openDay: ((LocalDate) -> Unit)? = null,
+    trackingReady: Boolean = true) {
     val freshRecord = input.historyStartDate == null && input.events.isEmpty() &&
         input.manualSessions.isEmpty() && input.corrections.isEmpty()
     // A full privacy reset changes this key and discards stale paging/detail/browse state.
@@ -29,6 +30,7 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
     var editingSessionId by rememberSaveable(freshRecord) { mutableStateOf<String?>(null) }
     var addingManual by rememberSaveable(freshRecord) { mutableStateOf(false) }
     var browseBeforeTracking by rememberSaveable(freshRecord) { mutableStateOf(false) }
+    fun showDay(date: LocalDate) { if (openDay == null) selectedDay = date.toString() else openDay(date) }
     if (correctionActions != null && (editingSessionId != null || addingManual)) {
         val session = result.sessions.find { it.id == editingSessionId }
         if (addingManual || session != null) {
@@ -39,7 +41,7 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
     selectedDay?.let { day ->
         DayDetailScreen(input, result, LocalDate.parse(day), back = { selectedDay = null },
             edit = if (correctionActions == null) null else { session -> editingSessionId = session.id },
-            eventEvidence = eventEvidence)
+            eventEvidence = eventEvidence, trackingReady = trackingReady)
         return
     }
     val days = remember(input, result, offsetDays) { historyDays(input, result, offsetDays) }
@@ -64,7 +66,7 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
             }
             Text(alert,
                 Modifier.testTag("history_review_alert"), style = MaterialTheme.typography.bodyMedium)
-            OutlinedButton(onClick = { selectedDay = needsReview.first().date.toString() },
+            OutlinedButton(onClick = { showDay(needsReview.first().date) },
                 modifier = Modifier.fillMaxWidth().testTag("history_review_action")) { Text("Review ${needsReview.first().date}") }
         }
         if (correctionActions != null) {
@@ -120,7 +122,7 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
                     MetricRow("Balance", if (day.summary.hasCompleteHistory) balanceText(day.summary.balanceMinutes) else "Unknown", true)
                 }
                 }
-                OutlinedButton(onClick = { selectedDay = day.date.toString() }) { Text("Explain ${day.date}") }
+                OutlinedButton(onClick = { showDay(day.date) }) { Text("Explain ${day.date}") }
             }
         }
         if (days.last().date > earliest && offsetDays <= Int.MAX_VALUE - HISTORY_PAGE_DAYS)

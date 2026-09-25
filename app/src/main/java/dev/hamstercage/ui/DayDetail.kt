@@ -17,8 +17,10 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: LocalDate, back: () -> Unit,
-    edit: ((Session) -> Unit)? = null, eventEvidence: List<RecordedEvent> = emptyList()) {
+    edit: ((Session) -> Unit)? = null, eventEvidence: List<RecordedEvent> = emptyList(),
+    backLabel: String = "Back to daily history", trackingReady: Boolean = true) {
     val detail = remember(input, result, date) { explainDay(input, result, date) }
+    val timeline = remember(input, detail) { dayTimeline(input, detail) }
     val beforeTracking = remember(input, result, date) {
         date in AttendanceEngine.reportingCoverage(input, result, date, date).unavailableBeforeTracking
     }
@@ -27,7 +29,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
     fun at(time: Instant?) = time?.atZone(input.policy.zoneId)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) ?: "Missing boundary"
     fun office(id: String) = evidenceText(offices[id]?.name ?: "Unknown office")
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
-        OutlinedButton(onClick = back) { Text("Back to daily history") }
+        OutlinedButton(onClick = back) { Text(backLabel) }
         Text("Explain $date", style = MaterialTheme.typography.headlineSmall)
         Text("${input.policy.zoneId.id} · evaluated ${at(input.now)}", style = MaterialTheme.typography.bodyMedium)
         Panel {
@@ -42,6 +44,39 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                 Text(detail.denominator)
                 if (!detail.summary.hasCompleteHistory) Notice("Unknown coverage", "The recorded credit is provisional. Missing history is not proof of zero attendance.")
                 Text("These are the same daily engine totals used by Dashboard and History. Overlapping intervals count only once.")
+            }
+        }
+        if (date == input.now.atZone(input.policy.zoneId).toLocalDate() && !beforeTracking) {
+            val departure = AttendanceEngine.departure(input, result, TargetWindow.TODAY)
+            Panel {
+                Text(todayLeaveText(departure, trackingReady, input.now, input.policy.zoneId),
+                    Modifier.testTag("detail_leave"), style = MaterialTheme.typography.titleMedium)
+                Text("Today's ${minutesText(detail.summary.requiredMinutes.toDouble())} target. The estimate can change as observations arrive; office-area exit and building exit may differ.")
+            }
+        }
+        Text("Office-area timeline", style = MaterialTheme.typography.titleLarge)
+        if (timeline.isEmpty()) Text(if (beforeTracking)
+            "Tracking had not begun on this date. No attendance was expected from the app's record."
+            else "No office-area session was recorded for this date. Missing coverage is unknown, not confirmed absence.",
+            Modifier.testTag("day_timeline_empty"))
+        val offeredEdit = mutableSetOf<String>()
+        val shownReview = mutableSetOf<String>()
+        timeline.forEachIndexed { index, row ->
+            Panel {
+                Text("${instantText(row.at, input.policy.zoneId)} · ${row.title}",
+                    Modifier.testTag("day_timeline_$index"), style = MaterialTheme.typography.titleMedium)
+                Text(row.detail)
+                val session = detail.sessions.find { it.id == row.sessionId }
+                val reviewReasons = session?.reviewReasons?.filter {
+                    it != ReviewReason.OPEN_SESSION && it != ReviewReason.DUPLICATE_EVENT
+                }.orEmpty()
+                if (session != null && reviewReasons.isNotEmpty() && shownReview.add(session.id))
+                    Text("This session needs review. ${reviewReasons.joinToString(" ") { timelineReviewCue(it) }}")
+                if (session != null && offeredEdit.add(session.id)) edit?.let { action ->
+                    OutlinedButton(onClick = { action(session) }, modifier = Modifier.testTag("timeline_edit_${session.id}")) {
+                        Text("Review or correct this session")
+                    }
+                }
             }
         }
         EvidenceSection("Credited intervals", detail.intervals) { interval ->
