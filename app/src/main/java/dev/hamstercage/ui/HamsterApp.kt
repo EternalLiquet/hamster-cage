@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -45,6 +46,7 @@ import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.PolicySettings
 import dev.hamstercage.privacy.PrivacyResetState
 import java.time.ZoneId
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 private enum class Destination(val label: String, val description: String) {
@@ -76,6 +78,9 @@ fun HamsterApp(
     privacyActions: PrivacyActions? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
+    var detailDate by rememberSaveable(privacyState.generation) { mutableStateOf<String?>(null) }
+    var detailEditSessionId by rememberSaveable(privacyState.generation) { mutableStateOf<String?>(null) }
+    val pageState = rememberSaveableStateHolder()
     val selected = Destination.valueOf(selectedName)
     val now = rememberVisibleNow(timeSource, enabled = selected == Destination.DASHBOARD ||
         selected == Destination.HISTORY || selected == Destination.SETTINGS)
@@ -94,7 +99,7 @@ fun HamsterApp(
                         Row(horizontalArrangement = Arrangement.spacedBy(CageStyle.Small)) {
                             pair.forEach { destination ->
                                 FilledTonalButton(
-                                    onClick = { selectedName = destination.name },
+                                    onClick = { selectedName = destination.name; detailDate = null; detailEditSessionId = null },
                                     modifier = Modifier.weight(1f).defaultMinSize(minHeight = CageStyle.TouchTarget)
                                         .semantics { this.selected = selected == destination },
                                     contentPadding = PaddingValues(CageStyle.Small),
@@ -114,7 +119,7 @@ fun HamsterApp(
                     Destination.entries.forEach { destination ->
                         NavigationBarItem(
                             selected = selected == destination,
-                            onClick = { selectedName = destination.name },
+                            onClick = { selectedName = destination.name; detailDate = null; detailEditSessionId = null },
                             icon = { DestinationIcon(when (destination) {
                                 Destination.DASHBOARD -> 0
                                 Destination.HISTORY -> 1
@@ -174,10 +179,22 @@ fun HamsterApp(
                                     unknownDates = coverage?.unreviewedUnknownDates.orEmpty())
                             }
                             val result = remember(input) { AttendanceEngine.derive(input) }
-                            if (selected == Destination.HISTORY) key(privacyState.generation) {
-                                HistoryScreen(input, result, correctionActions, snapshot.eventEvidence)
-                            }
-                            else {
+                            val editing = result.sessions.find { it.id == detailEditSessionId }
+                            if (editing != null && correctionActions != null) {
+                                CorrectionEditor(input, editing, correctionActions) { detailEditSessionId = null }
+                            } else if (detailDate != null) {
+                                DayDetailScreen(input, result, LocalDate.parse(detailDate),
+                                    back = { detailDate = null; detailEditSessionId = null },
+                                    edit = if (correctionActions == null) null else { session -> detailEditSessionId = session.id },
+                                    eventEvidence = snapshot.eventEvidence,
+                                    backLabel = if (selected == Destination.DASHBOARD) "Back to Dashboard" else "Back to History",
+                                    trackingReady = effectiveTrackingReady)
+                            } else if (selected == Destination.HISTORY) key(privacyState.generation) {
+                                pageState.SaveableStateProvider("history-${privacyState.generation}") {
+                                    HistoryScreen(input, result, correctionActions, snapshot.eventEvidence,
+                                        openDay = { date -> detailDate = date.toString() }, trackingReady = effectiveTrackingReady)
+                                }
+                            } else {
                                 if (snapshot.offices.isEmpty() && privacyActions != null) {
                                     Notice("Your record stays on this device",
                                         "Uninstalling Hamster Cage or clearing its app storage deletes your saved data. Review local data before setting up an office.",
@@ -185,7 +202,8 @@ fun HamsterApp(
                                 }
                                 DashboardScreen(input, result, effectiveTrackingReady,
                                     openOffices = { selectedName = Destination.OFFICES.name },
-                                    openHistory = { selectedName = Destination.HISTORY.name })
+                                    openHistory = { selectedName = Destination.HISTORY.name },
+                                    openToday = { detailDate = now.atZone(displayZone).toLocalDate().toString() })
                                 if (coverage?.unreviewedUnknownDates?.isNotEmpty() == true)
                                     Notice("Attendance coverage needs review",
                                         "Detection was unavailable for one or more dates. Recorded time remains, but missing time is unknown.",
