@@ -31,6 +31,7 @@ import kotlinx.coroutines.sync.withLock
 data class RecordedEvent(
     val event: RawEvent, val receivedAt: Instant,
     val observedLocationAt: Instant? = null, val source: String = "PLAY_SERVICES_GEOFENCE",
+    val accuracyMeters: Float? = null,
 )
 
 /** Source facts only. Every caller supplies an explicit evaluation time for fresh derivation. */
@@ -41,8 +42,27 @@ data class AppSnapshot(
     val events: List<RawEvent> get() = eventEvidence.map { it.event }
     fun input(now: Instant) = AttendanceInput(offices, events, corrections, policy, now, manualSessions = manualSessions,
         recoveryPresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
-            it.source in setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION") }
-            .map { it.event.id }.toSet())
+            it.source in setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION",
+                "ADAPTIVE_RECOVERY_CONFIRMATION") }
+            .map { it.event.id }.toSet(),
+        adaptivePresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
+            it.source == "ADAPTIVE_LOCATION_CONFIRMATION" }.map { it.event.id }.toSet(),
+        unconfirmedExitIds = eventEvidence.filter { it.event.at <= now &&
+            offices.any { office -> office.id == it.event.officeId && office.enabled && office.countsTowardAttendance } }
+            .groupBy { it.event.officeId }.values.mapNotNull { officeEvidence ->
+            val latest = officeEvidence.maxWithOrNull(compareBy<RecordedEvent> { it.event.at }
+                .thenBy { it.event.id }) ?: return@mapNotNull null
+            if (latest.event.transition != Transition.EXIT || latest.source != "PLAY_SERVICES_GEOFENCE")
+                return@mapNotNull null
+            val outsideCorroboration = eventEvidence.any { other -> other.event.officeId != latest.event.officeId &&
+                other.event.at > latest.event.at && other.event.at <= now &&
+                other.event.transition == Transition.PRESENCE &&
+                other.source in setOf("ADAPTIVE_LOCATION_CONFIRMATION", "ADAPTIVE_RECOVERY_CONFIRMATION",
+                    "FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION") }
+            latest.event.id.takeUnless { outsideCorroboration }
+        }.toSet(),
+        unsafeRecoveryPresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
+            it.source == "ADAPTIVE_RECOVERY_CONFIRMATION" }.map { it.event.id }.toSet())
     fun derive(now: Instant) = AttendanceEngine.derive(input(now))
 }
 
@@ -95,10 +115,14 @@ class HamsterRepository internal constructor(
     }
 
     suspend fun officeVersion(id: String): Long? = dao.office(id)?.version
+    suspend fun officeVersions(ids: List<String>): Map<String, Long> = ids.distinct().mapNotNull { id ->
+        dao.office(id)?.let { id to it.version }
+    }.toMap()
     suspend fun savePolicy(settings: PolicySettings, expected: PolicySettings? = null) = policyEditLock.withLock { policy.save(settings, expected) }
 
     /** Entire batch commits or rolls back. Identical replay is a no-op; conflicting IDs fail. */
-    suspend fun appendRawEvents(events: List<RecordedEvent>) = database.withTransaction {
+    suspend fun appendRawEvents(events: List<RecordedEvent>): Set<String> = database.withTransaction {
+        val inserted = mutableSetOf<String>()
         events.forEach { evidence ->
             val event = evidence.event
             validId(event.id); validId(event.officeId)
@@ -106,21 +130,32 @@ class HamsterRepository internal constructor(
                 "PLAY_SERVICES_GEOFENCE" -> event.transition in setOf(Transition.ENTER, Transition.EXIT)
                 "FOREGROUND_LOCATION_RECONCILIATION" -> event.transition == Transition.PRESENCE
                 "BACKGROUND_LOCATION_RECONCILIATION" -> event.transition in setOf(Transition.PRESENCE, Transition.ABSENCE)
+                "ADAPTIVE_LOCATION_CONFIRMATION" -> event.transition in setOf(Transition.PRESENCE, Transition.ABSENCE)
+                "ADAPTIVE_RECOVERY_CONFIRMATION" -> event.transition == Transition.PRESENCE
                 else -> false
             }) { "Observation source and type disagree." }
+            require(evidence.accuracyMeters == null || evidence.accuracyMeters.isFinite() &&
+                evidence.accuracyMeters in 0f..10000f) { "Invalid fix accuracy." }
             val record = EventRecord(event.id, event.officeId, event.transition.name, event.at.persistedMillis(),
-                evidence.receivedAt.persistedMillis(), evidence.observedLocationAt?.persistedMillis(), evidence.source)
+                evidence.receivedAt.persistedMillis(), evidence.observedLocationAt?.persistedMillis(), evidence.source,
+                accuracyMeters = evidence.accuracyMeters)
             val previous = dao.event(event.id)
             // A second delivery of the same observation cannot rewrite the first receipt time.
             // The delivery itself may arrive later, while the observed fact remains identical.
-            require(previous == null || previous.copy(receivedAt = record.receivedAt) == record) { "Conflicting event ID." }
+            // The hashed geofence ID identifies office/type/observed time. A replay may
+            // report a different accuracy; retain the first immutable evidence metadata.
+            require(previous == null || previous.copy(receivedAt = record.receivedAt,
+                accuracyMeters = if (record.source == "PLAY_SERVICES_GEOFENCE") record.accuracyMeters
+                    else previous.accuracyMeters) == record) { "Conflicting event ID." }
             if (previous == null) {
                 // Delivery may lag behind a user disabling the office. Keep the observation;
                 // current policy decides whether it contributes credit during derivation.
                 require(dao.office(event.officeId) != null) { "Office was not found." }
                 dao.insertEvent(record)
+                inserted += event.id
             }
         }
+        inserted
     }
 
     suspend fun appendCorrection(correction: Correction) = database.withTransaction {
@@ -138,8 +173,8 @@ class HamsterRepository internal constructor(
             if (correction.appendSequence > 0) require(correction.appendSequence == Math.addExact(dao.corrections().maxOfOrNull { it.appendSequence } ?: 0, 1)) {
                 "Correction order changed; preview again."
             }
-            val input = AttendanceInput(dao.offices().map { it.toDomain() }, dao.events().map { it.toEvidence().event },
-                now = clock.now(), manualSessions = dao.manualSessions().map { it.toDomain() })
+            val input = AppSnapshot(dao.offices().map { it.toDomain() }, dao.events().map { it.toEvidence() },
+                emptyList(), dao.manualSessions().map { it.toDomain() }, Policy()).input(clock.now())
             require(AttendanceEngine.derive(input).sessions.any { correction.sessionId in it.correctionTargetIds }) { "Session was not found." }
             dao.insertCorrection(record)
         }
@@ -179,13 +214,12 @@ class HamsterRepository internal constructor(
      * rejects a stale confirmation instead of silently applying a different preview. */
     suspend fun commitAttendanceEdit(edit: AttendanceEdit) = policyEditLock.withLock { database.withTransaction {
         val settings = policy.settings.first()
-        val current = AttendanceInput(dao.offices().map { it.toDomain() }, dao.events().map { it.toEvidence().event },
-            corrections = dao.corrections().map { it.toDomain() },
-            manualSessions = dao.manualSessions().map { it.toDomain() }, now = edit.baseline.now,
-            policy = settings.toPolicy().copy(
+        val current = AppSnapshot(dao.offices().map { it.toDomain() }, dao.events().map { it.toEvidence() },
+            dao.corrections().map { it.toDomain() }, dao.manualSessions().map { it.toDomain() },
+            settings.toPolicy().copy(
                 excludedDates = dao.exclusions().map { ExcludedDate(LocalDate.parse(it.date), ExclusionReason.valueOf(it.reason), it.note) },
                 wfhDates = dao.labels().filter { it.isWfh }.map { LocalDate.parse(it.date) }.toSet(),
-            ))
+            )).input(edit.baseline.now)
         check(current == edit.baseline.copy(historyStartDate = null, unknownDates = emptySet())) { "Attendance changed; preview again." }
         when (edit) {
             is AttendanceEdit.Correct -> appendCorrection(edit.value)
@@ -218,7 +252,7 @@ private fun EventRecord.toEvidence(): RecordedEvent {
     require(payloadVersion == 1) { "Unsupported event payload." }
     validId(id); validId(officeId)
     return RecordedEvent(RawEvent(id, officeId, Transition.valueOf(transition), Instant.ofEpochMilli(at)),
-        Instant.ofEpochMilli(receivedAt), observedLocationAt?.let(Instant::ofEpochMilli), source)
+        Instant.ofEpochMilli(receivedAt), observedLocationAt?.let(Instant::ofEpochMilli), source, accuracyMeters)
 }
 private fun CorrectionRecord.toDomain() = Correction(id, sessionId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note, revertToOriginal, appendSequence)
 private fun ManualSessionRecord.toDomain() = ManualSession(id, officeId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note)

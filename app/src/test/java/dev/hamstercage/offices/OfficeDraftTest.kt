@@ -15,7 +15,7 @@ class OfficeDraftTest {
         assertEquals(0, office.entryGraceMinutes)
         assertEquals(120, office.exitGraceMinutes)
         val defaults = OfficeDraft(name = "Synthetic", latitude = "0", longitude = "0").toOffice("office-b")
-        assertEquals(150f, defaults.radiusMeters, 0f)
+        assertEquals(200f, defaults.radiusMeters, 0f)
         assertEquals(5, defaults.entryGraceMinutes)
         assertEquals(5, defaults.exitGraceMinutes)
     }

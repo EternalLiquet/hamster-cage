@@ -53,15 +53,15 @@ internal fun canRequestReconciliationFix(now: Instant, zone: ZoneId, enabled: Bo
 
 /** Current-state evidence only. ABSENCE leaves an old, unobserved span for review. */
 internal fun reconciliationFacts(snapshot: AppSnapshot, coverage: CoverageLedger, now: Instant,
-    fixAt: Instant, officeId: String?): List<RecordedEvent> {
+    fixAt: Instant, officeId: String?, accuracyMeters: Float? = null): List<RecordedEvent> {
     val open = snapshot.derive(now).sessions.filter { it.isOpen && it.manualSessionId == null }
     val absent = open.filter { it.officeId != officeId }.map { it.officeId }.distinct()
     val facts = absent.map { id -> RecordedEvent(RawEvent(HamsterRepository.newId(), id,
-        Transition.ABSENCE, now), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION") }.toMutableList()
+        Transition.ABSENCE, now), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters) }.toMutableList()
     if (officeId != null && canOpenFromObservation(snapshot, officeId, coverage, now, now) !=
         ReconcileOutcome.ALREADY_PRESENT) {
         facts += RecordedEvent(RawEvent(HamsterRepository.newId(), officeId,
-            Transition.PRESENCE, now), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION")
+            Transition.PRESENCE, now), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters)
     }
     return facts
 }
@@ -104,8 +104,10 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
             }
             val age = SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos
             val wallAge = now.toEpochMilli() - fix.time
+            val accuracy = fix.accuracy.takeIf { fix.hasAccuracy() && it.isFinite() && it in 0f..10000f }
             if (fix.time < requestedAt.toEpochMilli() || age !in 0..30_000_000_000L ||
-                wallAge !in 0..30_000L) { MonitoringStore.record(context, "Stale location; retry later"); return@withLock }
+                wallAge !in 0..30_000L) { MonitoringStore.record(context, "Stale location; retry later",
+                    accuracyMeters = accuracy); return@withLock }
             if (!fix.hasAccuracy()) { MonitoringStore.record(context, "Location not precise enough"); return@withLock }
             if (snapshot.events.any { it.at > requestedAt }) {
                 MonitoringStore.record(context, "Newer boundary event; retry later"); return@withLock
@@ -116,12 +118,13 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
                 MonitoringStore.record(context, when (outcome) {
                     ReconcileOutcome.UNCERTAIN_BOUNDARY, ReconcileOutcome.OVERLAPPING_OFFICES -> "Office boundary uncertain"
                     else -> "Location not precise enough"
-                }); return@withLock
+                }, accuracyMeters = accuracy); return@withLock
             }
-            val events = reconciliationFacts(snapshot, currentCoverage, now, Instant.ofEpochMilli(fix.time), office?.id)
+            val events = reconciliationFacts(snapshot, currentCoverage, now, Instant.ofEpochMilli(fix.time), office?.id, fix.accuracy)
             if (events.isNotEmpty()) repository.appendRawEvents(events)
             CoverageStore.change(context) { it.observed(now) }
-            MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", now)
+            MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", now,
+                fix.accuracy)
         } } } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Check unavailable; open app to retry") }
         return Result.success()

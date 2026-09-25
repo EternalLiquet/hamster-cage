@@ -13,6 +13,8 @@ object AttendanceEngine {
     private data class Observation(val event: RawEvent, val ids: Set<String>, val duplicate: Boolean)
     /** A prompt opposite signal is boundary jitter, not a second observed visit. */
     private val boundaryBounceWindow = Duration.ofSeconds(60)
+    /** A short, accurate inside fix can explain an isolated false EXIT; longer gaps remain unknown. */
+    private val adaptiveConfirmationWindow = Duration.ofMinutes(3)
 
     fun derive(input: AttendanceInput): AttendanceResult {
         require(input.now.isStorageTime()) { "Current time must fit the persisted epoch-millisecond representation" }
@@ -43,8 +45,12 @@ object AttendanceEngine {
                 val enter = open
                 val sourceIds = ids.toSet()
                 val sessionId = "session:${enter?.event?.id ?: exit!!.event.id}"
-                val reasons = flags.toSet() + if (enter != null && exit != null && enter.event.at == exit.event.at)
-                    setOf(ReviewReason.ZERO_LENGTH_SESSION) else emptySet()
+                val reasons = flags.toSet() +
+                    (if (exit?.ids?.any { it in input.unconfirmedExitIds } == true &&
+                        ReviewReason.TRANSIENT_BOUNDARY !in flags)
+                        setOf(ReviewReason.UNCONFIRMED_BOUNDARY) else emptySet()) +
+                    (if (enter != null && exit != null && enter.event.at == exit.event.at)
+                        setOf(ReviewReason.ZERO_LENGTH_SESSION) else emptySet())
                 sessions += Session(sessionId, officeId, enter?.event?.at, exit?.event?.at, sourceIds,
                     when {
                         reasons.any { it != ReviewReason.DUPLICATE_EVENT && it != ReviewReason.OPEN_SESSION } -> Confidence.LOW
@@ -71,9 +77,14 @@ object AttendanceEngine {
                         val elapsed = Duration.between(pending.event.at, observation.event.at)
                         val otherOfficeBetween = usable.any { it.officeId != officeId &&
                             it.at >= pending.event.at && it.at <= observation.event.at }
+                        val otherContradiction = usable.any { it.officeId == officeId &&
+                            it.transition == Transition.ABSENCE && it.at > pending.event.at &&
+                            it.at <= observation.event.at }
+                        val adaptive = observation.ids.any { it in input.adaptivePresenceIds }
                         if (observation.event.transition in setOf(Transition.ENTER, Transition.PRESENCE) &&
                             observation.ids.none { it in input.recoveryPresenceIds } &&
-                            !otherOfficeBetween && !elapsed.isNegative && elapsed <= boundaryBounceWindow) {
+                            !otherOfficeBetween && !otherContradiction && !elapsed.isNegative &&
+                            elapsed <= if (adaptive) adaptiveConfirmationWindow else boundaryBounceWindow) {
                             // Both immutable observations stay attached to the original
                             // session. Neither a second grace window nor a departure is
                             // derived from this near-immediate opposite pair.
@@ -84,6 +95,8 @@ object AttendanceEngine {
                             return@forEach
                         }
                         pendingExit = null
+                        if (observation.ids.any { it in input.unsafeRecoveryPresenceIds })
+                            flags += ReviewReason.UNCONFIRMED_GAP
                         addSession(pending)
                     }
                     ids += observation.ids
@@ -238,7 +251,8 @@ object AttendanceEngine {
                     val nextEntry = after.start
                     val contradictoryGap = nextEntry != null && before.end != null &&
                         (usable.any { it.officeId != before.officeId && it.at >= before.end && it.at <= nextEntry } ||
-                            after.sourceEventIds.any { it in input.recoveryPresenceIds })
+                            after.sourceEventIds.any { it in input.recoveryPresenceIds ||
+                                it in input.adaptivePresenceIds })
                     if (previousCredit == null || nextCredit == null || nextEntry == null ||
                         contradictoryGap || previousCredit.end >= nextEntry || Duration.between(previousCredit.end, nextEntry) >
                         Duration.ofMinutes(input.policy.shortGapMinutes.toLong())) null

@@ -10,6 +10,7 @@ import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.capture.CoverageStore
 import dev.hamstercage.capture.RegistrationStatus
 import dev.hamstercage.capture.WeekdayReconciliation
+import dev.hamstercage.capture.MonitoringStore
 import dev.hamstercage.data.HamsterRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -25,7 +26,10 @@ class PrivacyController private constructor(context: Context) {
     private val deletion = HistoryDeletionProtocol(PrivacyResetStore.journal(application), CaptureWriteGate.mutex,
         deleteFacts = { repository.deleteAttendanceAndCalendarHistory() },
         resetCoverage = { CoverageStore.change(application) { CoverageLedger() } },
-        resetHealth = { CaptureHealthStore.setDeliveryFailure(application, false) })
+        resetHealth = {
+            CaptureHealthStore.setDeliveryFailure(application, false)
+            MonitoringStore.clearDiagnostics(application)
+        })
 
     init {
         scope.launch {

@@ -143,7 +143,11 @@ class OfflineJourneyHostTest {
                 nav("Dashboard"); assertTotals(Instant.now())
                 nav("History")
                 val day = session.start!!.atZone(before.policy.zoneId).toLocalDate()
-                click("Explain $day"); click("Correct ${session.id}")
+                val timelineIndex = dayTimeline(before, explainDay(before,
+                    AttendanceEngine.derive(before), day)).indexOfFirst { it.sessionId == session.id }
+                assertTrue(timelineIndex >= 0)
+                click("Explain $day")
+                compose.onNodeWithTag("timeline_edit_$timelineIndex").performScrollTo().performClick()
                 val selectedInstant = session.start!!.minusSeconds(300)
                 val selectedLocal = selectedInstant.atZone(before.policy.zoneId).toLocalDateTime()
                     .truncatedTo(ChronoUnit.MINUTES)

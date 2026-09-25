@@ -32,13 +32,16 @@ internal object GeofenceObservation {
         require(officeIds.isNotEmpty() && officeIds.size <= MAX_OFFICES &&
             officeIds.all { it.isNotBlank() && it.length <= 200 })
         val observedAt = location?.time?.takeIf { it > 0 && it <= receivedAt.toEpochMilli() }?.let(Instant::ofEpochMilli)
+        val accuracy = location?.takeIf { it.hasAccuracy() && it.accuracy.isFinite() &&
+            it.accuracy in 0f..10000f }?.accuracy
         val eventAt = observedAt ?: receivedAt
         return officeIds.distinct().map { officeId ->
             // A replay of one Play Services observation retains its first receipt in Room.
             // Without a valid platform timestamp, distinct deliveries cannot be reliably
             // correlated, so use the honest receipt time and let the engine reconcile them.
             val id = digest("$officeId|${transition.name}|${eventAt.toEpochMilli()}")
-            RecordedEvent(RawEvent(id, officeId, transition, eventAt), receivedAt, observedAt)
+            RecordedEvent(RawEvent(id, officeId, transition, eventAt), receivedAt, observedAt,
+                accuracyMeters = accuracy)
         }
     }
 

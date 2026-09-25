@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.domain.Office
+import dev.hamstercage.offices.OfficeRadiusGuidance
 import dev.hamstercage.offices.OfficeDraft
 import dev.hamstercage.offices.OfficeFix
 import dev.hamstercage.offices.OfficeLocationFailure
@@ -72,7 +73,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
     var name by rememberSaveable { mutableStateOf("") }
     var latitude by rememberSaveable { mutableStateOf("") }
     var longitude by rememberSaveable { mutableStateOf("") }
-    var radius by rememberSaveable { mutableStateOf("150") }
+    var radius by rememberSaveable { mutableStateOf("200") }
     var enabled by rememberSaveable { mutableStateOf(true) }
     var eligible by rememberSaveable { mutableStateOf(true) }
     var entryGrace by rememberSaveable { mutableStateOf("5") }
@@ -187,7 +188,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                 Notice("No offices yet", "Add a name, then find the address or use your current location. You can also enter coordinates under Advanced.")
             } else {
                 state.snapshot.offices.forEach { office ->
-                    key(office.id) { OfficeRow(office, ::startEditing) }
+                    key(office.id) { OfficeRow(office, state.snapshot.offices, ::startEditing) }
                 }
             }
             status?.let { Notice("Saved", it) }
@@ -248,11 +249,26 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
             selectedLabel?.let { Text("Selected: $it", style = MaterialTheme.typography.bodyMedium) }
             OutlinedTextField(radius, { radius = it; confirmed = false; reviewing = true; loadedMap = null }, label = { Text("Radius (meters)") },
                 modifier = Modifier.fillMaxWidth().testTag("officeRadius"), singleLine = true)
+            radius.toFloatOrNull()?.let { meters ->
+                if (OfficeRadiusGuidance.isUnusuallySmall(meters))
+                    Text("Small office area: background geofencing may fluctuate. A radius of 150 m or more is recommended; you can keep this value.")
+            }
+            if (enabled && eligible) {
+                val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull()
+                val meters = radius.toFloatOrNull()
+                if (lat != null && lon != null && meters != null && lat in -90.0..90.0 &&
+                    lon in -180.0..180.0 && meters in 50f..5000f) {
+                    val candidate = Office(editingId ?: "new-office", name.ifBlank { "Office" }, lat, lon, meters)
+                    val overlaps = OfficeRadiusGuidance.touching(candidate, state.snapshot.offices)
+                        .filter { it.id != editingId }
+                    if (overlaps.isNotEmpty()) Text("This office area touches another enabled attendance office area. Presence between them may be uncertain.")
+                }
+            }
             if (reviewing) {
                 val lat = latitude.toDoubleOrNull(); val lon = longitude.toDoubleOrNull()
                 if (lat != null && lon != null) {
                     OfficeMapReview(loadedMap?.takeIf { it.request == currentMapRequest() }?.tile,
-                        lat, lon, radius.toFloatOrNull()?.coerceIn(50f, 5000f) ?: 150f) { newLat, newLon ->
+                        lat, lon, radius.toFloatOrNull()?.coerceIn(50f, 5000f) ?: 200f) { newLat, newLon ->
                         latitude = newLat.toString(); longitude = newLon.toString(); confirmed = false; loadedMap = null
                     }
                 }
@@ -321,7 +337,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
 }
 
 @Composable
-private fun OfficeRow(office: Office, onEdit: (Office) -> Unit) {
+private fun OfficeRow(office: Office, offices: List<Office>, onEdit: (Office) -> Unit) {
     Panel {
         Text(office.name, style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(CageStyle.Small)) {
@@ -329,6 +345,11 @@ private fun OfficeRow(office: Office, onEdit: (Office) -> Unit) {
             Tag(if (office.countsTowardAttendance) "COUNTS" else "NOT CREDITED")
         }
         MetricRow("Radius", "${office.radiusMeters} m")
+        if (OfficeRadiusGuidance.isUnusuallySmall(office.radiusMeters))
+            Text("Small office area may make background boundaries unreliable.")
+        if (office.enabled && office.countsTowardAttendance &&
+            OfficeRadiusGuidance.touching(office, offices).any { it.id != office.id })
+            Text("Touches another enabled attendance office area; location may be ambiguous.")
         MetricRow("Arrival walking grace (uncredited)", "${office.entryGraceMinutes} min")
         MetricRow("Exit/departure grace (projection only)", "${office.exitGraceMinutes} min")
         CageButton("Edit ${office.name}", onClick = { onEdit(office) },

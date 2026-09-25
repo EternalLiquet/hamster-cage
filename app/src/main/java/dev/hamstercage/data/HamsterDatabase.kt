@@ -36,6 +36,7 @@ internal data class EventRecord(
     @PrimaryKey val id: String, val officeId: String, val transition: String,
     val at: Long, val receivedAt: Long, val observedLocationAt: Long?,
     val source: String, val payloadVersion: Int = 1,
+    val accuracyMeters: Float? = null,
 )
 
 @Entity(tableName = "corrections", indices = [Index("sessionId")])
@@ -90,7 +91,7 @@ internal interface HamsterDao {
 }
 
 @Database(entities = [OfficeRecord::class, EventRecord::class, CorrectionRecord::class,
-    ManualSessionRecord::class, ExclusionRecord::class, DayLabelRecord::class], version = 2, exportSchema = true)
+    ManualSessionRecord::class, ExclusionRecord::class, DayLabelRecord::class], version = 3, exportSchema = true)
 internal abstract class HamsterDatabase : RoomDatabase() {
     abstract fun dao(): HamsterDao
     companion object {
@@ -100,10 +101,15 @@ internal abstract class HamsterDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE corrections ADD COLUMN appendSequence INTEGER NOT NULL DEFAULT 0")
             }
         }
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE raw_events ADD COLUMN accuracyMeters REAL")
+            }
+        }
         fun open(context: Context, name: String = "hamster-cage.db"): HamsterDatabase =
             Room.databaseBuilder(context.applicationContext, HamsterDatabase::class.java, name)
                 .openHelperFactory(PreservingOpenHelperFactory)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
         // No destructive fallback. Every future version requires a reviewed, tested Migration.
     }

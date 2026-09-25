@@ -48,7 +48,7 @@ class DayTimelineRouteTest {
         compose.onNodeWithText("Returned to office area · Westerville Office", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Ongoing at Westerville Office", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("detail_leave").performScrollTo().assertTextContains("You can leave at", substring = true)
-        compose.onNodeWithTag("timeline_edit_session:in2").performScrollTo().performClick()
+        compose.onNodeWithTag("timeline_edit_3").performScrollTo().performClick()
         compose.onNodeWithText("Correct session").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Cancel correction").performScrollTo().performClick()
         compose.onNodeWithText("Back to Dashboard").performScrollTo().performClick()

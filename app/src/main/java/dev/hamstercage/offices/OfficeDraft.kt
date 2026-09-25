@@ -7,7 +7,7 @@ data class OfficeDraft(
     val name: String = "",
     val latitude: String = "",
     val longitude: String = "",
-    val radiusMeters: String = "150",
+    val radiusMeters: String = "200",
     val enabled: Boolean = true,
     val countsTowardAttendance: Boolean = true,
     val entryGraceMinutes: String = "5",

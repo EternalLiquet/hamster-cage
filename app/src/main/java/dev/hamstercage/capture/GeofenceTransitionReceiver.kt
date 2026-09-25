@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.google.android.gms.location.GeofencingEvent
 import dev.hamstercage.data.HamsterRepository
+import dev.hamstercage.data.StorageState
 import dev.hamstercage.privacy.PrivacyResetState
 import dev.hamstercage.privacy.PrivacyResetStore
 import java.time.Instant
@@ -14,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -25,6 +27,7 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
         val application = context.applicationContext
         val receivedAt = Instant.ofEpochMilli(System.currentTimeMillis())
         worker.launch {
+            var captureCommitted = false
             try {
                 withCaptureGateTimeout(CaptureWriteGate.mutex, 6_000, action = {
                         val reset = PrivacyResetStore.read(application)
@@ -37,13 +40,31 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                         // deliveries without a trustworthy location-fix timestamp.
                         if (intent?.action != GeofenceRegistrar.action(reset.generation)) return@withCaptureGateTimeout
                         val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt)
-                        HamsterRepository.get(application).appendRawEvents(observations)
+                        val repository = HamsterRepository.get(application)
+                        val inserted = repository.appendRawEvents(observations)
                         CoverageStore.change(application) { ledger ->
                             ledger.observed(observations.maxOf { it.event.at })
                         }
+                        val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot
+                        val delivery = snapshot?.let { AdaptiveConfirmation.selectDelivery(observations,
+                            inserted, it) }
                         CaptureHealthStore.setDeliveryFailure(application, false)
                         CaptureHealth.deliverySucceeded()
-                }, onFailure = { recordDeliveryFailure(application, receivedAt) })
+                        // Only confirmation scheduling is optional. A coverage or
+                        // capture-health write failure still needs recovery health.
+                        captureCommitted = true
+                        if (delivery != null) try {
+                            val officeIds = delivery.events.map { it.event.officeId }
+                            val versions = repository.officeVersions(officeIds)
+                            if (versions.size == officeIds.size) AdaptiveConfirmation.schedule(application,
+                                delivery.representative, reset.generation,
+                                AdaptiveConfirmation.fingerprint(versions), officeIds)
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                          catch (_: Exception) { recordConfirmationSchedulingFailure(application) }
+                }, onFailure = {
+                    if (captureCommitted) recordConfirmationSchedulingFailure(application)
+                    else recordDeliveryFailure(application, receivedAt)
+                })
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } finally {
@@ -55,6 +76,11 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
     private companion object {
         val worker = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
+}
+
+internal suspend fun recordConfirmationSchedulingFailure(context: Context) {
+    try { MonitoringStore.record(context, "Boundary confirmation unavailable; later checks may recover") }
+    catch (_: Exception) { Unit }
 }
 
 /** A timeout before obtaining the gate is still a lost observation, not a healthy registration. */

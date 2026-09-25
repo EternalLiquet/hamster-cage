@@ -45,6 +45,18 @@ class DayTimelineTest {
         assertEquals(0.0, AttendanceEngine.daily(input, result, LocalDate.parse("2026-09-23")).creditedMinutes, 0.0)
     }
 
+    @Test fun unconfirmedFinalExitIsShownAsSignalRatherThanCertainDeparture() {
+        val input = AttendanceInput(listOf(office), listOf(
+            event("in", Transition.ENTER, "2026-09-23T09:00:00Z"),
+            event("exit", Transition.EXIT, "2026-09-23T10:00:00Z")),
+            policy = policy, now = Instant.parse("2026-09-23T10:01:00Z"),
+            unconfirmedExitIds = setOf("exit"))
+        val timeline = rows(input)
+        assertTrue(timeline.any { it.title == "Office-area exit signal · Westerville Office" &&
+            it.detail.contains("actual departure is uncertain") })
+        assertFalse(timeline.any { it.title == "Left office area · Westerville Office" })
+    }
+
     @Test fun laterSameOfficePresenceDoesNotClaimOutsideOrCreditOldUnknownSpan() {
         val input = AttendanceInput(listOf(office), listOf(
             event("in", Transition.ENTER, "2026-09-23T09:00:00Z"),

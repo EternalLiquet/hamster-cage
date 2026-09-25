@@ -71,6 +71,7 @@ class CaptureController private constructor(context: Context) {
         val reset = PrivacyResetStore.read(application)
         if (reset !is PrivacyResetState.Idle) {
             WeekdayReconciliation.cancel(application)
+            AdaptiveConfirmation.cancelAll(application)
             CaptureHealth.registration(RegistrationStatus.FAILED)
             return@withLock
         }
@@ -94,7 +95,10 @@ class CaptureController private constructor(context: Context) {
             CaptureHealth.registration(RegistrationStatus.DISABLED)
         }
         if (enabled && status.registration == RegistrationStatus.ACTIVE) WeekdayReconciliation.schedule(application)
-        else WeekdayReconciliation.cancel(application)
+        else {
+            WeekdayReconciliation.cancel(application)
+            AdaptiveConfirmation.cancelAll(application)
+        }
         CoverageStore.change(application) { ledger ->
             if (status.registration == RegistrationStatus.ACTIVE || status.registration == RegistrationStatus.NO_OFFICES)
                 ledger.registrationSucceeded(now, zone, status.registration == RegistrationStatus.ACTIVE)

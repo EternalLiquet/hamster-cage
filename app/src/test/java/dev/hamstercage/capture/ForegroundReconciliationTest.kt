@@ -81,7 +81,44 @@ class ForegroundReconciliationTest {
         val result = repeated.derive(observed.plusSeconds(100))
         assertEquals(1, result.sessions.size)
         assertEquals(false, ReviewReason.REPEATED_ENTER in result.sessions.single().reviewReasons)
-        assertEquals("Outside office", dashboardPresence(repeated.input(observed.plusSeconds(100)), result, true).label)
+        assertEquals("Needs review", dashboardPresence(repeated.input(observed.plusSeconds(100)), result, true).label)
+    }
+
+    @Test fun latestGeofenceExitIsUncertainUntilIndependentOutsideFix() {
+        val enter = event("enter", Transition.ENTER, observed.minusSeconds(600))
+        val exit = event("exit", Transition.EXIT, observed)
+        val pending = snapshot(listOf(enter, exit))
+        val pendingNow = observed.plusSeconds(120)
+        val pendingResult = pending.derive(pendingNow)
+        assertEquals(setOf("exit"), pending.input(pendingNow).unconfirmedExitIds)
+        assertEquals(1, pendingResult.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        assertEquals("Needs review", dashboardPresence(pending.input(pendingNow), pendingResult, true).label)
+        val outside = snapshot(listOf(enter, exit, RecordedEvent(RawEvent("outside", office.id,
+            Transition.ABSENCE, observed.plusSeconds(60)), observed.plusSeconds(60), observed.plusSeconds(60),
+            "ADAPTIVE_LOCATION_CONFIRMATION", 12f)))
+        val result = outside.derive(pendingNow)
+        assertEquals(emptySet<String>(), outside.input(pendingNow).unconfirmedExitIds)
+        assertEquals("Outside office", dashboardPresence(outside.input(pendingNow), result, true).label)
+        assertEquals(0, result.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+    }
+
+    @Test fun rawOtherOfficeEnterDoesNotEraseUnconfirmedFirstOfficeExit() {
+        val b = office.copy(id = "two", name = "B", latitude = 40.0)
+        val facts = listOf(event("a-in", Transition.ENTER, observed.minusSeconds(600)),
+            event("a-out", Transition.EXIT, observed),
+            event("b-in", Transition.ENTER, observed.plusSeconds(30), b.id))
+        val rawOnly = snapshot(facts, listOf(office, b))
+        assertEquals(setOf("a-out"), rawOnly.input(observed.plusSeconds(60)).unconfirmedExitIds)
+        assertEquals(1, rawOnly.derive(observed.plusSeconds(60)).reviews.count {
+            it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        val confirmedB = snapshot(facts + RecordedEvent(RawEvent("b-fix", b.id, Transition.PRESENCE,
+            observed.plusSeconds(60)), observed.plusSeconds(60), observed.plusSeconds(60),
+            "ADAPTIVE_LOCATION_CONFIRMATION", 10f), listOf(office, b))
+        assertEquals(emptySet<String>(), confirmedB.input(observed.plusSeconds(120)).unconfirmedExitIds)
+        val futureB = snapshot(facts + RecordedEvent(RawEvent("future-b-fix", b.id, Transition.PRESENCE,
+            observed.plusSeconds(600)), observed.plusSeconds(600), observed.plusSeconds(600),
+            "ADAPTIVE_LOCATION_CONFIRMATION", 10f), listOf(office, b))
+        assertEquals(setOf("a-out"), futureB.input(observed.plusSeconds(120)).unconfirmedExitIds)
     }
 
     @Test fun retainedPreOutageEnterIsSplitWithoutBackdatedOrOverlappingCredit() {

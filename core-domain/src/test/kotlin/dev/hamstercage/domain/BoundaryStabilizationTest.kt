@@ -16,9 +16,91 @@ class BoundaryStabilizationTest {
     private fun event(id: String, type: Transition, time: String, office: String = "a") =
         RawEvent(id, office, type, at(time))
     private fun input(events: List<RawEvent>, now: String = "13:00", offices: List<Office> = listOf(a),
-        corrections: List<Correction> = emptyList(), recovery: Set<String> = emptySet()) =
+        corrections: List<Correction> = emptyList(), recovery: Set<String> = emptySet(),
+        adaptive: Set<String> = emptySet()) =
         AttendanceInput(offices, events, corrections, Policy(zoneId = zone, shortGapMinutes = 10), at(now),
-            historyStartDate = date, recoveryPresenceIds = recovery)
+            historyStartDate = date, recoveryPresenceIds = recovery, adaptivePresenceIds = adaptive)
+
+    @Test fun realSequenceFinalExitIsCorrectedByPromptAccurateInsideObservation() {
+        val facts = listOf(
+            event("e0939", Transition.ENTER, "09:39"),
+            event("e0943", Transition.ENTER, "09:43"),
+            event("e1008", Transition.ENTER, "10:08"),
+            event("x110129", Transition.EXIT, "11:01:29"),
+            event("e110141", Transition.ENTER, "11:01:41"),
+            event("x120612", Transition.EXIT, "12:06:12"),
+            event("e120627", Transition.ENTER, "12:06:27"),
+            event("x120652", Transition.EXIT, "12:06:52"),
+            event("e124305", Transition.ENTER, "12:43:05"),
+            event("x124530", Transition.EXIT, "12:45:30"),
+            event("fix", Transition.PRESENCE, "12:46:30"),
+        )
+        val data = input(facts, now = "13:00", adaptive = setOf("fix"))
+        val result = AttendanceEngine.derive(data)
+        assertEquals(result, AttendanceEngine.derive(data.copy(events = facts.reversed())))
+        assertEquals(facts, data.events)
+        assertEquals(2, result.sessions.size)
+        assertEquals(at("12:43:05"), result.sessions.last().start)
+        assertTrue(result.sessions.last().isOpen)
+        assertEquals(at("12:48:05"), result.intervals.last().start)
+        assertEquals(at("13:00"), result.intervals.last().end)
+        assertTrue(result.reviews.none { it.reason == ReviewReason.REPEATED_ENTER })
+    }
+
+    @Test fun adaptiveFixCannotBridgeLongUnknownGapOrContradictoryOfficeEvidence() {
+        val first = listOf(event("in", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "11:00"))
+        val late = AttendanceEngine.derive(input(first + event("fix", Transition.PRESENCE, "11:04"),
+            now = "11:10", adaptive = setOf("fix")))
+        assertEquals(2, late.sessions.size)
+        assertEquals(at("11:04"), late.sessions.last().start)
+        assertTrue(late.intervals.none { it.start < at("11:04") && it.end > at("11:00") })
+        val outside = AttendanceEngine.derive(input(first + listOf(
+            event("outside", Transition.ABSENCE, "11:00:30"),
+            event("fix", Transition.PRESENCE, "11:01")), now = "11:10", adaptive = setOf("fix")))
+        assertEquals(2, outside.sessions.size)
+        assertEquals(at("11:01"), outside.sessions.last().start)
+        val crossOffice = AttendanceEngine.derive(input(first + listOf(
+            event("b-in", Transition.ENTER, "11:00:20", "b"),
+            event("fix", Transition.PRESENCE, "11:01")), now = "11:10", offices = listOf(a, b),
+            adaptive = setOf("fix")))
+        assertEquals(2, crossOffice.sessions.count { it.officeId == "a" })
+    }
+
+    @Test fun unresolvedFinalExitIsOneReviewUntilCurrentStateEvidenceArrives() {
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("exit", Transition.EXIT, "12:00"))
+        val pending = AttendanceEngine.derive(input(facts, now = "12:02")
+            .copy(unconfirmedExitIds = setOf("exit")))
+        assertEquals(1, pending.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        assertEquals(at("12:00"), pending.intervals.single().end)
+        val confirmedOutside = AttendanceEngine.derive(input(facts +
+            event("outside", Transition.ABSENCE, "12:02"), now = "12:03"))
+        assertTrue(confirmedOutside.reviews.none { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+    }
+
+    @Test fun shortEnterExitHasOneUncertaintyReviewEvenWhenConfirmationIsPending() {
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("exit", Transition.EXIT, "09:00:30"))
+        val data = input(facts, now = "09:02").copy(unconfirmedExitIds = setOf("exit"))
+        val result = AttendanceEngine.derive(data)
+        assertEquals(setOf(ReviewReason.TRANSIENT_BOUNDARY), result.sessions.single().reviewReasons)
+        assertEquals(1, result.reviews.size)
+        assertEquals(facts, data.events)
+    }
+
+    @Test fun adaptiveContinuityRetainsExitAndFixCorrectionAliases() {
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("jitter-exit", Transition.EXIT, "11:00"),
+            event("inside-fix", Transition.PRESENCE, "11:01"),
+            event("real-exit", Transition.EXIT, "12:00"))
+        val correction = Correction("edit", "session:inside-fix", at("09:10"), at("11:55"), at("12:30"))
+        val result = AttendanceEngine.derive(input(facts, corrections = listOf(correction), adaptive = setOf("inside-fix")))
+        assertEquals(1, result.sessions.size)
+        assertEquals("edit", result.sessions.single().correctionId)
+        assertTrue(result.reviews.none { it.reason == ReviewReason.ORPHAN_CORRECTION })
+        assertEquals(facts.map { it.id }.toSet(), result.sessions.single().sourceEventIds)
+    }
 
     @Test fun realStationarySequenceKeepsPromptBouncesWithOriginalOpening() {
         val facts = listOf(
