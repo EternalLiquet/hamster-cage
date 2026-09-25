@@ -62,6 +62,8 @@ def main():
                 raise RuntimeError("Airplane mode/Wi-Fi/default network did not become offline; evidence is unavailable")
             time.sleep(0.5)
         check("exercise")
+        # A same-key package replacement exercises the ordinary update path without clearing data.
+        adb("install", "-r", str(ROOT / "app/build/outputs/apk/debug/app-debug.apk"))
         adb("shell", "am", "force-stop", PACKAGE)
         check("restart")
         check("delete")
@@ -75,11 +77,12 @@ def main():
         receipt.update(sourceSha=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                        api=adb("shell", "getprop", "ro.build.version.sdk").strip(),
                        serial=args.serial, networking="Airplane mode on, Wi-Fi off, no active default network during journey",
-                       locationPermission="Fine location denied; correction still saved", physicalDevice=False)
+                       locationPermission="Fine location denied; correction still saved",
+                       sameKeyPackageReplaceVerified=True, physicalDevice=False)
         output = ROOT / "app/build/reports/offline-journey"
         output.mkdir(parents=True, exist_ok=True)
         (output / "RESULT.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-        print("PASS: real Activity office/capture-fixture/correction/calendar flow, offline and denied-location operation, Activity recreation, fresh-process persistence and confirmed privacy deletion/restart")
+        print("PASS: real Activity office/capture-fixture/correction/calendar flow, offline and denied-location operation, same-key package replacement, fresh-process persistence and confirmed privacy deletion/restart")
     finally:
         if airplane != "1":
             adb("shell", "cmd", "connectivity", "airplane-mode", "disable")

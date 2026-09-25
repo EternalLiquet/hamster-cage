@@ -177,6 +177,11 @@ fun HamsterApp(
                                 HistoryScreen(input, result, correctionActions, snapshot.eventEvidence)
                             }
                             else {
+                                if (snapshot.offices.isEmpty() && privacyActions != null) {
+                                    Notice("Your record stays on this device",
+                                        "Uninstalling Hamster Cage or clearing its app storage deletes your saved data. Review local data before setting up an office.",
+                                        "Review local data", { selectedName = Destination.SETTINGS.name })
+                                }
                                 DashboardScreen(input, result, effectiveTrackingReady,
                                     openOffices = { selectedName = Destination.OFFICES.name },
                                     openHistory = { selectedName = Destination.HISTORY.name })

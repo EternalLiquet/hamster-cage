@@ -49,8 +49,10 @@ class PrivacyScreenTest {
             PrivacyScreen(ready, PrivacyResetState.Idle(0), PrivacyActions(
                 deleteHistory = { historyCalls++ }, retryPending = {}, resetAllAppData = { fullCalls++; false }))
         } } }
+        compose.onNodeWithText("Uninstalling Hamster Cage or clearing its app storage deletes them.", substring = true)
+            .performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("privacy_delete_history").performScrollTo().performClick()
-        compose.onNodeWithText("This removes all raw transitions, manual sessions, corrections, excluded dates and notes, WFH labels, coverage and active attendance totals. Offices and base policy settings stay. New observations can be recorded after setup recovers.")
+        compose.onNodeWithText("The app cannot recover deleted history.", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("privacy_cancel").performScrollTo().performClick()
         assertEquals(0, historyCalls)
@@ -72,7 +74,8 @@ class PrivacyScreenTest {
             PrivacyScreen(ready, PrivacyResetState.Idle(0), actions)
         } } }
         compose.onNodeWithTag("privacy_reset_all").performScrollTo().performClick()
-        compose.onNodeWithText("Android will clear every app-private database and preference, including attendance, calendar, offices, policy and capture health, and revoke app permissions. The app may close; reopen it to start fresh. This cannot be undone.")
+        assertEquals(0, fullCalls)
+        compose.onNodeWithText("The app cannot recover this data.", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("privacy_confirm").performScrollTo().performClick()
         assertEquals(1, fullCalls)
@@ -87,6 +90,16 @@ class PrivacyScreenTest {
         compose.onNodeWithTag("privacy_delete_history").assertDoesNotExist()
         compose.onNodeWithTag("privacy_retry").performScrollTo().performClick()
         compose.waitUntil(5_000) { retries == 1 }
+    }
+
+    @Test fun emptyFirstRunDashboardLinksToLocalDataDisclosure() {
+        compose.setContent { HamsterApp(TimeSource { Instant.parse("2025-03-10T20:00:00Z") },
+            storageState = ready, privacyActions = PrivacyActions({}, {}, { false })) }
+        compose.onNodeWithText("Uninstalling Hamster Cage or clearing its app storage deletes your saved data.",
+            substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Review local data").performScrollTo().performClick()
+        compose.onNodeWithText("Uninstalling Hamster Cage or clearing its app storage deletes them.",
+            substring = true).performScrollTo().assertIsDisplayed()
     }
 
     @Test fun pendingOrRequestedResetHidesPreviouslyReadyAttendance() {
