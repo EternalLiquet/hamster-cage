@@ -15,7 +15,7 @@ internal fun timelineReviewCue(reason: ReviewReason): String = when (reason) {
     ReviewReason.MISSING_ENTER -> "An observed departure has no recorded arrival, so its start time is unknown."
     ReviewReason.OPEN_SESSION -> "No departure has been observed yet."
     ReviewReason.STALE_OPEN_SESSION -> "This visit has been open unusually long and needs its end checked before credit can be trusted."
-    ReviewReason.UNCONFIRMED_GAP -> "A later check found you outside, but the exit time is unknown. The earlier uncertain span earns no credit."
+    ReviewReason.UNCONFIRMED_GAP -> "A later current-location check cannot establish when the earlier visit ended. The uncertain earlier span earns no credit."
     ReviewReason.INVALID_CORRECTION -> "A saved change to this visit could not be applied; review the retained record."
     ReviewReason.ORPHAN_CORRECTION -> "A saved change no longer matches a visit and needs review."
     ReviewReason.UNKNOWN_OFFICE -> "The observation names an office that is no longer in the saved setup."
@@ -86,14 +86,24 @@ internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<D
                 it.at == end && it.transition in setOf(Transition.EXIT, Transition.ABSENCE)
             }
             val uncertain = ReviewReason.UNCONFIRMED_GAP in session.reviewReasons
+            // The engine intentionally omits a PRESENCE split fact from the old
+            // session's source IDs, because it opens the new visit. Match the
+            // office and exact check time to describe the old boundary honestly.
+            val presenceSplit = uncertain && endEvent?.transition != Transition.ABSENCE &&
+                input.events.any { it.officeId == session.officeId && it.at == end && it.transition == Transition.PRESENCE }
             rows += DayTimelineRow(end,
                 when {
-                    uncertain -> "Outside $name at a later check"
+                    uncertain && endEvent?.transition == Transition.ABSENCE -> "Outside $name at a later check"
+                    presenceSplit -> "Current presence checked again at $name"
+                    uncertain -> "Earlier visit ended at a later check · $name"
                     session.manualSessionId != null -> "Manual session ended at $name"
                     session.correctionId != null && !session.correctionReverted -> "Corrected session ended at $name"
                     else -> "Left office area · $name"
                 }, when {
-                    uncertain -> "The actual exit time is unknown. The uncertain earlier span earns no credit until reviewed."
+                    uncertain && endEvent?.transition == Transition.ABSENCE ->
+                        "The check confirms outside now, but the actual exit time is unknown. The earlier span earns no credit until reviewed."
+                    presenceSplit -> "Current presence is confirmed at this check, not continuous presence before it. The earlier uncertain span earns no credit until reviewed."
+                    uncertain -> "The earlier visit's end time is unknown. The uncertain span earns no credit until reviewed."
                     endEvent?.transition == Transition.EXIT -> "A crossing out of the configured office area was recorded; physical building exit may differ."
                     else -> "This boundary is manual or needs review; original observations remain below."
                 }, session.id)

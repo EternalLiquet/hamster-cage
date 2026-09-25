@@ -98,8 +98,24 @@ class DayTimelineRouteTest {
         } } }
         compose.onNodeWithText("Outside Westerville Office at a later check", substring = true)
             .performScrollTo().assertIsDisplayed()
-        assertPlainReview("exit time is unknown")
+        assertPlainReview("earlier visit ended")
         compose.onNodeWithText("unconfirmed gap", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun sameOfficePresenceSplitNeverClaimsOutsideInTimeline() {
+        val input = AttendanceInput(listOf(office), listOf(
+            RawEvent("in", office.id, Transition.ENTER, Instant.parse("2026-09-23T09:00:00Z")),
+            RawEvent("fix", office.id, Transition.PRESENCE, Instant.parse("2026-09-23T12:00:00Z"))),
+            policy = policy, now = now)
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            DayDetailScreen(input, AttendanceEngine.derive(input), date, back = {})
+        } } }
+        compose.onNodeWithText("Current presence checked again at Westerville Office", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Current presence is confirmed at this check, not continuous presence before it.", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Outside Westerville Office at a later check", substring = true).assertDoesNotExist()
+        assertPlainReview("earlier visit ended")
     }
 
     @Test fun repeatedArrivalHasPlainTimelineReviewCue() {

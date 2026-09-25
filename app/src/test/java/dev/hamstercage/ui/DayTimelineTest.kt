@@ -45,6 +45,24 @@ class DayTimelineTest {
         assertEquals(0.0, AttendanceEngine.daily(input, result, LocalDate.parse("2026-09-23")).creditedMinutes, 0.0)
     }
 
+    @Test fun laterSameOfficePresenceDoesNotClaimOutsideOrCreditOldUnknownSpan() {
+        val input = AttendanceInput(listOf(office), listOf(
+            event("in", Transition.ENTER, "2026-09-23T09:00:00Z"),
+            event("fix", Transition.PRESENCE, "2026-09-23T12:00:00Z")),
+            policy = policy, now = Instant.parse("2026-09-23T13:00:00Z"))
+        val result = AttendanceEngine.derive(input)
+        val prior = result.sessions.first { ReviewReason.UNCONFIRMED_GAP in it.reviewReasons }
+        val current = result.sessions.single { it.isOpen }
+        assertEquals(Instant.parse("2026-09-23T12:00:00Z"), prior.end)
+        assertEquals(prior.end, current.start)
+        assertFalse(result.intervals.any { prior.id in it.sessionIds })
+        val timeline = dayTimeline(input, explainDay(input, result, LocalDate.parse("2026-09-23")))
+        assertTrue(timeline.any { it.title == "Current presence checked again at Westerville Office" &&
+            it.detail.contains("not continuous presence before it") })
+        assertFalse(timeline.any { it.title.startsWith("Outside") })
+        assertTrue(timeline.any { it.title == "Ongoing at Westerville Office" })
+    }
+
     @Test fun crossMidnightShowsContinuationWithoutSecondArrival() {
         val input = AttendanceInput(listOf(office), listOf(
             event("in", Transition.ENTER, "2026-09-23T23:30:00Z"),
