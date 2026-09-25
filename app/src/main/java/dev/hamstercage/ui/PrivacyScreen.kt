@@ -39,9 +39,9 @@ fun PrivacyScreen(state: StorageState, reset: PrivacyResetState, actions: Privac
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Panel {
             Text("Privacy and local data", style = MaterialTheme.typography.titleLarge)
-            Text("Attendance and office boundaries stay on this device. The app has no account, analytics or network access. Automatic cloud and device-transfer backup are disabled; uninstalling or losing the device can lose this record.",
+            Text("Attendance, offices and settings are stored on this device. Uninstalling Hamster Cage or clearing its app storage deletes them. An ordinary app update or restart does not request deletion of local data.",
                 style = MaterialTheme.typography.bodyMedium)
-            Text("No export or sync is available in this preview. Deletion cannot recover records from an external backup because this app makes none.",
+            Text("There is no in-app export or restore in this preview. Attendance works offline. Office setup can send an address you search to the device's geocoder and load the map area you review from OpenStreetMap; attendance history is not sent.",
                 style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
             message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             when (reset) {
@@ -73,12 +73,12 @@ fun PrivacyScreen(state: StorageState, reset: PrivacyResetState, actions: Privac
             when (choice) {
                 DeleteChoice.HISTORY -> {
                     Text("Delete attendance and calendar history?", style = MaterialTheme.typography.titleMedium)
-                    Text("This removes all raw transitions, manual sessions, corrections, excluded dates and notes, WFH labels, coverage and active attendance totals. Offices and base policy settings stay. New observations can be recorded after setup recovers.",
+                    Text("This removes all raw transitions, manual sessions, corrections, excluded dates and notes, WFH labels, coverage and active attendance totals. Offices and base policy settings stay. The app cannot recover deleted history. New observations can be recorded after setup recovers.",
                         style = MaterialTheme.typography.bodyMedium)
                 }
                 DeleteChoice.ALL -> {
                     Text("Reset all app data?", style = MaterialTheme.typography.titleMedium)
-                    Text("Android will clear every app-private database and preference, including attendance, calendar, offices, policy and capture health, and revoke app permissions. The app may close; reopen it to start fresh. This cannot be undone.",
+                    Text("Android will clear every app-private database and preference, including attendance, calendar, offices, policy and capture health, and revoke app permissions. The app may close; reopen it to start fresh. The app cannot recover this data.",
                         style = MaterialTheme.typography.bodyMedium)
                 }
                 null -> Unit
