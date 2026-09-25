@@ -17,7 +17,7 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AdaptiveSchedulingIntegrationTest {
-    @Test fun onePendingCheckIsReplacedInCommitOrderAndCancelledOnOptOut() = runBlocking {
+    @Test fun onePendingCheckIsReplacedInCommitOrderAndCancelledByTag() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val manager = WorkManager.getInstance(context)
         fun active(): List<WorkInfo> = manager.getWorkInfosForUniqueWork(AdaptiveConfirmation.TAG)
@@ -28,10 +28,10 @@ class AdaptiveSchedulingIntegrationTest {
         manager.cancelAllWorkByTag(AdaptiveConfirmation.TAG).result.get(5, TimeUnit.SECONDS)
         try {
             val version = AdaptiveConfirmation.fingerprint(mapOf("synthetic-office" to 1L))
-            AdaptiveConfirmation.schedule(context, event("old", 0), 0, version)
+            AdaptiveConfirmation.schedule(context, event("old", 0), 0, version, listOf("synthetic-office"))
             val first = active().single()
             assertEquals(true, "candidate:old" in first.tags)
-            AdaptiveConfirmation.schedule(context, event("new", 10), 0, version)
+            AdaptiveConfirmation.schedule(context, event("new", 10), 0, version, listOf("synthetic-office"))
             val latest = active().single()
             assertNotEquals(first.id, latest.id)
             assertEquals(true, "candidate:new" in latest.tags)

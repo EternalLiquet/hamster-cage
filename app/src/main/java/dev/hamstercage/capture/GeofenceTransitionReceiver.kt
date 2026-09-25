@@ -27,6 +27,7 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
         val application = context.applicationContext
         val receivedAt = Instant.ofEpochMilli(System.currentTimeMillis())
         worker.launch {
+            var factsStored = false
             try {
                 withCaptureGateTimeout(CaptureWriteGate.mutex, 6_000, action = {
                         val reset = PrivacyResetStore.read(application)
@@ -41,20 +42,27 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                         val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt)
                         val repository = HamsterRepository.get(application)
                         val inserted = repository.appendRawEvents(observations)
+                        factsStored = true
                         CoverageStore.change(application) { ledger ->
                             ledger.observed(observations.maxOf { it.event.at })
                         }
                         val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot
                         val delivery = snapshot?.let { AdaptiveConfirmation.selectDelivery(observations,
                             inserted, it) }
-                        if (delivery != null) {
-                            val versions = repository.officeVersions(delivery.events.map { it.event.officeId })
-                            if (versions.size == delivery.events.size) AdaptiveConfirmation.schedule(application,
-                                delivery.representative, reset.generation, AdaptiveConfirmation.fingerprint(versions))
-                        }
                         CaptureHealthStore.setDeliveryFailure(application, false)
                         CaptureHealth.deliverySucceeded()
-                }, onFailure = { recordDeliveryFailure(application, receivedAt) })
+                        if (delivery != null) try {
+                            val officeIds = delivery.events.map { it.event.officeId }
+                            val versions = repository.officeVersions(officeIds)
+                            if (versions.size == officeIds.size) AdaptiveConfirmation.schedule(application,
+                                delivery.representative, reset.generation,
+                                AdaptiveConfirmation.fingerprint(versions), officeIds)
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                          catch (_: Exception) { recordConfirmationSchedulingFailure(application) }
+                }, onFailure = {
+                    if (factsStored) recordConfirmationSchedulingFailure(application)
+                    else recordDeliveryFailure(application, receivedAt)
+                })
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } finally {
@@ -66,6 +74,11 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
     private companion object {
         val worker = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
+}
+
+internal suspend fun recordConfirmationSchedulingFailure(context: Context) {
+    try { MonitoringStore.record(context, "Boundary confirmation unavailable; later checks may recover") }
+    catch (_: Exception) { Unit }
 }
 
 /** A timeout before obtaining the gate is still a lost observation, not a healthy registration. */

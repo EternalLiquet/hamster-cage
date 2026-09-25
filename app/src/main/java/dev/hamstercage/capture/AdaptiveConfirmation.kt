@@ -35,9 +35,10 @@ internal object AdaptiveConfirmation {
     private const val OFFICE = "office-id"
     private const val GENERATION = "generation"
     private const val FINGERPRINT = "batch-versions"
+    private const val OFFICES = "batch-offices"
 
     data class Candidate(val eventId: String, val officeId: String, val generation: Long,
-        val versionsFingerprint: String)
+        val versionsFingerprint: String, val officeIds: List<String>)
     data class DeliveryBatch(val events: List<RecordedEvent>, val representative: RecordedEvent)
 
     fun selectDelivery(observations: List<RecordedEvent>, inserted: Set<String>,
@@ -51,9 +52,10 @@ internal object AdaptiveConfirmation {
     }
 
     suspend fun schedule(context: Context, event: RecordedEvent, generation: Long,
-        versionsFingerprint: String) {
+        versionsFingerprint: String, officeIds: List<String>) {
         val input = Data.Builder().putString(ID, event.event.id).putString(OFFICE, event.event.officeId)
-            .putLong(GENERATION, generation).putString(FINGERPRINT, versionsFingerprint).build()
+            .putLong(GENERATION, generation).putString(FINGERPRINT, versionsFingerprint)
+            .putStringArray(OFFICES, officeIds.distinct().sorted().toTypedArray()).build()
         val request = OneTimeWorkRequestBuilder<AdaptiveConfirmationWorker>()
             .setInputData(input).setInitialDelay(DELAY_SECONDS, TimeUnit.SECONDS)
             .addTag(TAG).addTag("candidate:${event.event.id}").build()
@@ -70,15 +72,19 @@ internal object AdaptiveConfirmation {
         val office = data.getString(OFFICE) ?: return null
         val generation = data.getLong(GENERATION, -1)
         val fingerprint = data.getString(FINGERPRINT) ?: return null
-        return if (id.isBlank() || office.isBlank() || generation < 0 || fingerprint.length != 64) null
-            else Candidate(id, office, generation, fingerprint)
+        val officeIds = data.getStringArray(OFFICES)?.toList().orEmpty()
+        return if (id.isBlank() || office.isBlank() || generation < 0 || fingerprint.length != 64 ||
+            officeIds.isEmpty() || office !in officeIds || officeIds.any { it.isBlank() }) null
+            else Candidate(id, office, generation, fingerprint, officeIds)
     }
 
-    fun batch(events: List<RecordedEvent>, candidateId: String): List<RecordedEvent> {
+    fun batch(events: List<RecordedEvent>, candidateId: String,
+        officeIds: List<String>): List<RecordedEvent> {
         val candidate = events.singleOrNull { it.event.id == candidateId } ?: return emptyList()
         return events.filter { it.source == "PLAY_SERVICES_GEOFENCE" &&
             it.event.at == candidate.event.at && it.receivedAt == candidate.receivedAt &&
-            it.event.transition == candidate.event.transition }.sortedBy { it.event.officeId }
+            it.event.transition == candidate.event.transition &&
+            it.event.officeId in officeIds }.sortedBy { it.event.officeId }
     }
 
     fun fingerprint(versions: Map<String, Long>): String = MessageDigest.getInstance("SHA-256")
@@ -105,8 +111,9 @@ internal fun eligibleAdaptiveBatch(snapshot: AppSnapshot, candidate: AdaptiveCon
     if (candidate.generation != currentGeneration ||
         !canRequestAdaptiveFix(setup, monitoringEnabled, privacyIdle, coverage.registration) ||
         coverage.outageStartedAt != null) return null
-    val batch = AdaptiveConfirmation.batch(snapshot.eventEvidence, candidate.eventId)
-    if (batch.isEmpty() || batch.any { event -> snapshot.offices.none { office ->
+    val batch = AdaptiveConfirmation.batch(snapshot.eventEvidence, candidate.eventId, candidate.officeIds)
+    if (batch.map { it.event.officeId }.toSet() != candidate.officeIds.toSet() ||
+        batch.any { event -> snapshot.offices.none { office ->
             office.id == event.event.officeId && office.enabled && office.countsTowardAttendance } } ||
         AdaptiveConfirmation.fingerprint(versions) != candidate.versionsFingerprint ||
         !confirmableCandidate(snapshot.eventEvidence, candidate.eventId, candidate.officeId)) return null
@@ -172,7 +179,7 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             return Result.success()
         }
         val initial = repository.state.first() as? StorageState.Ready ?: return Result.success()
-        val initialBatch = AdaptiveConfirmation.batch(initial.snapshot.eventEvidence, id)
+        val initialBatch = AdaptiveConfirmation.batch(initial.snapshot.eventEvidence, id, candidate.officeIds)
         if (eligibleAdaptiveBatch(initial.snapshot, candidate,
                 repository.officeVersions(initialBatch.map { it.event.officeId }), reset.generation,
                 MonitoringStore.read(context).enabled, true, setup, initialCoverage) == null) return Result.success()
@@ -189,7 +196,7 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             if (currentReset !is PrivacyResetState.Idle || currentReset.generation != generation)
                 return@withLock
             val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot ?: return@withLock
-            val batch = AdaptiveConfirmation.batch(snapshot.eventEvidence, id)
+            val batch = AdaptiveConfirmation.batch(snapshot.eventEvidence, id, candidate.officeIds)
             val coverage = CoverageStore.state(context).first()
             if (eligibleAdaptiveBatch(snapshot, candidate,
                     repository.officeVersions(batch.map { it.event.officeId }), currentReset.generation,

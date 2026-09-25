@@ -38,12 +38,29 @@ class AdaptiveConfirmationTest {
         val selected = AdaptiveConfirmation.selectDelivery(listOf(a, b), setOf(a.event.id, b.event.id), snapshot)!!
         assertEquals(2, selected.events.size)
         assertEquals(listOf(a, b), AdaptiveConfirmation.batch(snapshot.eventEvidence,
-            selected.representative.event.id))
+            selected.representative.event.id, selected.events.map { it.event.officeId }))
         var next = 0
         val facts = adaptiveFacts(selected.events.map { it.event.officeId }, "b", at.plusSeconds(60),
             at.plusSeconds(65), 12f) { "fix-${++next}" }
         assertEquals(listOf("a" to Transition.ABSENCE, "b" to Transition.PRESENCE),
             facts.map { it.event.officeId to it.event.transition })
+    }
+
+    @Test fun disabledOfficeInSameDeliveryDoesNotCancelEligibleOfficeCheck() {
+        val active = event("a-enter", "a", Transition.ENTER)
+        val disabled = event("b-enter", "b", Transition.ENTER)
+        val snapshot = AppSnapshot(listOf(Office("a", "A", 0.0, 0.0),
+            Office("b", "B", 1.0, 1.0, enabled = false)),
+            listOf(active, disabled), emptyList(), emptyList(), Policy())
+        val selected = AdaptiveConfirmation.selectDelivery(listOf(active, disabled),
+            setOf(active.event.id, disabled.event.id), snapshot)!!
+        assertEquals(listOf("a"), selected.events.map { it.event.officeId })
+        val candidate = AdaptiveConfirmation.Candidate(active.event.id, "a", 7,
+            AdaptiveConfirmation.fingerprint(mapOf("a" to 1L)), listOf("a"))
+        val batch = eligibleAdaptiveBatch(snapshot, candidate, mapOf("a" to 1L), 7, true, true,
+            LocationSetup(true, true, true, true, true),
+            CoverageLedger(registration = RegistrationStatus.ACTIVE))
+        assertEquals(listOf(active), batch)
     }
 
     @Test fun workerGateRejectsNewerEventEditOptOutPermissionLossAndReset() {
@@ -53,7 +70,7 @@ class AdaptiveConfirmationTest {
         val snapshot = AppSnapshot(offices, listOf(a, b), emptyList(), emptyList(), Policy())
         val versions = mapOf("a" to 1L, "b" to 1L)
         val candidate = AdaptiveConfirmation.Candidate("b-exit", "b", 7,
-            AdaptiveConfirmation.fingerprint(versions))
+            AdaptiveConfirmation.fingerprint(versions), listOf("a", "b"))
         val setup = LocationSetup(true, true, true, true, true)
         val coverage = CoverageLedger(registration = RegistrationStatus.ACTIVE)
         fun eligible(state: AppSnapshot = snapshot, saved: Map<String, Long> = versions,
