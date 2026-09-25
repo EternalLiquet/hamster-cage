@@ -1,5 +1,8 @@
 package dev.hamstercage.ui
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.text.format.DateFormat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -7,11 +10,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import dev.hamstercage.data.AttendanceEdit
 import dev.hamstercage.domain.*
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -19,9 +30,16 @@ data class CorrectionActions(val now: () -> Instant, val newId: () -> String, va
 
 @Composable
 fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: CorrectionActions, close: () -> Unit) {
-    fun at(value: Instant?) = value?.atZone(input.policy.zoneId)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME).orEmpty()
-    var start by rememberSaveable { mutableStateOf(at(session?.start ?: Instant.ofEpochMilli(input.now.toEpochMilli()))) }
-    var end by rememberSaveable { mutableStateOf(at(session?.end)) }
+    val zone = input.policy.zoneId
+    fun local(value: Instant) = value.atZone(zone).toLocalDateTime().toString()
+    fun display(value: Instant) = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy · h:mm a z")
+        .withZone(zone).format(value)
+    val initialStart = session?.start ?: session?.end ?: input.now
+    var startLocal by rememberSaveable(session?.id) { mutableStateOf(local(initialStart)) }
+    var startOverlap by rememberSaveable(session?.id) { mutableStateOf(overlapChoiceFor(initialStart, zone)) }
+    var endLocal by rememberSaveable(session?.id) { mutableStateOf(local(session?.end ?: input.now)) }
+    var endOverlap by rememberSaveable(session?.id) { mutableStateOf(overlapChoiceFor(session?.end, zone)) }
+    var hasEnd by rememberSaveable(session?.id) { mutableStateOf(session?.end != null) }
     var note by rememberSaveable { mutableStateOf("") }
     var officeId by rememberSaveable { mutableStateOf(session?.officeId ?: input.offices.firstOrNull()?.id.orEmpty()) }
     var preview by remember { mutableStateOf<AttendanceEdit?>(null) }
@@ -29,6 +47,9 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
     var saved by remember { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    fun selectedBounds(now: Instant) = localCorrectionBounds(
+        LocalBoundary(LocalDateTime.parse(startLocal), startOverlap),
+        if (hasEnd) LocalBoundary(LocalDateTime.parse(endLocal), endOverlap) else null, zone, now)
     if (saved) {
         Notice("Attendance change saved", "Your immutable source facts and correction audit were kept. Totals have been recalculated.")
         Button(onClick = close) { Text("Back to history") }
@@ -42,12 +63,12 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
             val id = actions.newId()
             val edit = if (session != null) {
                 val bounds = if (revert) CorrectionBounds(session.start ?: session.end ?: baseline.now, session.end)
-                    else correctionBounds(start, end, baseline.now)
+                    else selectedBounds(baseline.now)
                 val sequence = nextCorrectionSequence(baseline.corrections.maxOfOrNull { it.appendSequence } ?: 0)
                 AttendanceEdit.Correct(baseline, Correction(id, session.id, bounds.start, bounds.end, baseline.now, note.trim(), revert, sequence))
             } else {
                 require(input.offices.any { it.id == officeId }) { "Choose a saved office first." }
-                val bounds = correctionBounds(start, end, baseline.now)
+                val bounds = selectedBounds(baseline.now)
                 AttendanceEdit.AddManual(baseline, ManualSession(id, officeId, bounds.start, bounds.end, baseline.now, note.trim()))
             }
             val proposed = AttendanceEngine.derive(edit.proposedInput())
@@ -59,7 +80,7 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Text(if (session == null) "Add manual attendance" else "Correct session", style = MaterialTheme.typography.headlineSmall)
         Text("Original observations stay unchanged. This adds a visible manual audit entry. Location permission is not required.")
-        Text("Use a UTC offset for each boundary to distinguish repeated DST hours. Policy timezone: ${input.policy.zoneId.id}.")
+        Text("Times use ${zone.getDisplayName(TextStyle.FULL, Locale.getDefault())} (${zone.id}). Select local dates and times; repeated clock hours ask for a choice.")
         FormError(error)
         if (preview == null) {
             if (session == null) input.offices.forEach { office ->
@@ -67,10 +88,15 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
                     Text("${if (officeId == office.id) "✓ " else ""}${evidenceText(office.name)}${if (!office.enabled || !office.countsTowardAttendance) " (no attendance credit)" else ""}")
                 }
             }
-            OutlinedTextField(start, { start = it }, label = { Text("Effective start with offset") }, singleLine = true,
-                enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("correction_start"))
-            OutlinedTextField(end, { end = it }, label = { Text("Effective end with offset (blank = open)") }, singleLine = true,
-                enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("correction_end"))
+            LocalBoundaryPicker("Start", LocalDateTime.parse(startLocal), startOverlap, zone, busy,
+                onChange = { value -> startLocal = value.toString(); startOverlap = null },
+                onOverlap = { startOverlap = it })
+            Checkbox(checked = hasEnd, onCheckedChange = { hasEnd = it }, enabled = !busy,
+                modifier = Modifier.testTag("correction_has_end").semantics { contentDescription = "Include an end time" })
+            Text(if (hasEnd) "End time selected" else "No end selected · this creates an open session.")
+            if (hasEnd) LocalBoundaryPicker("End", LocalDateTime.parse(endLocal), endOverlap, zone, busy,
+                onChange = { value -> endLocal = value.toString(); endOverlap = null },
+                onOverlap = { endOverlap = it })
             OutlinedTextField(note, { note = it }, label = { Text("Private note (optional)") }, enabled = !busy,
                 modifier = Modifier.fillMaxWidth().testTag("correction_note"))
             Button(onClick = { preview(false) }, enabled = !busy && input.offices.isNotEmpty()) { Text("Preview attendance change") }
@@ -83,7 +109,13 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
             Panel {
                 Text("Review before saving", style = MaterialTheme.typography.titleLarge)
                 Text("All recorded credited time: ${minutesText(before.intervals.sumOf { it.minutes })} → ${minutesText(after.intervals.sumOf { it.minutes })}", Modifier.testTag("correction_preview_total"))
-                Text("Preview evaluated at ${at(edit.baseline.now)}. New observations, policy or advancing time can update later totals.")
+                val bounds = when (edit) {
+                    is AttendanceEdit.Correct -> CorrectionBounds(edit.value.start, edit.value.end)
+                    is AttendanceEdit.AddManual -> CorrectionBounds(edit.value.start, edit.value.end)
+                }
+                Text("Selected time: ${display(bounds.start)} → ${bounds.end?.let(::display) ?: "Open session"}",
+                    Modifier.testTag("correction_preview_bounds"))
+                Text("Preview evaluated at ${display(edit.baseline.now)}. New observations, policy or advancing time can update later totals.")
                 if (edit is AttendanceEdit.Correct && edit.value.revertToOriginal)
                     Text("Revert appends an audit marker and restores original reconstruction, including any missing boundaries and review flags.")
                 else Text("The resulting attendance is marked MANUAL. Arrival walking delay and overlap rules still apply; exit grace affects projections only.")
@@ -102,5 +134,47 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
             TextButton(onClick = { preview = null }, enabled = !busy) { Text("Back to edit") }
         }
         TextButton(onClick = close, enabled = !busy) { Text("Cancel correction") }
+    }
+}
+
+internal fun correctionTimeText(value: LocalDateTime, use24Hour: Boolean): String =
+    value.format(DateTimeFormatter.ofPattern(if (use24Hour) "HH:mm" else "h:mm a"))
+
+@Composable
+private fun LocalBoundaryPicker(label: String, value: LocalDateTime, overlap: Int?, zone: ZoneId,
+    busy: Boolean, onChange: (LocalDateTime) -> Unit, onOverlap: (Int) -> Unit) {
+    val context = LocalContext.current
+    val use24Hour = DateFormat.is24HourFormat(context)
+    Text(label, style = MaterialTheme.typography.titleMedium)
+    OutlinedButton(onClick = {
+        DatePickerDialog(context, { _, year, month, day ->
+            onChange(LocalDate.of(year, month + 1, day).atTime(value.toLocalTime()))
+        }, value.year, value.monthValue - 1, value.dayOfMonth).show()
+    }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("correction_${label.lowercase()}_date")) {
+        Text("Choose $label date · ${value.toLocalDate().format(DateTimeFormatter.ofPattern("MMM d, yyyy"))}")
+    }
+    OutlinedButton(onClick = {
+        TimePickerDialog(context, { _, hour, minute ->
+            onChange(value.toLocalDate().atTime(hour, minute))
+        }, value.hour, value.minute, use24Hour).show()
+    }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("correction_${label.lowercase()}_time")) {
+        Text("Choose $label time · ${correctionTimeText(value, use24Hour)}")
+    }
+    val offsets = overlapOffsets(value, zone)
+    if (offsets.size == 2) {
+        Text("Clocks repeat this time. Choose which occurrence you mean; the first happens before the second.")
+        offsets.forEachIndexed { index, _ ->
+            OutlinedButton(onClick = { onOverlap(index) }, enabled = !busy,
+                modifier = Modifier.fillMaxWidth().testTag("correction_${label.lowercase()}_overlap_$index")) {
+                Text("${if (overlap == index) "✓ " else ""}${if (index == 0) "First" else "Second"} ${correctionTimeText(value, use24Hour)}")
+            }
+        }
+    } else if (zone.rules.getValidOffsets(value).isEmpty()) {
+        val next = zone.rules.getTransition(value)?.dateTimeAfter
+        Text("This time does not exist because clocks move forward. Choose another time.")
+        if (next != null) OutlinedButton(onClick = { onChange(next) }, enabled = !busy,
+            modifier = Modifier.testTag("correction_${label.lowercase()}_next_valid")) {
+            Text("Use next valid time · ${correctionTimeText(next, use24Hour)}")
+        }
     }
 }
