@@ -117,6 +117,18 @@ class SecurityAuditTest(unittest.TestCase):
                 script, _, _ = self.fixture(Path(directory), manifest)
                 self.run_modes(script, False, "FAIL:")
 
+    def test_workmanager_job_entry_is_only_os_bound_without_intent_filters(self):
+        service = '<service android:name="androidx.work.impl.background.systemjob.SystemJobService" ' \
+                  'android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />'
+        candidates = [(service, True),
+                      (service.replace('android.permission.BIND_JOB_SERVICE', 'android.permission.DUMP'), False),
+                      (service.replace(' />', '><intent-filter><action android:name="synthetic.ACTION" /></intent-filter></service>'), False)]
+        for candidate, allowed in candidates:
+            with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as directory:
+                manifest = SAFE_MANIFEST.replace(" /></manifest>", ">" + candidate + "</application></manifest>")
+                script, _, _ = self.fixture(Path(directory), manifest)
+                self.run_modes(script, allowed, "PASS:" if allowed else "WorkManager job entry")
+
     def test_recovery_receiver_accepts_only_exact_system_actions(self):
         component = '<receiver android:name="dev.hamstercage.capture.CaptureRecoveryReceiver" android:exported="true"><intent-filter>' \
             '<action android:name="android.intent.action.BOOT_COMPLETED" />' \
@@ -159,6 +171,15 @@ class SecurityAuditTest(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_text('URL("https://example.test/visit")', encoding="utf-8")
             self.run_modes(script, False, "Network calls must stay in reviewed office lookup/map setup")
+
+    def test_geocoder_calls_outside_office_setup_are_rejected(self):
+        for code in ('Geocoder(context)', 'geocoder.getFromLocationName("synthetic", 5)'):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
+                script, _, _ = self.fixture(Path(directory))
+                source = Path(directory) / "app/src/main/java/synthetic/Tracking.kt"
+                source.parent.mkdir(parents=True)
+                source.write_text(code, encoding="utf-8")
+                self.run_modes(script, False, "Address geocoding must stay in reviewed office setup")
 
     def test_office_tile_provider_must_be_exact_https_host_without_redirects(self):
         for code, expected in [

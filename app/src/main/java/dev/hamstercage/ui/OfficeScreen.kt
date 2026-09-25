@@ -28,6 +28,7 @@ import dev.hamstercage.data.StorageState
 import dev.hamstercage.domain.Office
 import dev.hamstercage.offices.OfficeDraft
 import dev.hamstercage.offices.OfficeFix
+import dev.hamstercage.offices.OfficeLocationFailure
 import dev.hamstercage.offices.OfficeMapTile
 import dev.hamstercage.offices.OfficePlace
 import kotlinx.coroutines.CancellationException
@@ -48,6 +49,14 @@ data class OfficeActions(
     val requestForeground: () -> Unit = {},
     val openDeviceSettings: () -> Unit = {},
 )
+
+internal fun officeSearchError(failure: Exception): String =
+    (failure as? OfficeLocationFailure)?.message
+        ?: "Address search unavailable. Retry or use current location or Advanced coordinates."
+
+internal fun officeCurrentError(failure: Exception): String =
+    (failure as? OfficeLocationFailure)?.message
+        ?: "Current location unavailable. Retry or search an address."
 
 private data class MapRequest(val latitude: Double, val longitude: Double, val radiusMeters: Float, val epoch: Int)
 private data class LoadedMap(val request: MapRequest, val tile: OfficeMapTile)
@@ -213,7 +222,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                             if (found.isEmpty()) error = "No addresses found. Try a more specific address, current location or Advanced coordinates."
                         }
                     } catch (failure: CancellationException) { throw failure }
-                    catch (failure: Exception) { if (epoch == searchEpoch) error = failure.message ?: "Address search unavailable. Retry or use another location method." }
+                    catch (failure: Exception) { if (epoch == searchEpoch) error = officeSearchError(failure) }
                     finally { if (epoch == searchEpoch) searching = false }
                 }
             }, modifier = Modifier.testTag("searchAddressButton"))
@@ -230,7 +239,7 @@ fun OfficeScreen(state: StorageState, actions: OfficeActions) {
                             status = "Current fix accuracy: ${fix.accuracyMeters.toInt()} m. Review the pin before saving."
                         }
                     } catch (failure: CancellationException) { throw failure }
-                    catch (failure: Exception) { if (epoch == searchEpoch) error = failure.message ?: "Current location unavailable. Retry or search an address." }
+                    catch (failure: Exception) { if (epoch == searchEpoch) error = officeCurrentError(failure) }
                     finally { if (epoch == searchEpoch) locating = false }
                 }
             })

@@ -125,6 +125,8 @@ def audit(root, variant="debug"):
                 f"Continuous or cached location collection needs explicit review: {path}")
         if re.search(r"\bgetCurrentLocation\s*\(", code):
             require(path == reviewed_lookup, f"One-shot location must stay in reviewed office setup: {path}")
+        if re.search(r"\b(?:Geocoder|getFromLocationName)\s*\(", code):
+            require(path == reviewed_lookup, f"Address geocoding must stay in reviewed office setup: {path}")
         if re.search(r"\b(?:URL|openConnection|HttpURLConnection|HttpsURLConnection|Socket|OkHttpClient)\s*\(", code):
             require(path == reviewed_lookup, f"Network calls must stay in reviewed office lookup/map setup: {path}")
             require("http://" not in code, "Office lookup/map must not use cleartext HTTP")
