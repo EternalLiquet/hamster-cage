@@ -22,7 +22,8 @@ class HistoryPresentationTest {
         assertEquals(-360.0, day.summary.balanceMinutes, 0.001)
         val unknown = days(input().copy(historyStartDate = null)).first()
         assertFalse(unknown.summary.hasCompleteHistory)
-        assertTrue("UNKNOWN COVERAGE" in unknown.badges)
+        assertEquals(HistoryCoverage.BEFORE_TRACKING, unknown.coverage)
+        assertTrue("BEFORE TRACKING" in unknown.badges)
     }
 
     @Test fun timelineSeparatesObservedArrivalFromUncreditedDelay() {
@@ -127,5 +128,64 @@ class HistoryPresentationTest {
         val page = historyDays(source, result)
         assertTrue("REVIEW" in page[0].badges)
         assertTrue("REVIEW" in page[1].badges)
+    }
+
+    @Test fun rejectedSourceFindingsRemainActionableWithoutReliableTrackingStart() {
+        val raw = input().copy(historyStartDate = null, events = listOf(
+            RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(3600)),
+            RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(86400 + 3600))))
+        val rawPage = days(raw)
+        assertTrue(rawPage.take(2).all { it.coverage == HistoryCoverage.BEFORE_TRACKING && "REVIEW" in it.badges })
+        assertEquals(listOf(today, today.minusDays(1)), historyVisibleDays(rawPage, false).map { it.date })
+        assertEquals(listOf(today, today.minusDays(1)), historyNeedsReview(rawPage).map { it.date })
+
+        val invalidManual = input().copy(historyStartDate = null,
+            manualSessions = listOf(ManualSession("bad", office.id, now.minusSeconds(3600), now.minusSeconds(7200), now)))
+        val manualPage = days(invalidManual)
+        assertEquals(HistoryCoverage.BEFORE_TRACKING, manualPage.first().coverage)
+        assertEquals(listOf(today), historyNeedsReview(manualPage).map { it.date })
+        assertEquals(listOf(today), historyVisibleDays(manualPage, false).map { it.date })
+
+        val orphan = input().copy(historyStartDate = null, corrections = listOf(
+            Correction("orphan", "missing", now.minusSeconds(86400 + 3600), now.minusSeconds(86400), now)))
+        val orphanPage = days(orphan)
+        assertEquals(listOf(today, today.minusDays(1)), historyNeedsReview(orphanPage).map { it.date })
+        assertEquals(listOf(today, today.minusDays(1)), historyVisibleDays(orphanPage, false).map { it.date })
+    }
+
+    @Test fun firstObservedDayStartsHistoryButOlderDaysDoNotNeedReview() {
+        val source = input().copy(historyStartDate = null, policy = Policy(zoneId = ZoneId.of("UTC")),
+            events = listOf(RawEvent("enter", office.id, Transition.ENTER, now.minusSeconds(3600))))
+        val page = days(source)
+        assertEquals(HistoryCoverage.COVERED, page[0].coverage)
+        assertTrue(page.drop(1).all { it.coverage == HistoryCoverage.BEFORE_TRACKING })
+        assertTrue(page.drop(1).none { "UNKNOWN COVERAGE" in it.badges })
+    }
+
+    @Test fun postStartGapStaysUnknownWhileManualBackfillIsOnlyAnIsland() {
+        val start = today.minusDays(2)
+        val source = input().copy(historyStartDate = start, unknownDates = setOf(today.minusDays(1)),
+            manualSessions = listOf(ManualSession("backfill", office.id,
+                now.minusSeconds(10 * 86400L + 3600), now.minusSeconds(10 * 86400L), now)))
+        val page = days(source)
+        assertEquals(HistoryCoverage.COVERED, page[10].coverage)
+        assertEquals(HistoryCoverage.BEFORE_TRACKING, page[9].coverage)
+        assertEquals(HistoryCoverage.UNKNOWN_AFTER_TRACKING, page[1].coverage)
+        assertTrue("UNKNOWN COVERAGE" in page[1].badges)
+    }
+
+    @Test fun resetAndTimezoneRecomputeBoundaryFromCurrentInput() {
+        val source = input().copy(historyStartDate = null, policy = Policy(zoneId = ZoneId.of("UTC")),
+            events = listOf(
+                RawEvent("enter", office.id, Transition.ENTER, Instant.parse("2026-09-23T00:30:00Z")),
+                RawEvent("exit", office.id, Transition.EXIT, Instant.parse("2026-09-23T01:30:00Z"))))
+        assertEquals(HistoryCoverage.COVERED, days(source).first().coverage)
+        val shifted = source.copy(policy = Policy(zoneId = ZoneId.of("America/Los_Angeles")))
+        val shiftedPage = days(shifted)
+        assertEquals(LocalDate.of(2026, 9, 23), shiftedPage.first().date)
+        assertEquals(HistoryCoverage.UNKNOWN_AFTER_TRACKING, shiftedPage.first().coverage)
+        assertEquals(HistoryCoverage.COVERED, shiftedPage[1].coverage)
+        assertEquals(HistoryCoverage.BEFORE_TRACKING, shiftedPage[2].coverage)
+        assertTrue(days(source.copy(events = emptyList())).all { it.coverage == HistoryCoverage.BEFORE_TRACKING })
     }
 }
