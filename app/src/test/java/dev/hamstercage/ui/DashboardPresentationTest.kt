@@ -31,6 +31,12 @@ class DashboardPresentationTest {
         assertEquals("Office state unknown", state(input, false).label)
         assertEquals("Office state unknown", state(input.copy(now = now.plusSeconds(24 * 3600))).label)
     }
+    @Test fun transientBoundaryDoesNotClaimConfirmedDeparture() {
+        val input = data(listOf(RawEvent("in", "a", Transition.ENTER, now.minusSeconds(40)),
+            RawEvent("out", "a", Transition.EXIT, now)))
+        assertEquals("Needs review", state(input).label)
+        assertTrue(ReviewReason.TRANSIENT_BOUNDARY in AttendanceEngine.derive(input).sessions.single().reviewReasons)
+    }
     @Test fun multipleOpenOfficesAndMalformedBoundsNeedReview() {
         val overlapping = data(listOf(enter(), enter("bin", "b"))).copy(offices = listOf(office, office.copy(id = "b")))
         assertEquals("Needs review", state(overlapping).label)

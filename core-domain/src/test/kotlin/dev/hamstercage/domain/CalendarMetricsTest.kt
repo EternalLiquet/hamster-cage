@@ -174,9 +174,9 @@ class CalendarMetricsTest {
     @Test fun reviewBlockedCreditCannotInflateCoveredDayProgress() {
         val old = day.minusDays(1)
         val conflicted = listOf(RawEvent("first", "a", Transition.ENTER, at("09:00", old)),
-            RawEvent("again", "a", Transition.ENTER, at("10:00", old)),
             RawEvent("exit", "a", Transition.EXIT, at("15:00", old)))
-        val data = input(conflicted + visit(day)).copy(historyStartDate = null)
+        val invalid = Correction("invalid", "session:first", at("10:00", old), at("09:00", old), at("19:00", old))
+        val data = input(conflicted + visit(day)).copy(historyStartDate = null, corrections = listOf(invalid))
         val result = AttendanceEngine.derive(data)
         val full = AttendanceEngine.summary(data, result, TargetWindow.ROLLING_30)
         val coverage = AttendanceEngine.reportingCoverage(data, result, full.startDate, full.endDate)

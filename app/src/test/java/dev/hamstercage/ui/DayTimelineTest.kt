@@ -49,7 +49,8 @@ class DayTimelineTest {
         val input = AttendanceInput(listOf(office), listOf(
             event("in", Transition.ENTER, "2026-09-23T09:00:00Z"),
             event("fix", Transition.PRESENCE, "2026-09-23T12:00:00Z")),
-            policy = policy, now = Instant.parse("2026-09-23T13:00:00Z"))
+            policy = policy, now = Instant.parse("2026-09-23T13:00:00Z"),
+            recoveryPresenceIds = setOf("fix"))
         val result = AttendanceEngine.derive(input)
         val prior = result.sessions.first { ReviewReason.UNCONFIRMED_GAP in it.reviewReasons }
         val current = result.sessions.single { it.isOpen }

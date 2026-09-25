@@ -189,7 +189,7 @@ class ForegroundReconciliationTest {
         assertNull(canOpenFromObservation(sameTimeBExit, office.id, recovered.observed(observed), observed, now))
     }
 
-    @Test fun reviewedSameOfficeRepeatedEnterDoesNotSuppressCurrentFix() {
+    @Test fun repeatedSameOfficeEnterCorroboratesHealthyCurrentVisit() {
         val zone = Policy().zoneId
         val boundary = observed.minusSeconds(600)
         val first = observed.minusSeconds(300)
@@ -197,8 +197,9 @@ class ForegroundReconciliationTest {
         val coverage = CoverageLedger().registrationSucceeded(boundary, zone, true).observed(repeated)
         val snapshot = snapshot(listOf(event("first", Transition.ENTER, first),
             event("repeat", Transition.ENTER, repeated)))
-        assertEquals(true, ReviewReason.REPEATED_ENTER in snapshot.derive(observed).sessions.single().reviewReasons)
-        assertNull(canOpenFromObservation(snapshot, office.id, coverage, observed, observed.plusSeconds(1)))
+        assertEquals(false, ReviewReason.REPEATED_ENTER in snapshot.derive(observed).sessions.single().reviewReasons)
+        assertEquals(ReconcileOutcome.ALREADY_PRESENT,
+            canOpenFromObservation(snapshot, office.id, coverage, observed, observed.plusSeconds(1)))
     }
 
     @Test fun cachedPreRegistrationFixCannotClaimVisiblePresenceButPostBoundaryFixCan() {

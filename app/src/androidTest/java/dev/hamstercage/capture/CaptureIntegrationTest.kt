@@ -8,7 +8,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.hamstercage.data.HamsterDatabase
 import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.StorageState
+import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.domain.Office
+import dev.hamstercage.domain.RawEvent
+import dev.hamstercage.domain.ReviewReason
 import dev.hamstercage.domain.TimeSource
 import dev.hamstercage.domain.Transition
 import java.time.Instant
@@ -29,6 +32,53 @@ import org.junit.runner.RunWith
 class CaptureIntegrationTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val receipt = Instant.parse("2025-03-10T10:00:02Z")
+
+    @Test fun delayedBounceFactsRemainImmutableAndDeriveTheSameAfterRoomReopen() = runBlocking {
+        val name = "bounce-${UUID.randomUUID()}"
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val prefs = PreferenceDataStoreFactory.create(scope = scope) { context.preferencesDataStoreFile(name) }
+        val now = Instant.parse("2026-09-25T17:00:00Z")
+        val entered = Instant.parse("2026-09-25T13:00:00Z")
+        val bouncedOut = Instant.parse("2026-09-25T15:01:29Z")
+        val bouncedIn = Instant.parse("2026-09-25T15:01:41Z")
+        val left = Instant.parse("2026-09-25T16:00:00Z")
+        val facts = listOf(
+            RecordedEvent(RawEvent("first", "a", Transition.ENTER, entered), entered),
+            RecordedEvent(RawEvent("bounce-out", "a", Transition.EXIT, bouncedOut), now.minusSeconds(90), bouncedOut),
+            RecordedEvent(RawEvent("bounce-in", "a", Transition.ENTER, bouncedIn), now.minusSeconds(120), bouncedIn),
+            RecordedEvent(RawEvent("last", "a", Transition.EXIT, left), left),
+        )
+        val dbName = "$name.db"
+        try {
+            val firstDb = HamsterDatabase.open(context, dbName)
+            try {
+                val repository = HamsterRepository(firstDb, prefs, TimeSource { now })
+                repository.saveOffice(Office("a", "Synthetic A", 0.0, 0.0))
+                repository.appendRawEvents(listOf(facts[2], facts[0], facts[3], facts[1]))
+                repository.appendRawEvents(listOf(facts[1]))
+                assertEquals(4, firstDb.dao().events().size)
+                val before = (repository.state.first { it is StorageState.Ready } as StorageState.Ready).snapshot
+                assertEquals(1, before.derive(now).sessions.size)
+                assertEquals(facts.map { it.event.id }.toSet(), before.derive(now).sessions.single().sourceEventIds)
+            } finally { firstDb.close() }
+
+            val reopened = HamsterDatabase.open(context, dbName)
+            try {
+                val repository = HamsterRepository(reopened, prefs, TimeSource { now })
+                val snapshot = (repository.state.first { it is StorageState.Ready } as StorageState.Ready).snapshot
+                assertEquals(facts.map { it.event }.toSet(), snapshot.events.toSet())
+                val result = snapshot.derive(now)
+                assertEquals(1, result.sessions.size)
+                assertEquals(entered, result.sessions.single().start)
+                assertEquals(left, result.sessions.single().end)
+                assertTrue(result.reviews.none { it.reason == ReviewReason.REPEATED_ENTER })
+            } finally { reopened.close() }
+        } finally {
+            scope.cancel()
+            context.deleteDatabase(dbName)
+            context.preferencesDataStoreFile(name).delete()
+        }
+    }
 
     @Test fun twoOfficeTransitionsReplayAndUnknownOfficeAreAtomic() = runBlocking {
         val name = "capture-${UUID.randomUUID()}"

@@ -43,7 +43,8 @@ class DayDetailTest {
         val bOut = RawEvent("b-out", second.id, Transition.EXIT, Instant.parse("2026-09-23T14:20:00Z"))
         val fix = RawEvent("a-fix", office.id, Transition.PRESENCE, Instant.parse("2026-09-23T14:30:00Z"))
         val input = AttendanceInput(listOf(office, second), listOf(a, bIn, bOut, fix),
-            policy = Policy(zoneId = ZoneId.of("UTC")), now = evaluated)
+            policy = Policy(zoneId = ZoneId.of("UTC")), now = evaluated,
+            recoveryPresenceIds = setOf("a-fix"))
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
             DayDetailScreen(input, AttendanceEngine.derive(input), day, {})
         } } }

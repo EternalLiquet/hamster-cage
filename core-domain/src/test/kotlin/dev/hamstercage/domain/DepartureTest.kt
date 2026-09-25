@@ -63,6 +63,7 @@ class DepartureTest {
         val data = input(listOf(enter("09:00", "old"),
             RawEvent("fix", "a", Transition.PRESENCE, at("10:00")),
             enter("10:02", "normal")), now = at("10:30"), policy = Policy(targetMinutesPerDay = 60))
+            .copy(recoveryPresenceIds = setOf("fix"))
         val derived = AttendanceEngine.derive(data)
         assertTrue(ReviewReason.UNCONFIRMED_GAP in derived.sessions.first().reviewReasons)
         assertEquals(25.0, AttendanceEngine.summary(data, derived, TargetWindow.TODAY).creditedMinutes, 0.0)
@@ -70,8 +71,8 @@ class DepartureTest {
         assertEquals(DepartureStatus.ESTIMATED, projected.status)
         assertEquals(at("11:05"), projected.creditedTargetAt)
         assertEquals(at("11:00"), projected.estimatedExitAt)
-        val anomalous = data.copy(events = data.events + enter("10:03", "repeat"))
-        assertSuppressed(DepartureStatus.NEEDS_REVIEW, estimate(anomalous))
+        val corroborated = data.copy(events = data.events + enter("10:03", "repeat"))
+        assertEquals(DepartureStatus.ESTIMATED, estimate(corroborated).status)
     }
 
     @Test fun lateArrivalCannotUseTomorrowToMeetTodayTarget() {
@@ -145,10 +146,10 @@ class DepartureTest {
         assertTrue(ReviewReason.FUTURE_EVENT in blocked.reviewReasons)
     }
 
-    @Test fun repeatedEnterAmbiguityPrecedesTargetMet() {
+    @Test fun repeatedEnterDoesNotBlockTargetMet() {
         val result = estimate(input(listOf(enter(), enter("10:00", "repeat")), now = at("16:00")))
         assertEquals(0.0, result.remainingMinutes, 0.0)
-        assertSuppressed(DepartureStatus.NEEDS_REVIEW, result)
+        assertEquals(DepartureStatus.TARGET_SATISFIED, result.status)
     }
 
     @Test fun simultaneousOpenOfficesSuppressPredictionEvenAfterTargetMet() {

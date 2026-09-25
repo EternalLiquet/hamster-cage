@@ -41,15 +41,14 @@ class AttendanceEngineTest {
         }
     }
 
-    @Test fun simultaneousExitAndNextEnterRetainBothVisitsWithoutDependingOnIds() {
+    @Test fun simultaneousExitAndNextEnterCorroborateOneVisitWithoutDependingOnIds() {
         val events = listOf(enter("first", "09:00"), exit("noon-out", "12:00"), enter("noon-in", "12:00"), exit("last", "15:00"))
         val data = input(events, policy = Policy(shortGapMinutes = 0), offices = listOf(office.copy(entryGraceMinutes = 0, exitGraceMinutes = 0)))
         val result = AttendanceEngine.derive(data)
         assertMinutes(360.0, data)
-        assertEquals(2, result.sessions.size)
+        assertEquals(1, result.sessions.size)
         assertTrue(result.reviews.isEmpty())
-        assertEquals(setOf("first", "noon-out"), result.sessions[0].sourceEventIds)
-        assertEquals(setOf("noon-in", "last"), result.sessions[1].sourceEventIds)
+        assertEquals(setOf("first", "noon-out", "noon-in", "last"), result.sessions.single().sourceEventIds)
         assertEquals(result, AttendanceEngine.derive(data.copy(events = events.reversed())))
         assertMinutes(360.0, data.copy(events = events + events + enter("a-replay", "12:00") + exit("z-replay", "12:00")))
     }
@@ -210,26 +209,26 @@ class AttendanceEngineTest {
     }
     @Test fun zeroCreditVisitBlocksGapBridgeAcrossItsArrivalWindow() {
         val events = listOf(enter("a", "09:00"), exit("b", "09:10"),
-            enter("c", "09:11"), exit("d", "09:12"),
-            enter("e", "09:13"), exit("f", "09:20"))
+            enter("c", "09:11:01"), exit("d", "09:12"),
+            enter("e", "09:14"), exit("f", "09:21"))
         val data = input(events, policy = Policy(shortGapMinutes = 10))
         val result = AttendanceEngine.derive(data)
         assertEquals(3, result.sessions.size)
         assertEquals(events, data.events)
         assertEquals(7.0, result.intervals.sumOf { it.minutes }, 0.0)
-        assertEquals(listOf(at("09:05") to at("09:10"), at("09:18") to at("09:20")),
+        assertEquals(listOf(at("09:05") to at("09:10"), at("09:19") to at("09:21")),
             result.intervals.map { it.start to it.end })
         assertTrue(result.intervals.none { it.reconciledGap })
     }
-    @Test fun repeatedEnterPreservesEarliestAndFlagsLowConfidence() {
+    @Test fun repeatedEnterCorroboratesEarliestOpeningWithoutReview() {
         val data = input(listOf(enter("1", "09:00"), enter("2", "10:00"), exit("3", "15:00")))
         assertMinutes(355.0, data)
         val session = AttendanceEngine.derive(data).sessions.single()
-        assertEquals(Confidence.LOW, session.confidence)
-        assertTrue(ReviewReason.REPEATED_ENTER in session.reviewReasons)
+        assertEquals(Confidence.HIGH, session.confidence)
+        assertTrue(session.reviewReasons.isEmpty())
         assertEquals(setOf("1", "2", "3"), session.sourceEventIds)
     }
-    @Test fun firstGeofenceEnterAfterPresenceCorroboratesWithoutHidingLaterRepeatedEnters() {
+    @Test fun geofenceEnterAfterPresenceAlwaysCorroboratesCurrentOpening() {
         val presence = RawEvent("fix", "a", Transition.PRESENCE, at("09:00"))
         val followed = input(listOf(presence, enter("normal", "09:02"), exit("out", "10:00")))
         val session = AttendanceEngine.derive(followed).sessions.single()
@@ -238,9 +237,9 @@ class AttendanceEngineTest {
         assertMinutes(55.0, followed)
 
         val repeated = followed.copy(events = followed.events.dropLast(1) + enter("repeat", "09:03") + exit("out", "10:00"))
-        assertTrue(ReviewReason.REPEATED_ENTER in AttendanceEngine.derive(repeated).sessions.single().reviewReasons)
+        assertFalse(ReviewReason.REPEATED_ENTER in AttendanceEngine.derive(repeated).sessions.single().reviewReasons)
         val late = input(listOf(presence, enter("late", "09:30"), exit("out", "10:00")))
-        assertTrue(ReviewReason.REPEATED_ENTER in AttendanceEngine.derive(late).sessions.single().reviewReasons)
+        assertFalse(ReviewReason.REPEATED_ENTER in AttendanceEngine.derive(late).sessions.single().reviewReasons)
     }
     @Test fun repeatedExitDoesNotInventAnotherSessionStart() {
         val data = input(listOf(enter("1", "09:00"), exit("2", "15:00"), exit("3", "15:05")))
