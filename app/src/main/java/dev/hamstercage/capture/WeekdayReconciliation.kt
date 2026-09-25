@@ -29,7 +29,7 @@ import kotlinx.coroutines.withTimeout
 
 /** The single periodic path is inexact; only work inside the policy window requests location. */
 internal object WeekdayReconciliation {
-    private const val NAME = "weekday-office-state-reconciliation"
+    internal const val NAME = "weekday-office-state-reconciliation"
 
     fun schedule(context: Context) {
         val request = PeriodicWorkRequestBuilder<WeekdayReconciliationWorker>(30, TimeUnit.MINUTES).build()

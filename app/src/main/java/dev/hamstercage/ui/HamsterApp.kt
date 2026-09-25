@@ -67,7 +67,7 @@ fun HamsterApp(
     setupError: String? = null, requestForeground: () -> Unit = {}, requestBackground: () -> Unit = {},
     openAppSettings: () -> Unit = {}, openDeviceSettings: () -> Unit = {},
     reconcileOffice: (suspend () -> ReconcileOutcome)? = null,
-    setMonitoringEnabled: (Boolean) -> Unit = {},
+    setMonitoringEnabled: suspend (Boolean) -> Unit = {},
     trackingReady: Boolean = false,
     officeActions: OfficeActions? = null,
     correctionActions: CorrectionActions? = null,
