@@ -58,7 +58,7 @@ class HistoryTest {
             RawEvent("exit", office.id, Transition.EXIT, now.minusSeconds(2 * 86400L))),
             unknownDates = setOf(today.minusDays(1)))
         show(entered)
-        compose.onNodeWithTag("history_review_alert").performScrollTo().assertTextContains("unknown coverage", substring = true)
+        compose.onNodeWithTag("history_review_alert").performScrollTo().assertTextEquals("2 days have missing attendance coverage.")
         compose.onNodeWithTag("history_review_action").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("history_date_${today.minusDays(3)}").assertDoesNotExist()
         compose.onNodeWithTag("history_date_${today.minusDays(1)}").performScrollTo().assertIsDisplayed()
@@ -68,9 +68,11 @@ class HistoryTest {
         show(source().copy(events = listOf(
             RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(3600)),
             RawEvent("duplicate", office.id, Transition.ENTER, now.minusSeconds(86400 + 3600)))))
-        compose.onNodeWithTag("history_review_alert").performScrollTo().assertTextContains("2 days need attention", substring = true)
+        compose.onNodeWithTag("history_review_alert").performScrollTo().assertTextEquals("2 days have saved attendance records to review.")
         compose.onNodeWithTag("history_date_$today").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("history_date_${today.minusDays(1)}").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("history_before_message_$today").performScrollTo()
+            .assertTextEquals("Tracking had not begun for this date. A saved attendance record needs review.")
         compose.onNodeWithTag("history_required_$today").assertDoesNotExist()
         compose.onNodeWithTag("history_review_action").performScrollTo().performClick()
         compose.onNodeWithText("Review explanations", substring = true).performScrollTo().assertIsDisplayed()

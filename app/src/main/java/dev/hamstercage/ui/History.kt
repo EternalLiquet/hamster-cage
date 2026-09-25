@@ -47,13 +47,22 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
     val beforeTracking = days.filter { it.coverage == HistoryCoverage.BEFORE_TRACKING && "REVIEW" !in it.badges }
     val visibleDays = historyVisibleDays(days, browseBeforeTracking)
     val needsReview = historyNeedsReview(days)
+    val recordReviewDays = needsReview.count { "REVIEW" in it.badges }
+    val missingCoverageDays = needsReview.count { "REVIEW" !in it.badges }
     val hasAttendance = input.events.isNotEmpty() || input.manualSessions.isNotEmpty() || input.corrections.isNotEmpty()
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Text("Every total comes from your local record.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         if (freshRecord)
             Notice("No attendance recorded yet", "History begins when attendance is captured. Earlier dates were not tracked and need no review.")
         if (needsReview.isNotEmpty()) {
-            Text("${needsReview.size} ${if (needsReview.size == 1) "day needs" else "days need"} attention: retained source review or unknown coverage.",
+            val alert = when {
+                recordReviewDays > 0 && missingCoverageDays > 0 ->
+                    "${needsReview.size} days need attention: saved attendance records need review, and some days have missing coverage."
+                recordReviewDays > 0 ->
+                    "${needsReview.size} ${if (needsReview.size == 1) "day has a saved attendance record" else "days have saved attendance records"} to review."
+                else -> "${needsReview.size} ${if (needsReview.size == 1) "day has" else "days have"} missing attendance coverage."
+            }
+            Text(alert,
                 Modifier.testTag("history_review_alert"), style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(onClick = { selectedDay = needsReview.first().date.toString() },
                 modifier = Modifier.fillMaxWidth().testTag("history_review_action")) { Text("Review ${needsReview.first().date}") }
@@ -82,8 +91,9 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
                 day.badges.forEach { Tag(it, warm = it == "REVIEW") }
                 if (day.coverage == HistoryCoverage.BEFORE_TRACKING) {
                     Text(if ("REVIEW" in day.badges)
-                        "Tracking had not begun for this date, but a retained source fact needs review."
+                        "Tracking had not begun for this date. A saved attendance record needs review."
                     else "No attendance was captured for this date. No attendance coverage review is required.",
+                        Modifier.testTag("history_before_message_${day.date}"),
                         style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
                 } else {
                 Column(Modifier.testTag("history_credit_${day.date}").semantics(mergeDescendants = true) {}) {
