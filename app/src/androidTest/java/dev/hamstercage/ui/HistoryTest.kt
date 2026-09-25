@@ -48,9 +48,15 @@ class HistoryTest {
         compose.onNodeWithTag("history_review_alert").assertDoesNotExist()
         compose.onNodeWithTag("history_date_$today").assertDoesNotExist()
         compose.onNodeWithTag("history_browse_before").performScrollTo().performClick()
+        compose.onNodeWithTag("history_before_explanation").performScrollTo().assertTextEquals(
+            "Before tracking · ordinary dates were not captured and need no review. Saved attendance records that need review stay visible. Add attendance only if you choose.")
         compose.onNodeWithTag("history_date_$today").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("history_before_explanation").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("history_required_$today").assertDoesNotExist()
+        compose.onNodeWithText("Explain $today").performScrollTo().performClick()
+        compose.onNodeWithTag("detail_before_tracking").performScrollTo().assertTextEquals(
+            "Before tracking began. No attendance requirement or balance applies to this date.")
+        compose.onNodeWithTag("detail_required").assertDoesNotExist()
+        compose.onNodeWithText("Expected weekday", substring = true).assertDoesNotExist()
     }
 
     @Test fun capturedDayIsPrimaryAndLaterGapPromptsReview() {
@@ -75,6 +81,8 @@ class HistoryTest {
             .assertTextEquals("Tracking had not begun for this date. A saved attendance record needs review.")
         compose.onNodeWithTag("history_required_$today").assertDoesNotExist()
         compose.onNodeWithTag("history_review_action").performScrollTo().performClick()
+        compose.onNodeWithTag("detail_before_tracking").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("detail_required").assertDoesNotExist()
         compose.onNodeWithText("Review explanations", substring = true).performScrollTo().assertIsDisplayed()
     }
 

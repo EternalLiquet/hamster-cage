@@ -81,7 +81,7 @@ fun HistoryScreen(input: AttendanceInput, result: AttendanceResult, correctionAc
                 Text("Browse ${beforeTracking.size} earlier ${if (beforeTracking.size == 1) "date" else "dates"} before tracking")
             }
         if (browseBeforeTracking && beforeTracking.isNotEmpty())
-            Text("Before tracking · ordinary dates were not captured and need no review. Retained source findings remain visible. Add attendance only if you choose.",
+            Text("Before tracking · ordinary dates were not captured and need no review. Saved attendance records that need review stay visible. Add attendance only if you choose.",
                 Modifier.testTag("history_before_explanation"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         if (offsetDays > 0) OutlinedButton(onClick = { offsetDays = (offsetDays - HISTORY_PAGE_DAYS).coerceAtLeast(0) }, modifier = Modifier.fillMaxWidth()) { Text("Newer 14 days") }
         visibleDays.forEach { day ->
