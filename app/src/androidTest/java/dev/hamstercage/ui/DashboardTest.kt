@@ -107,10 +107,11 @@ class DashboardTest {
     @Test fun reviewBlockedPriorCreditIsSeparateFromCoveredProgress() {
         val prior = today.minusDays(1).atTime(9, 0).atZone(java.time.ZoneId.of("America/New_York")).toInstant()
         val events = listOf(RawEvent("first", "a", Transition.ENTER, prior),
-            RawEvent("repeat", "a", Transition.ENTER, prior.plusSeconds(3600)),
             RawEvent("out", "a", Transition.EXIT, prior.plusSeconds(6 * 3600))) +
             listOf(enter(), RawEvent("today-out", "a", Transition.EXIT, now))
-        show(data(events).copy(historyStartDate = null))
+        val invalid = Correction("bad", "session:first", prior.plusSeconds(3600), prior,
+            prior.plusSeconds(7 * 3600))
+        show(data(events).copy(historyStartDate = null, corrections = listOf(invalid)))
         compose.onNodeWithTag("ROLLING_30_credit").performScrollTo().assertTextContains("2h 55m")
         compose.onNodeWithTag("ROLLING_30_required").performScrollTo().assertTextContains("6h 0m")
         compose.onNodeWithTag("ROLLING_30_provisional_credit").performScrollTo()

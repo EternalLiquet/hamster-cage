@@ -22,6 +22,8 @@ class WeekdayReconciliationTest {
     private fun time(value: String) = Instant.parse(value)
     private fun snapshot(vararg facts: RawEvent) = AppSnapshot(listOf(office, second),
         facts.map { RecordedEvent(it, it.at) }, emptyList(), emptyList(), Policy(zoneId = zone))
+    private fun snapshotEvidence(vararg evidence: RecordedEvent) = AppSnapshot(listOf(office, second),
+        evidence.toList(), emptyList(), emptyList(), Policy(zoneId = zone))
     private fun ledger(at: Instant) = CoverageLedger().registrationSucceeded(at.minusSeconds(1), zone, true).observed(at)
 
     @Test fun workWindowUsesPolicyTimezoneAcrossWeekendsAndDst() {
@@ -91,5 +93,43 @@ class WeekdayReconciliationTest {
         assertEquals(2, result.sessions.size)
         assertEquals(1, result.intervals.size)
         assertEquals(check.plusSeconds(300), result.intervals.single().start)
+    }
+
+    @Test fun backgroundPresenceAfterOutageSplitsOldOpenInsteadOfCreditingUnknownTime() {
+        val oldAt = time("2026-09-28T13:00:00Z")
+        val check = oldAt.plusSeconds(3600)
+        val old = RawEvent("old-a", office.id, Transition.ENTER, oldAt)
+        val coverage = ledger(oldAt).outage(oldAt.plusSeconds(600), zone)
+            .registrationSucceeded(check.minusSeconds(60), zone, true)
+        val before = snapshot(old)
+        val fix = reconciliationFacts(before, coverage, check, check, office.id)
+        assertEquals(listOf(Transition.PRESENCE), fix.map { it.event.transition })
+        val after = snapshotEvidence(RecordedEvent(old, old.at), fix.single())
+        val result = after.derive(check.plusSeconds(360))
+        assertEquals(2, result.sessions.size)
+        assertTrue(ReviewReason.UNCONFIRMED_GAP in result.sessions.first().reviewReasons)
+        assertTrue(result.intervals.none { result.sessions.first().id in it.sessionIds })
+        assertEquals(check.plusSeconds(300), result.intervals.single().start)
+    }
+
+    @Test fun backgroundPresenceAfterOtherOfficeVisitCannotCertifyOldOffice() {
+        val oldAt = time("2026-09-28T13:00:00Z")
+        val bIn = oldAt.plusSeconds(600)
+        val bOut = oldAt.plusSeconds(1200)
+        val check = oldAt.plusSeconds(1800)
+        val old = RawEvent("old-a", office.id, Transition.ENTER, oldAt)
+        val secondIn = RawEvent("b-in", second.id, Transition.ENTER, bIn)
+        val secondOut = RawEvent("b-out", second.id, Transition.EXIT, bOut)
+        val coverage = ledger(oldAt).observed(bOut)
+        val before = snapshot(old, secondIn, secondOut)
+        val fix = reconciliationFacts(before, coverage, check, check, office.id)
+        assertEquals(listOf(Transition.PRESENCE), fix.map { it.event.transition })
+        val after = snapshotEvidence(RecordedEvent(old, old.at), RecordedEvent(secondIn, bIn),
+            RecordedEvent(secondOut, bOut), fix.single())
+        val result = after.derive(check.plusSeconds(360))
+        assertEquals(3, result.sessions.size)
+        assertTrue(ReviewReason.UNCONFIRMED_GAP in result.sessions.single { it.id == "session:old-a" }.reviewReasons)
+        assertEquals(check, result.sessions.single { it.id == "session:${fix.single().event.id}" }.start)
+        assertTrue(result.intervals.none { "session:old-a" in it.sessionIds })
     }
 }

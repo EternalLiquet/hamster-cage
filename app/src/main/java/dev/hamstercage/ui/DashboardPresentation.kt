@@ -74,7 +74,8 @@ fun todayLeaveText(estimate: DepartureEstimate, trackingReady: Boolean, now: Ins
             "An office observation is in the future. Check the device clock, then review History"
         ReviewReason.STALE_OPEN_SESSION in estimate.reviewReasons ->
             "The open session exceeds its safe length. Review its bounds in History"
-        estimate.reviewReasons.any { it in setOf(ReviewReason.MISSING_ENTER, ReviewReason.REPEATED_ENTER, ReviewReason.ZERO_LENGTH_SESSION) } ->
+        estimate.reviewReasons.any { it in setOf(ReviewReason.MISSING_ENTER, ReviewReason.REPEATED_ENTER,
+            ReviewReason.TRANSIENT_BOUNDARY, ReviewReason.ZERO_LENGTH_SESSION) } ->
             "Office entry and exit boundaries conflict. Review the session in History"
         estimate.reviewReasons.any { it in setOf(ReviewReason.INVALID_CORRECTION, ReviewReason.ORPHAN_CORRECTION) } ->
             "An attendance correction is unresolved. Review it in History"

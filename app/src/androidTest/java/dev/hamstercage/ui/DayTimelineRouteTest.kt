@@ -106,7 +106,7 @@ class DayTimelineRouteTest {
         val input = AttendanceInput(listOf(office), listOf(
             RawEvent("in", office.id, Transition.ENTER, Instant.parse("2026-09-23T09:00:00Z")),
             RawEvent("fix", office.id, Transition.PRESENCE, Instant.parse("2026-09-23T12:00:00Z"))),
-            policy = policy, now = now)
+            policy = policy, now = now, recoveryPresenceIds = setOf("fix"))
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
             DayDetailScreen(input, AttendanceEngine.derive(input), date, back = {})
         } } }
@@ -118,7 +118,7 @@ class DayTimelineRouteTest {
         assertPlainReview("earlier visit ended")
     }
 
-    @Test fun repeatedArrivalHasPlainTimelineReviewCue() {
+    @Test fun repeatedArrivalCorroboratesOneTimelineVisitWithoutBlockingReview() {
         val repeated = AttendanceInput(listOf(office), listOf(
             RawEvent("first", office.id, Transition.ENTER, Instant.parse("2026-09-23T09:00:00Z")),
             RawEvent("again", office.id, Transition.ENTER, Instant.parse("2026-09-23T09:30:00Z")),
@@ -127,7 +127,10 @@ class DayTimelineRouteTest {
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
             DayDetailScreen(repeated, AttendanceEngine.derive(repeated), date, back = {})
         } } }
-        assertPlainReview("More than one office-area arrival")
+        compose.onNodeWithText("Arrived in office area · Westerville Office", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Returned to office area · Westerville Office", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("This session needs review.", substring = true).assertDoesNotExist()
     }
 
     @Test fun orphanDepartureHasPlainTimelineReviewCue() {

@@ -11,6 +11,8 @@ import kotlin.math.max
 /** Pure deterministic derivation. Inputs, raw observations and corrections are never mutated. */
 object AttendanceEngine {
     private data class Observation(val event: RawEvent, val ids: Set<String>, val duplicate: Boolean)
+    /** A prompt opposite signal is boundary jitter, not a second observed visit. */
+    private val boundaryBounceWindow = Duration.ofSeconds(60)
 
     fun derive(input: AttendanceInput): AttendanceResult {
         require(input.now.isStorageTime()) { "Current time must fit the persisted epoch-millisecond representation" }
@@ -34,7 +36,7 @@ object AttendanceEngine {
                 Observation(copies.minBy { it.id }, copies.map { it.id }.toSet(), copies.size > 1)
             }.sortedWith(compareBy<Observation> { it.event.at }.thenBy { it.event.transition }.thenBy { it.event.id })
             var open: Observation? = null
-            var enterAfterPresence = false
+            var pendingExit: Observation? = null
             val ids = linkedSetOf<String>()
             val flags = linkedSetOf<ReviewReason>()
             fun addSession(exit: Observation?) {
@@ -52,7 +54,6 @@ object AttendanceEngine {
                     }, reasons)
                 reasons.forEach { reviews += ReviewItem(it, sourceIds, sessionId) }
                 open = null
-                enterAfterPresence = false
                 ids.clear()
                 flags.clear()
             }
@@ -65,19 +66,44 @@ object AttendanceEngine {
                     when (it.event.transition) { Transition.PRESENCE -> 0; Transition.ENTER -> 1; Transition.EXIT, Transition.ABSENCE -> 2 }
                 }.thenBy { it.event.id })
                 ordered.forEach { observation ->
+                    val pending = pendingExit
+                    if (pending != null) {
+                        val elapsed = Duration.between(pending.event.at, observation.event.at)
+                        val otherOfficeBetween = usable.any { it.officeId != officeId &&
+                            it.at >= pending.event.at && it.at <= observation.event.at }
+                        if (observation.event.transition in setOf(Transition.ENTER, Transition.PRESENCE) &&
+                            observation.ids.none { it in input.recoveryPresenceIds } &&
+                            !otherOfficeBetween && !elapsed.isNegative && elapsed <= boundaryBounceWindow) {
+                            // Both immutable observations stay attached to the original
+                            // session. Neither a second grace window nor a departure is
+                            // derived from this near-immediate opposite pair.
+                            ids += observation.ids
+                            if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
+                            flags.remove(ReviewReason.TRANSIENT_BOUNDARY)
+                            pendingExit = null
+                            return@forEach
+                        }
+                        pendingExit = null
+                        addSession(pending)
+                    }
                     ids += observation.ids
                     if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
                     when (observation.event.transition) {
                         Transition.ENTER -> when {
                             open == null -> open = observation
-                            open?.event?.transition == Transition.PRESENCE && !enterAfterPresence &&
-                                Duration.between(open!!.event.at, observation.event.at) <= Duration.ofMinutes(5) ->
-                                enterAfterPresence = true // One prompt geofence ENTER corroborates the current fix.
-                            else -> flags += ReviewReason.REPEATED_ENTER
+                            // Same-office arrival observations corroborate an already open
+                            // visit. The first opening timestamp remains the grace anchor.
+                            else -> Unit
                         }
                         Transition.EXIT -> {
-                            if (open == null) flags += ReviewReason.MISSING_ENTER
-                            addSession(observation)
+                            if (open == null) {
+                                flags += ReviewReason.MISSING_ENTER
+                                addSession(observation)
+                            } else {
+                                if (Duration.between(open!!.event.at, observation.event.at) <= boundaryBounceWindow)
+                                    flags += ReviewReason.TRANSIENT_BOUNDARY
+                                pendingExit = observation
+                            }
                         }
                         Transition.ABSENCE -> {
                             // A check proves only that the user is outside now. The exit
@@ -89,19 +115,25 @@ object AttendanceEngine {
                         }
                         Transition.PRESENCE -> {
                             if (open != null) {
-                                // The old visit has no observed EXIT. The new fix gives a
-                                // safe split time, never proof of the intervening minutes.
-                                ids.removeAll(observation.ids)
-                                flags += ReviewReason.UNCONFIRMED_GAP
-                                addSession(observation)
-                                ids += observation.ids
+                                if (observation.ids.any { it in input.recoveryPresenceIds }) {
+                                    // #88 appends this foreground fact only when its
+                                    // recovery gate found an unsafe earlier opening.
+                                    ids.removeAll(observation.ids)
+                                    flags += ReviewReason.UNCONFIRMED_GAP
+                                    addSession(observation)
+                                    ids += observation.ids
+                                    open = observation
+                                }
+                                // Routine current-state checks otherwise corroborate the
+                                // opening without restarting arrival grace.
+                            } else {
+                                open = observation
                             }
-                            open = observation
-                            enterAfterPresence = false
                         }
                     }
                 }
             }
+            pendingExit?.let { addSession(it) }
             open?.let {
                 flags += ReviewReason.OPEN_SESSION
                 if (Duration.between(it.event.at, input.now) > Duration.ofHours(input.policy.maxOpenSessionHours.toLong()))
@@ -184,7 +216,7 @@ object AttendanceEngine {
             val start = session.start
             if (start == null || !office.enabled || !office.countsTowardAttendance ||
                 ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons ||
-                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons) null
+                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons || ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons) null
             else {
                 val end = minOf(session.end ?: input.now, input.now)
                 val creditStart = start.plusSeconds(office.entryGraceMinutes * 60L)
@@ -204,8 +236,11 @@ object AttendanceEngine {
                     val previousCredit = creditBySession[before.id]
                     val nextCredit = creditBySession[after.id]
                     val nextEntry = after.start
+                    val contradictoryGap = nextEntry != null && before.end != null &&
+                        (usable.any { it.officeId != before.officeId && it.at >= before.end && it.at <= nextEntry } ||
+                            after.sourceEventIds.any { it in input.recoveryPresenceIds })
                     if (previousCredit == null || nextCredit == null || nextEntry == null ||
-                        previousCredit.end >= nextEntry || Duration.between(previousCredit.end, nextEntry) >
+                        contradictoryGap || previousCredit.end >= nextEntry || Duration.between(previousCredit.end, nextEntry) >
                         Duration.ofMinutes(input.policy.shortGapMinutes.toLong())) null
                     else CreditedInterval(previousCredit.end, nextEntry, setOf(before.id, after.id), reconciledGap = true)
                 }

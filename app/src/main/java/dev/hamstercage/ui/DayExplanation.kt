@@ -54,6 +54,7 @@ fun explainDay(input: AttendanceInput, result: AttendanceResult, date: LocalDate
 fun reviewExplanation(reason: ReviewReason): String = when (reason) {
     ReviewReason.DUPLICATE_EVENT -> "Matching observations were reconciled; their source records remain and add no duplicate credit."
     ReviewReason.REPEATED_ENTER -> "Another ENTER arrived before an EXIT. The engine retained the earliest open boundary; review the session."
+    ReviewReason.TRANSIENT_BOUNDARY -> "An office-area exit followed a new entry within one minute. The brief visit is uncertain and earns no credit unless its bounds are corrected. Original observations remain available."
     ReviewReason.MISSING_ENTER -> "An EXIT has no observed ENTER. No start or attendance was invented."
     ReviewReason.OPEN_SESSION -> "No EXIT has been observed. Eligible live credit stops at the evaluation time."
     ReviewReason.STALE_OPEN_SESSION -> "The open session exceeded the configured review limit and is excluded from credit until resolved."
