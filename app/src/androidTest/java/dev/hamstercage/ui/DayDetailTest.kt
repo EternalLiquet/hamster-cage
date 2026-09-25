@@ -91,6 +91,7 @@ class DayDetailTest {
         compose.onNodeWithTag("detail_credit").assertTextEquals("Recorded credit: 0m")
         compose.onAllNodesWithText(reviewExplanation(ReviewReason.MISSING_ENTER))[0].performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Source event: exit").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Unknown coverage").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("detail_before_tracking").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("detail_required").assertDoesNotExist()
     }
 }
