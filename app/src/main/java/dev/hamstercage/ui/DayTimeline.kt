@@ -8,6 +8,25 @@ import java.time.LocalDate
 /** A readable projection of effective sessions. Raw facts and correction audit remain below it. */
 internal data class DayTimelineRow(val at: Instant, val title: String, val detail: String, val sessionId: String? = null)
 
+/** Plain summary for the scannable chronology; exact transition names stay in evidence below. */
+internal fun timelineReviewCue(reason: ReviewReason): String = when (reason) {
+    ReviewReason.DUPLICATE_EVENT -> "The same observation was received more than once; it adds no extra time."
+    ReviewReason.REPEATED_ENTER -> "More than one office-area arrival was recorded before a departure. Review which arrival began the visit."
+    ReviewReason.MISSING_ENTER -> "An observed departure has no recorded arrival, so its start time is unknown."
+    ReviewReason.OPEN_SESSION -> "No departure has been observed yet."
+    ReviewReason.STALE_OPEN_SESSION -> "This visit has been open unusually long and needs its end checked before credit can be trusted."
+    ReviewReason.UNCONFIRMED_GAP -> "A later check found you outside, but the exit time is unknown. The earlier uncertain span earns no credit."
+    ReviewReason.INVALID_CORRECTION -> "A saved change to this visit could not be applied; review the retained record."
+    ReviewReason.ORPHAN_CORRECTION -> "A saved change no longer matches a visit and needs review."
+    ReviewReason.UNKNOWN_OFFICE -> "The observation names an office that is no longer in the saved setup."
+    ReviewReason.FUTURE_EVENT -> "An observation is later than the device's current time; check the clock."
+    ReviewReason.CONFLICTING_EVENT_ID -> "Two different observations share a record identifier and cannot establish this boundary."
+    ReviewReason.INVALID_EVENT -> "An observation could not be used to establish this visit."
+    ReviewReason.ZERO_LENGTH_SESSION -> "The recorded bounds leave no positive visit time."
+    ReviewReason.INVALID_MANUAL_SESSION -> "A manually entered visit has invalid bounds and cannot be credited."
+    ReviewReason.CONFLICTING_MANUAL_SESSION_ID -> "Two manual visits share a record identifier and need review."
+}
+
 internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<DayTimelineRow> {
     val dayStart = detail.date.atStartOfDay(input.policy.zoneId).toInstant()
     val dayEnd = detail.date.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()

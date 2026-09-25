@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import dev.hamstercage.data.AppSnapshot
@@ -15,6 +16,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 
 class DayTimelineRouteTest {
     @get:Rule val compose = createAndroidComposeRule<OfficeTestActivity>()
@@ -22,6 +25,12 @@ class DayTimelineRouteTest {
     private val date = LocalDate.parse("2026-09-23")
     private val office = Office("west", "Westerville Office", 0.0, 0.0)
     private val policy = Policy(zoneId = ZoneId.of("UTC"))
+    private fun assertPlainReview(expected: String) {
+        val node = compose.onNodeWithText("This session needs review.", substring = true).performScrollTo()
+        val text = node.fetchSemanticsNode().config[SemanticsProperties.Text].joinToString(" ")
+        assertTrue(text.contains(expected))
+        listOf("ENTER", "EXIT", "engine").forEach { assertFalse(text.contains(it)) }
+    }
 
     @Test fun dashboardAndHistoryOpenSameTimelineAndReturnToTheirOwnContext() {
         val events = listOf(
@@ -89,8 +98,29 @@ class DayTimelineRouteTest {
         } } }
         compose.onNodeWithText("Outside Westerville Office at a later check", substring = true)
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("This session needs review.", substring = true)
-            .performScrollTo().assertTextContains("exit time is unknown", substring = true)
+        assertPlainReview("exit time is unknown")
         compose.onNodeWithText("unconfirmed gap", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun repeatedArrivalHasPlainTimelineReviewCue() {
+        val repeated = AttendanceInput(listOf(office), listOf(
+            RawEvent("first", office.id, Transition.ENTER, Instant.parse("2026-09-23T09:00:00Z")),
+            RawEvent("again", office.id, Transition.ENTER, Instant.parse("2026-09-23T09:30:00Z")),
+            RawEvent("left", office.id, Transition.EXIT, Instant.parse("2026-09-23T10:00:00Z"))),
+            policy = policy, now = now)
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            DayDetailScreen(repeated, AttendanceEngine.derive(repeated), date, back = {})
+        } } }
+        assertPlainReview("More than one office-area arrival")
+    }
+
+    @Test fun orphanDepartureHasPlainTimelineReviewCue() {
+        val orphan = AttendanceInput(listOf(office), listOf(
+            RawEvent("left", office.id, Transition.EXIT, Instant.parse("2026-09-23T10:00:00Z"))),
+            policy = policy, now = now)
+        compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+            DayDetailScreen(orphan, AttendanceEngine.derive(orphan), date, back = {})
+        } } }
+        assertPlainReview("observed departure has no recorded arrival")
     }
 }
