@@ -60,9 +60,9 @@ object AttendanceEngine {
                 // Close a preceding visit before starting another at a simultaneous boundary.
                 // Without a preceding visit, ENTER+EXIT remains a zero-length observation.
                 val ordered = if (open != null) simultaneous.sortedWith(compareBy<Observation> {
-                    when (it.event.transition) { Transition.EXIT -> 0; Transition.PRESENCE -> 1; Transition.ENTER -> 2 }
+                    when (it.event.transition) { Transition.EXIT, Transition.ABSENCE -> 0; Transition.PRESENCE -> 1; Transition.ENTER -> 2 }
                 }.thenBy { it.event.id }) else simultaneous.sortedWith(compareBy<Observation> {
-                    when (it.event.transition) { Transition.PRESENCE -> 0; Transition.ENTER -> 1; Transition.EXIT -> 2 }
+                    when (it.event.transition) { Transition.PRESENCE -> 0; Transition.ENTER -> 1; Transition.EXIT, Transition.ABSENCE -> 2 }
                 }.thenBy { it.event.id })
                 ordered.forEach { observation ->
                     ids += observation.ids
@@ -78,6 +78,14 @@ object AttendanceEngine {
                         Transition.EXIT -> {
                             if (open == null) flags += ReviewReason.MISSING_ENTER
                             addSession(observation)
+                        }
+                        Transition.ABSENCE -> {
+                            // A check proves only that the user is outside now. The exit
+                            // could have happened at any time since the last inside fact.
+                            if (open != null) {
+                                flags += ReviewReason.UNCONFIRMED_GAP
+                                addSession(observation)
+                            } else ids.clear()
                         }
                         Transition.PRESENCE -> {
                             if (open != null) {

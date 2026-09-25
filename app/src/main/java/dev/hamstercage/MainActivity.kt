@@ -41,6 +41,8 @@ import dev.hamstercage.ui.CalendarActions
 import dev.hamstercage.ui.PrivacyActions
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
@@ -91,6 +93,9 @@ class MainActivity : ComponentActivity() {
                 openDeviceSettings = { openSettings(LocationPermissions.deviceSettings()) },
                 reconcileOffice = { foregroundReconciliation.check {
                     lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                } },
+                setMonitoringEnabled = { enabled -> withContext(NonCancellable) {
+                    CaptureController.get(this@MainActivity).setMonitoringEnabled(enabled)
                 } },
                 officeActions = OfficeActions(
                     newId = HamsterRepository::newId,

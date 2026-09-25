@@ -27,7 +27,7 @@ class CaptureController private constructor(context: Context) {
     private val readiness = MutableStateFlow<Prerequisites?>(null)
     private val repository = HamsterRepository.get(application)
     private val registrar = GeofenceRegistrar(application)
-    private var processStarted = false
+    @Volatile private var processStarted = false
 
     init {
         scope.launch {
@@ -35,14 +35,16 @@ class CaptureController private constructor(context: Context) {
                 if (failed) CaptureHealth.deliveryFailed() else CaptureHealth.deliverySucceeded()
             }
         }
+        scope.launch { MonitoringStore.state(application).collect(CaptureHealth::monitoring) }
         scope.launch {
             var lastRevision = -1L
-            combine(repository.state, readiness) { state, prerequisites -> state to prerequisites }
-                .collect { (state, prerequisites) ->
+            combine(repository.state, readiness, MonitoringStore.state(application)) { state, prerequisites, monitoring ->
+                Triple(state, prerequisites, monitoring)
+            }.collect { (state, prerequisites, monitoring) ->
                     if (prerequisites == null || state == StorageState.Loading) return@collect
                     val force = prerequisites.revision != lastRevision
                     lastRevision = prerequisites.revision
-                    try { reconcile(state, prerequisites.ready, force) }
+                    try { reconcile(state, prerequisites.ready, monitoring.enabled, force) }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { CaptureHealth.registration(RegistrationStatus.FAILED) }
                 }
@@ -52,12 +54,23 @@ class CaptureController private constructor(context: Context) {
     /** Used by a bounded system receiver; its coroutine remains attached to goAsync. */
     suspend fun refreshFromSystem() {
         val ready = LocationPermissions.read(application).prerequisitesReady
-        reconcile(repository.state.first(), ready, force = true)
+        reconcile(repository.state.first(), ready, MonitoringStore.read(application).enabled, force = true)
     }
 
-    private suspend fun reconcile(state: StorageState, ready: Boolean, force: Boolean) = CaptureWriteGate.mutex.withLock {
+    /** Worker process starts must not trust a registration from a previous process. */
+    suspend fun refreshIfNeededForProcess() {
+        if (!processStarted) refreshFromSystem()
+    }
+
+    suspend fun setMonitoringEnabled(enabled: Boolean) {
+        MonitoringStore.setEnabled(application, enabled)
+        refreshFromSystem()
+    }
+
+    private suspend fun reconcile(state: StorageState, ready: Boolean, enabled: Boolean, force: Boolean) = CaptureWriteGate.mutex.withLock {
         val reset = PrivacyResetStore.read(application)
         if (reset !is PrivacyResetState.Idle) {
+            WeekdayReconciliation.cancel(application)
             CaptureHealth.registration(RegistrationStatus.FAILED)
             return@withLock
         }
@@ -68,7 +81,7 @@ class CaptureController private constructor(context: Context) {
             processStarted = true
         }
         val status = when (state) {
-            is StorageState.Ready -> registrar.synchronize(state.snapshot.registrationIntents(), ready, force,
+            is StorageState.Ready -> registrar.synchronize(state.snapshot.registrationIntents(), ready && enabled, force,
                 reset.generation)
             StorageState.Unavailable -> {
                 registrar.synchronize(emptyList(), false, generation = reset.generation)
@@ -77,10 +90,16 @@ class CaptureController private constructor(context: Context) {
             }
             StorageState.Loading -> return@withLock
         }
+        if (!enabled && status.registration == RegistrationStatus.NEEDS_SETUP) {
+            CaptureHealth.registration(RegistrationStatus.DISABLED)
+        }
+        if (enabled && status.registration == RegistrationStatus.ACTIVE) WeekdayReconciliation.schedule(application)
+        else WeekdayReconciliation.cancel(application)
         CoverageStore.change(application) { ledger ->
             if (status.registration == RegistrationStatus.ACTIVE || status.registration == RegistrationStatus.NO_OFFICES)
                 ledger.registrationSucceeded(now, zone, status.registration == RegistrationStatus.ACTIVE)
-            else ledger.outage(now, zone).copy(registration = status.registration)
+            else ledger.outage(now, zone).copy(registration = if (!enabled &&
+                status.registration == RegistrationStatus.NEEDS_SETUP) RegistrationStatus.DISABLED else status.registration)
         }
     }
 
