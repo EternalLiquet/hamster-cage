@@ -71,7 +71,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                     it != ReviewReason.OPEN_SESSION && it != ReviewReason.DUPLICATE_EVENT
                 }.orEmpty()
                 if (session != null && reviewReasons.isNotEmpty() && shownReview.add(session.id))
-                    Text("This session needs review. ${reviewReasons.joinToString(" ") { timelineReviewCue(it) }}")
+                    Text("${if (session.start == null && ReviewReason.MISSING_ENTER in reviewReasons) "Review this signal." else "This session needs review."} ${reviewReasons.joinToString(" ") { timelineReviewCue(it) }}")
                 if (session != null && offeredEdit.add(session.id)) edit?.let { action ->
                     OutlinedButton(onClick = { action(session) }, modifier = Modifier.testTag("timeline_edit_$index")) {
                         Text("Review or correct this session")

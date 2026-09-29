@@ -140,6 +140,34 @@ class DayTimelineRouteTest {
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
             DayDetailScreen(orphan, AttendanceEngine.derive(orphan), date, back = {})
         } } }
-        assertPlainReview("observed departure has no recorded arrival")
+        compose.onNodeWithText("Unconfirmed exit signal · Westerville Office", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Review this signal.", substring = true).performScrollTo()
+            .assertTextContains("does not indicate that you were at this office", substring = true)
+        compose.onNodeWithText("Arrival time unknown", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun simultaneousOrphanSignalsStayVisibleBesideDaytimeLeaveProjection() {
+        val polaris = office.copy(id = "polaris", name = "Polaris Office")
+        val morning = Instant.parse("2026-09-23T03:31:00Z")
+        val events = listOf(RawEvent("west-out", office.id, Transition.EXIT, morning),
+            RawEvent("polaris-out", polaris.id, Transition.EXIT, morning),
+            RawEvent("west-in", office.id, Transition.ENTER, Instant.parse("2026-09-23T09:36:00Z")))
+        val snapshot = AppSnapshot(listOf(office, polaris), events.map { RecordedEvent(it, it.at) },
+            emptyList(), emptyList(), policy)
+        val evaluation = Instant.parse("2026-09-23T12:00:00Z")
+        compose.setContent { HamsterApp(TimeSource { evaluation },
+            storageState = StorageState.Ready(snapshot), trackingReady = true) }
+        compose.onNodeWithTag("today_leave").performScrollTo()
+            .assertTextEquals("You can leave at 3:36 PM")
+        compose.onNodeWithTag("open_today_timeline").performScrollTo().performClick()
+        compose.onNodeWithText("Unconfirmed exit signal · Westerville Office", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Unconfirmed exit signal · Polaris Office", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Arrival time unknown", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag("detail_leave").performScrollTo()
+            .assertTextEquals("You can leave at 3:36 PM")
+        compose.onNodeWithText("Raw observations (3)").performScrollTo().assertIsDisplayed()
     }
 }

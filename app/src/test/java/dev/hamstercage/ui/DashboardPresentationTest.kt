@@ -78,4 +78,14 @@ class DashboardPresentationTest {
             .copy(now = Instant.parse("2026-09-24T03:59:00Z"))
         assertTrue(message(unreachable).contains("Review the target in Settings"))
     }
+
+    @Test fun earlierOrphanExitKeepsAuditReviewWithoutHidingCurrentOfficeOrLeaveTime() {
+        val input = data(listOf(RawEvent("orphan", "a", Transition.EXIT, now.minusSeconds(12 * 3600)),
+            enter()))
+        val result = AttendanceEngine.derive(input)
+        assertTrue(dashboardPresence(input, result, true).needsReview)
+        assertEquals("In Synthetic office", dashboardPresence(input, result, true).label)
+        assertEquals("You can leave at 9:00 PM", todayLeaveText(
+            AttendanceEngine.departure(input, result, TargetWindow.TODAY), true, now, ZoneId.of("UTC")))
+    }
 }

@@ -162,8 +162,37 @@ class DepartureTest {
         assertEquals(DepartureStatus.ESTIMATED, estimate(input(listOf(enter(), enter(id = "copy")))).status)
     }
 
+    @Test fun simultaneousEarlyOrphanExitsRemainUncreditedWhileLaterVisitProjects() {
+        val second = office.copy(id = "b")
+        val events = listOf(exit("03:31", "orphan-a"), exit("03:31", "orphan-b", "b"),
+            enter("09:36", "credible"))
+        val data = input(events, now = at("12:00")).copy(offices = listOf(office, second))
+        val result = AttendanceEngine.derive(data)
+        val orphans = result.sessions.filter { it.start == null }
+        assertEquals(2, orphans.size)
+        assertEquals(setOf("a", "b"), orphans.map { it.officeId }.toSet())
+        assertTrue(orphans.all { it.end == at("03:31") && ReviewReason.MISSING_ENTER in it.reviewReasons })
+        assertTrue(result.intervals.none { interval -> orphans.any { it.id in interval.sessionIds } })
+        assertEquals(events, data.events)
+        assertEquals(139.0, AttendanceEngine.daily(data, result, day).creditedMinutes, 0.0)
+        val departure = AttendanceEngine.departure(data, result, TargetWindow.TODAY)
+        assertEquals(DepartureStatus.ESTIMATED, departure.status)
+        assertEquals(at("15:36"), departure.estimatedExitAt)
+        assertEquals(2, result.reviews.count { it.reason == ReviewReason.MISSING_ENTER })
+    }
+
+    @Test fun orphanExitAtActiveBoundaryAndRealConflictStillBlockProjection() {
+        val coincident = input(listOf(exit("09:00", "orphan"), enter()))
+        assertSuppressed(DepartureStatus.NEEDS_REVIEW, estimate(coincident))
+        val data = input(listOf(exit("03:31", "orphan"), enter(),
+            RawEvent("future", "a", Transition.EXIT, at("17:00"))))
+        val blocked = estimate(data)
+        assertSuppressed(DepartureStatus.NEEDS_REVIEW, blocked)
+        assertTrue(ReviewReason.FUTURE_EVENT in blocked.reviewReasons)
+    }
+
     @Test fun malformedMissingOrStaleBoundsRemainReviewable() {
-        assertSuppressed(DepartureStatus.NEEDS_REVIEW, estimate(input(listOf(exit("08:00"), enter()))))
+        assertEquals(DepartureStatus.ESTIMATED, estimate(input(listOf(exit("08:00"), enter()))).status)
         assertSuppressed(DepartureStatus.NEEDS_REVIEW, estimate(input(listOf(enter("01:00")), now = at("20:00"))))
         val futureClock = input(listOf(enter(), exit("17:00")), now = at("16:00"))
         assertSuppressed(DepartureStatus.NEEDS_REVIEW, estimate(futureClock))

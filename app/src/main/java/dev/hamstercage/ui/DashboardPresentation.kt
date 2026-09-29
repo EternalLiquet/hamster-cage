@@ -1,10 +1,12 @@
 package dev.hamstercage.ui
 
 import dev.hamstercage.domain.AttendanceInput
+import dev.hamstercage.domain.AttendanceEngine
 import dev.hamstercage.domain.AttendanceResult
 import dev.hamstercage.domain.DepartureEstimate
 import dev.hamstercage.domain.DepartureStatus
 import dev.hamstercage.domain.ReviewReason
+import dev.hamstercage.domain.TargetWindow
 import dev.hamstercage.domain.Transition
 import java.time.Instant
 import java.time.ZoneId
@@ -25,11 +27,13 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
     // make the newly observed current office ambiguous. Keep its review notice.
     val liveReview = result.reviews.any { it.reason !in setOf(ReviewReason.OPEN_SESSION,
         ReviewReason.DUPLICATE_EVENT, ReviewReason.UNCONFIRMED_GAP) } || open.size > 1
+    val safeLiveProjection = open.size == 1 && AttendanceEngine.departure(input, result,
+        TargetWindow.TODAY).status in setOf(DepartureStatus.ESTIMATED, DepartureStatus.TARGET_SATISFIED)
     val today = input.now.atZone(input.policy.zoneId).toLocalDate()
     val latest = input.events.filter { it.officeId in eligibleIds && it.at <= input.now }.maxByOrNull { it.at }
     val label = when {
         !trackingReady -> "Office state unknown"
-        liveReview -> "Needs review"
+        liveReview && !safeLiveProjection -> "Needs review"
         open.size == 1 -> if (open.single().manualSessionId != null) "Manual session active" else
             "In ${dashboardOfficeName(input.offices.single { it.id == open.single().officeId }.name)}"
         latest?.transition in setOf(Transition.EXIT, Transition.ABSENCE) &&

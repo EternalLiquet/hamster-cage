@@ -13,7 +13,7 @@ internal fun timelineReviewCue(reason: ReviewReason): String = when (reason) {
     ReviewReason.DUPLICATE_EVENT -> "The same observation was received more than once; it adds no extra time."
     ReviewReason.REPEATED_ENTER -> "More than one office-area arrival was recorded before a departure. Review which arrival began the visit."
     ReviewReason.TRANSIENT_BOUNDARY -> "A brief office-area entry and exit may be boundary jitter. Review if this was a real visit; its original observations remain available."
-    ReviewReason.MISSING_ENTER -> "An observed departure has no recorded arrival, so its start time is unknown."
+    ReviewReason.MISSING_ENTER -> "Android reported an office-area exit without a prior observed arrival. This does not indicate that you were at this office."
     ReviewReason.OPEN_SESSION -> "No departure has been observed yet."
     ReviewReason.STALE_OPEN_SESSION -> "This visit has been open unusually long and needs its end checked before credit can be trusted."
     ReviewReason.UNCONFIRMED_GAP -> "A later current-location check cannot establish when the earlier visit ended. The uncertain earlier span earns no credit."
@@ -61,8 +61,8 @@ internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<D
         }
         if (start == null) {
             if (end != null && end >= dayStart && end < dayEnd)
-                rows += DayTimelineRow(end, "Arrival time unknown at $name",
-                    "An office-area end was observed without an opening boundary; no arrival was invented.", session.id)
+                rows += DayTimelineRow(end, "Unconfirmed exit signal · $name",
+                    "Android reported an office-area exit, but no prior arrival was observed. This does not indicate that you were at this office.", session.id)
         } else if (start >= dayStart && start < dayEnd) {
             val returning = completedByOffice[session.officeId]?.let { it <= start } == true
             val title = when {
@@ -83,7 +83,7 @@ internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<D
             rows += DayTimelineRow(dayStart, "Continued at $name from an earlier day",
                 "This session began ${start.atZone(input.policy.zoneId).toLocalDate()}.", session.id)
         }
-        if (end != null && end >= dayStart && end < dayEnd) {
+        if (start != null && end != null && end >= dayStart && end < dayEnd) {
             val endEvent = session.sourceEventIds.mapNotNull(events::get).firstOrNull {
                 it.at == end && it.transition in setOf(Transition.EXIT, Transition.ABSENCE)
             }

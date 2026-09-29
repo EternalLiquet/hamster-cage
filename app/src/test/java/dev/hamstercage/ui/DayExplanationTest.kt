@@ -82,7 +82,7 @@ class DayExplanationTest {
         assertTrue(detail.reviews.any { it.reason == ReviewReason.MISSING_ENTER })
         assertTrue(detail.reviews.any { it.reason == ReviewReason.DUPLICATE_EVENT })
         assertTrue(detail.reviews.any { it.reason == ReviewReason.CONFLICTING_EVENT_ID })
-        assertTrue(reviewExplanation(ReviewReason.MISSING_ENTER).contains("No start"))
+        assertTrue(reviewExplanation(ReviewReason.MISSING_ENTER).contains("no start"))
         assertTrue(reviewExplanation(ReviewReason.DUPLICATE_EVENT).contains("no duplicate credit"))
     }
 
