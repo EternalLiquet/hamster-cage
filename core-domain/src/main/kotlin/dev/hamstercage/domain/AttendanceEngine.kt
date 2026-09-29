@@ -408,6 +408,23 @@ object AttendanceEngine {
         }
         val current = relevant.filter { it.isOpen }
         val benign = setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT)
+        // A bare EXIT before any credible visit is an auditable platform signal,
+        // not evidence of presence or ambiguity in the later active visit.
+        val firstStart = relevant.mapNotNull { it.start }.minOrNull()
+        val harmlessOrphanIds = if (target == TargetWindow.TODAY && current.size == 1 &&
+            current.single().reviewReasons.all { it in benign } && firstStart != null) {
+            relevant.filter { session ->
+                session.start == null && session.end != null && session.end < firstStart &&
+                    ReviewReason.MISSING_ENTER in session.reviewReasons &&
+                    session.reviewReasons.all { it in setOf(ReviewReason.MISSING_ENTER,
+                        ReviewReason.DUPLICATE_EVENT, ReviewReason.UNCONFIRMED_BOUNDARY) } &&
+                    result.intervals.none { session.id in it.sessionIds } &&
+                    session.sourceEventIds.isNotEmpty() && session.sourceEventIds.all { id ->
+                        input.events.any { it.id == id && it.officeId == session.officeId &&
+                            it.transition == Transition.EXIT && it.at == session.end }
+                    }
+            }.map { it.id }.toSet()
+        } else emptySet()
         // A fresh same-office PRESENCE can leave an older, uncredited segment for
         // review. It cannot contribute to today's projected credit, so that one
         // resolved boundary does not make the new open visit unsafe to project.
@@ -423,8 +440,10 @@ object AttendanceEngine {
         // Ambiguity wins even when the provisional credit exceeds the target. A bad clock,
         // unresolved boundary or competing open offices must never produce a confident exit.
         if (current.size > 1) return outcome(DepartureStatus.OVERLAPPING_SESSIONS)
-        val blockingReasons = relevant.flatMap { session -> session.reviewReasons.filter { blocks(it, session.id) } }.toSet() +
+        val blockingReasons = relevant.filterNot { it.id in harmlessOrphanIds }
+            .flatMap { session -> session.reviewReasons.filter { blocks(it, session.id) } }.toSet() +
             result.reviews.filter { review -> blocks(review.reason, review.sessionId) &&
+                review.sessionId !in harmlessOrphanIds &&
                 (if (target == TargetWindow.TODAY)
                     reviewAffectsDay(input, review, allSessionIds, relevantIds, windowStart, windowEnd)
                 else review.sessionId !in allSessionIds || review.sessionId in relevantIds)

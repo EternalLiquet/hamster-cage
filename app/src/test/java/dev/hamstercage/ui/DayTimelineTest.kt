@@ -93,7 +93,10 @@ class DayTimelineTest {
             now = Instant.parse("2026-09-23T12:00:00Z"))
         assertTrue(rows(empty).isEmpty())
         val orphan = empty.copy(events = listOf(event("out", Transition.EXIT, "2026-09-23T11:00:00Z")))
-        assertTrue(rows(orphan).any { it.title == "Arrival time unknown at Westerville Office" })
+        val signal = rows(orphan).single()
+        assertEquals("Unconfirmed exit signal · Westerville Office", signal.title)
+        assertTrue(signal.detail.contains("does not indicate that you were at this office"))
+        assertFalse(rows(orphan).any { it.title.startsWith("Left office area") })
     }
 
     @Test fun currentPresenceAndCorrectedMultiOfficeSessionKeepTheirProvenance() {
