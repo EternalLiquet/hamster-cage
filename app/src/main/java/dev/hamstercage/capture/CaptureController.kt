@@ -94,16 +94,17 @@ class CaptureController private constructor(context: Context) {
         if (!enabled && status.registration == RegistrationStatus.NEEDS_SETUP) {
             CaptureHealth.registration(RegistrationStatus.DISABLED)
         }
-        if (enabled && status.registration == RegistrationStatus.ACTIVE) WeekdayReconciliation.schedule(application)
-        else {
-            WeekdayReconciliation.cancel(application)
-            AdaptiveConfirmation.cancelAll(application)
-        }
         CoverageStore.change(application) { ledger ->
             if (status.registration == RegistrationStatus.ACTIVE || status.registration == RegistrationStatus.NO_OFFICES)
                 ledger.registrationSucceeded(now, zone, status.registration == RegistrationStatus.ACTIVE)
             else ledger.outage(now, zone).copy(registration = if (!enabled &&
                 status.registration == RegistrationStatus.NEEDS_SETUP) RegistrationStatus.DISABLED else status.registration)
+        }
+        if (enabled && status.registration == RegistrationStatus.ACTIVE && state is StorageState.Ready)
+            updateReconciliationAfterObservation(application, state.snapshot, now)
+        else {
+            WeekdayReconciliation.cancel(application)
+            AdaptiveConfirmation.cancelAll(application)
         }
     }
 

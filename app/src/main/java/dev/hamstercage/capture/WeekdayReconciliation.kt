@@ -31,12 +31,44 @@ import kotlinx.coroutines.withTimeout
 internal object WeekdayReconciliation {
     internal const val NAME = "weekday-office-state-reconciliation"
 
-    fun schedule(context: Context) {
-        val request = PeriodicWorkRequestBuilder<WeekdayReconciliationWorker>(30, TimeUnit.MINUTES).build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+    fun schedule(context: Context, needsFastCheck: Boolean, initialDelayMinutes: Long = 0L) {
+        val minutes = reconciliationIntervalMinutes(needsFastCheck)
+        val request = PeriodicWorkRequestBuilder<WeekdayReconciliationWorker>(minutes, TimeUnit.MINUTES)
+            .apply { if (initialDelayMinutes > 0) setInitialDelay(initialDelayMinutes, TimeUnit.MINUTES) }
+            .build()
+        // UPDATE preserves the existing work while changing its interval as office state changes.
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
+            .result.get(3, TimeUnit.SECONDS)
     }
 
     fun cancel(context: Context) { WorkManager.getInstance(context).cancelUniqueWork(NAME) }
+}
+
+/** WorkManager's 15-minute minimum is the shortest supported periodic backstop. */
+internal fun reconciliationIntervalMinutes(needsFastCheck: Boolean) = if (needsFastCheck) 15L else 30L
+
+internal fun needsFastReconciliation(snapshot: AppSnapshot, now: Instant): Boolean =
+    snapshot.derive(now).sessions.any { session -> session.isOpen && session.manualSessionId == null &&
+        snapshot.offices.any { it.id == session.officeId && it.enabled && it.countsTowardAttendance } } ||
+        snapshot.input(now).unconfirmedExitIds.isNotEmpty()
+
+/** Background receivers/workers cannot rely on the activity to observe a changed session. */
+internal suspend fun updateReconciliationAfterObservation(context: Context, snapshot: AppSnapshot, now: Instant,
+    initialDelayMinutes: Long = 0L) {
+    scheduleWeekdayChecksBestEffort(
+        schedule = { WeekdayReconciliation.schedule(context, needsFastReconciliation(snapshot, now), initialDelayMinutes) },
+        reportFailure = { MonitoringStore.record(context, "Weekday checks unavailable; open app to retry") })
+}
+
+internal suspend fun scheduleWeekdayChecksBestEffort(schedule: suspend () -> Unit,
+    reportFailure: suspend () -> Unit) {
+    try { schedule() }
+    catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) {
+        try { reportFailure() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { Unit }
+    }
 }
 
 internal fun insideReconciliationWindow(now: Instant, zone: ZoneId): Boolean {
@@ -131,6 +163,11 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
             CoverageStore.change(context) { it.observed(observedAt) }
             MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", observedAt,
                 fix.accuracy)
+            if (events.isNotEmpty()) {
+                // A worker may be the only process entry point; the activity observer is absent.
+                updateReconciliationAfterObservation(context,
+                    snapshot.copy(eventEvidence = snapshot.eventEvidence + events), now)
+            }
         } } } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Check unavailable; open app to retry") }
         return Result.success()

@@ -42,7 +42,7 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                         val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt)
                         val repository = HamsterRepository.get(application)
                         val inserted = repository.appendRawEvents(observations)
-                        CoverageStore.change(application) { ledger ->
+                        val coverage = CoverageStore.change(application) { ledger ->
                             ledger.observed(observations.maxOf { it.event.at })
                         }
                         val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot
@@ -50,9 +50,12 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                             inserted, it) }
                         CaptureHealthStore.setDeliveryFailure(application, false)
                         CaptureHealth.deliverySucceeded()
-                        // Only confirmation scheduling is optional. A coverage or
+                        // Both schedules are optional. A coverage or
                         // capture-health write failure still needs recovery health.
                         captureCommitted = true
+                        if (inserted.isNotEmpty() && snapshot != null &&
+                            coverage.registration == RegistrationStatus.ACTIVE)
+                            updateReconciliationAfterObservation(application, snapshot, receivedAt)
                         if (delivery != null) try {
                             val officeIds = delivery.events.map { it.event.officeId }
                             val versions = repository.officeVersions(officeIds)
