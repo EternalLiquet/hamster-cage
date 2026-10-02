@@ -46,16 +46,16 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                             ledger.observed(observations.maxOf { it.event.at })
                         }
                         val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot
-                        if (inserted.isNotEmpty() && snapshot != null &&
-                            coverage.registration == RegistrationStatus.ACTIVE)
-                            updateReconciliationAfterObservation(application, snapshot, receivedAt)
                         val delivery = snapshot?.let { AdaptiveConfirmation.selectDelivery(observations,
                             inserted, it) }
                         CaptureHealthStore.setDeliveryFailure(application, false)
                         CaptureHealth.deliverySucceeded()
-                        // Only confirmation scheduling is optional. A coverage or
+                        // Both schedules are optional. A coverage or
                         // capture-health write failure still needs recovery health.
                         captureCommitted = true
+                        if (inserted.isNotEmpty() && snapshot != null &&
+                            coverage.registration == RegistrationStatus.ACTIVE)
+                            updateReconciliationAfterObservation(application, snapshot, receivedAt)
                         if (delivery != null) try {
                             val officeIds = delivery.events.map { it.event.officeId }
                             val versions = repository.officeVersions(officeIds)

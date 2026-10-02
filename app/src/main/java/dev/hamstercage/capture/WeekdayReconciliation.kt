@@ -55,10 +55,17 @@ internal fun needsFastReconciliation(snapshot: AppSnapshot, now: Instant): Boole
 /** Background receivers/workers cannot rely on the activity to observe a changed session. */
 internal suspend fun updateReconciliationAfterObservation(context: Context, snapshot: AppSnapshot, now: Instant,
     initialDelayMinutes: Long = 0L) {
-    try { WeekdayReconciliation.schedule(context, needsFastReconciliation(snapshot, now), initialDelayMinutes) }
+    scheduleWeekdayChecksBestEffort(
+        schedule = { WeekdayReconciliation.schedule(context, needsFastReconciliation(snapshot, now), initialDelayMinutes) },
+        reportFailure = { MonitoringStore.record(context, "Weekday checks unavailable; open app to retry") })
+}
+
+internal suspend fun scheduleWeekdayChecksBestEffort(schedule: suspend () -> Unit,
+    reportFailure: suspend () -> Unit) {
+    try { schedule() }
     catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) {
-        try { MonitoringStore.record(context, "Weekday checks unavailable; open app to retry") }
+        try { reportFailure() }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { Unit }
     }
