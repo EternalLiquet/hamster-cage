@@ -94,7 +94,8 @@ class CaptureController private constructor(context: Context) {
         if (!enabled && status.registration == RegistrationStatus.NEEDS_SETUP) {
             CaptureHealth.registration(RegistrationStatus.DISABLED)
         }
-        if (enabled && status.registration == RegistrationStatus.ACTIVE) WeekdayReconciliation.schedule(application)
+        if (enabled && status.registration == RegistrationStatus.ACTIVE && state is StorageState.Ready)
+            WeekdayReconciliation.schedule(application, needsFastReconciliation(state.snapshot, now))
         else {
             WeekdayReconciliation.cancel(application)
             AdaptiveConfirmation.cancelAll(application)

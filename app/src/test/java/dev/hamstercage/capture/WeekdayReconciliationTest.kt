@@ -26,6 +26,25 @@ class WeekdayReconciliationTest {
         evidence.toList(), emptyList(), emptyList(), Policy(zoneId = zone))
     private fun ledger(at: Instant) = CoverageLedger().registrationSucceeded(at.minusSeconds(1), zone, true).observed(at)
 
+    @Test fun shorterSupportedIntervalFollowsOpenVisitOrUnconfirmedExit() {
+        val now = time("2026-09-28T14:30:00Z")
+        val enter = RawEvent("enter", office.id, Transition.ENTER, now.minusSeconds(3600))
+        val exit = RawEvent("exit", office.id, Transition.EXIT, now.minusSeconds(300))
+        assertEquals(30L, reconciliationIntervalMinutes(needsFastReconciliation(snapshot(), now)))
+        assertEquals(15L, reconciliationIntervalMinutes(needsFastReconciliation(snapshot(enter), now)))
+        assertEquals(15L, reconciliationIntervalMinutes(needsFastReconciliation(snapshot(enter, exit), now)))
+
+        val outside = RawEvent("outside", office.id, Transition.ABSENCE, now.minusSeconds(240))
+        val confirmed = snapshotEvidence(RecordedEvent(enter, enter.at), RecordedEvent(exit, exit.at),
+            RecordedEvent(outside, outside.at, outside.at, "BACKGROUND_LOCATION_RECONCILIATION", 12f))
+        assertEquals(30L, reconciliationIntervalMinutes(needsFastReconciliation(confirmed, now)))
+
+        val disabled = snapshot(enter).copy(offices = listOf(office.copy(enabled = false), second))
+        val uncredited = snapshot(enter).copy(offices = listOf(office.copy(countsTowardAttendance = false), second))
+        assertEquals(30L, reconciliationIntervalMinutes(needsFastReconciliation(disabled, now)))
+        assertEquals(30L, reconciliationIntervalMinutes(needsFastReconciliation(uncredited, now)))
+    }
+
     @Test fun workWindowUsesPolicyTimezoneAcrossWeekendsAndDst() {
         assertFalse(insideReconciliationWindow(time("2026-09-28T10:59:59Z"), zone)) // 6:59 EDT
         assertTrue(insideReconciliationWindow(time("2026-09-28T11:00:00Z"), zone))

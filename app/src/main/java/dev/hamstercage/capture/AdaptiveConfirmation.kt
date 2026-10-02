@@ -227,6 +227,9 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             CoverageStore.change(context) { it.observed(observedAt) }
             MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", observedAt,
                 fix.accuracy)
+            // Confirmation can also run in a process with no activity observer.
+            updateReconciliationAfterObservation(context,
+                snapshot.copy(eventEvidence = snapshot.eventEvidence + facts), now)
         } } } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Boundary check unavailable; retry from the app") }
         return Result.success()

@@ -94,7 +94,7 @@ class WeekdayMonitoringUiTest {
                 }
             }
         }
-        WeekdayReconciliation.schedule(context)
+        WeekdayReconciliation.schedule(context, needsFastCheck = false)
         compose.waitUntil(10_000) {
             work.getWorkInfosForUniqueWork(WeekdayReconciliation.NAME).get(5, TimeUnit.SECONDS)
                 .any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
