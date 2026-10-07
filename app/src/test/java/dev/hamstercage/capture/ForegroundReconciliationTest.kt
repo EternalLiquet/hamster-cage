@@ -81,7 +81,7 @@ class ForegroundReconciliationTest {
         val result = repeated.derive(observed.plusSeconds(100))
         assertEquals(1, result.sessions.size)
         assertEquals(false, ReviewReason.REPEATED_ENTER in result.sessions.single().reviewReasons)
-        assertEquals("Needs review", dashboardPresence(repeated.input(observed.plusSeconds(100)), result, true).label)
+        assertEquals("Office exit awaiting confirmation", dashboardPresence(repeated.input(observed.plusSeconds(100)), result, true).label)
     }
 
     @Test fun latestGeofenceExitIsUncertainUntilIndependentOutsideFix() {
@@ -92,7 +92,7 @@ class ForegroundReconciliationTest {
         val pendingResult = pending.derive(pendingNow)
         assertEquals(setOf("exit"), pending.input(pendingNow).unconfirmedExitIds)
         assertEquals(1, pendingResult.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
-        assertEquals("Needs review", dashboardPresence(pending.input(pendingNow), pendingResult, true).label)
+        assertEquals("Office exit awaiting confirmation", dashboardPresence(pending.input(pendingNow), pendingResult, true).label)
         val outside = snapshot(listOf(enter, exit, RecordedEvent(RawEvent("outside", office.id,
             Transition.ABSENCE, observed.plusSeconds(60)), observed.plusSeconds(60), observed.plusSeconds(60),
             "ADAPTIVE_LOCATION_CONFIRMATION", 12f)))

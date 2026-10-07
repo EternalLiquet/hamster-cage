@@ -149,7 +149,9 @@ class WeekdayReconciliationTest {
         assertEquals(fixAt, result.sessions.last().start)
         assertEquals(fixAt.plusSeconds(300), result.intervals.last().start)
         assertTrue(result.intervals.none { it.start < fixAt && it.end > exit.at })
-        assertTrue(result.reviews.none { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        // A later same-office fix establishes current presence, not a
+        // departure from the earlier candidate EXIT.
+        assertEquals(1, result.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
         assertTrue(reconciliationFacts(saved, ledger(fixAt), fixAt.plusSeconds(1800),
             fixAt.plusSeconds(1800), office.id).isEmpty())
     }

@@ -120,5 +120,15 @@ data class AttendanceInput(
     val unsafeRecoveryPresenceIds: Set<String> = emptySet(),
     /** Platform EXIT/ENTER facts whose time is the delivery receipt, not an observed fix time. */
     val receiptTimedEventIds: Set<String> = emptySet(),
+    /** EXITs undergoing or awaiting bounded verification keep the visit open but cap credit. */
+    val candidateExitIds: Set<String> = emptySet(),
+    /** Five sustained inside samples can reject a candidate without deleting its raw fact. */
+    val rejectedExitIds: Set<String> = emptySet(),
+    /** Outside samples are facts, but cannot close a visit until the candidate is settled. */
+    val provisionalAbsenceIds: Set<String> = emptySet(),
+    /** Early inside samples do not override a later confirmed departure. */
+    val provisionalPresenceIds: Set<String> = emptySet(),
+    /** Delayed delivery cannot establish continuous presence across its unobserved lag. */
+    val delayedExitIds: Set<String> = emptySet(),
 )
 data class AttendanceResult(val sessions: List<Session>, val intervals: List<CreditedInterval>, val reviews: List<ReviewItem>)

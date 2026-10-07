@@ -75,7 +75,7 @@ fun LocationSetupPanel(
         Tag(setup.status, warm = !setup.prerequisitesReady)
         Text("Office detection uses configured office boundaries, not a continuous travel history. Location is optional; browsing, corrections and settings remain available.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-        Text("With monitoring on, office boundary events are primary. Current location checks are planned about every 30 minutes, or every 15 minutes while a visit or exit needs checking, Monday–Friday, 7 AM–7 PM in $policyZone. Android may delay checks. Location and attendance stay on this device; neither is used for advertising or analytics.",
+        Text("Office exits may prompt up to five fresh checks over five minutes; Android may delay them. Routine checks target every 30 minutes, or 15 while a visit needs checking, weekdays 7 AM–7 PM in $policyZone. Location and attendance stay on this device.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         Text(if (captureStatus.monitoringEnabled) "Monitoring on" else "Monitoring disabled")
         CageButton(if (changingMonitoring) "Updating attendance monitoring…" else if (captureStatus.monitoringEnabled)

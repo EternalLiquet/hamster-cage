@@ -69,7 +69,7 @@ class LocationSetupPanelTest {
         rule.onNodeWithText("Set up background location").performScrollTo().performClick()
         rule.runOnIdle { assertEquals(1, backgroundCalls) }
         show(LocationSetup(true, true, true, true, true))
-        rule.onNodeWithText("Location prerequisites ready").assertIsDisplayed()
+        rule.onNodeWithText("Location prerequisites ready").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Permissions are ready. Automatic detection is not running: office registration has not been configured.").performScrollTo().assertIsDisplayed()
     }
 

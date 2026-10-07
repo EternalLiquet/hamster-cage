@@ -58,8 +58,9 @@ class CaptureIntegrationTest {
                 repository.appendRawEvents(listOf(facts[1]))
                 assertEquals(4, firstDb.dao().events().size)
                 val before = (repository.state.first { it is StorageState.Ready } as StorageState.Ready).snapshot
-                assertEquals(1, before.derive(now).sessions.size)
-                assertEquals(facts.map { it.event.id }.toSet(), before.derive(now).sessions.single().sourceEventIds)
+                assertEquals(2, before.derive(now).sessions.size)
+                assertEquals(facts.map { it.event.id }.toSet(),
+                    before.derive(now).sessions.flatMap { it.sourceEventIds }.toSet())
             } finally { firstDb.close() }
 
             val reopened = HamsterDatabase.open(context, dbName)
@@ -68,9 +69,13 @@ class CaptureIntegrationTest {
                 val snapshot = (repository.state.first { it is StorageState.Ready } as StorageState.Ready).snapshot
                 assertEquals(facts.map { it.event }.toSet(), snapshot.events.toSet())
                 val result = snapshot.derive(now)
-                assertEquals(1, result.sessions.size)
-                assertEquals(entered, result.sessions.single().start)
-                assertEquals(left, result.sessions.single().end)
+                assertEquals(2, result.sessions.size)
+                assertEquals(entered, result.sessions.first().start)
+                assertEquals(bouncedOut, result.sessions.first().end)
+                assertEquals(bouncedIn, result.sessions.last().start)
+                assertTrue(result.sessions.last().isOpen)
+                assertEquals(left, result.intervals.last().end)
+                assertTrue(result.reviews.any { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
                 assertTrue(result.reviews.none { it.reason == ReviewReason.REPEATED_ENTER })
             } finally { reopened.close() }
         } finally {

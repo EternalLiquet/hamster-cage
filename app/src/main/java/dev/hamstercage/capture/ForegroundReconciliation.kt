@@ -58,7 +58,11 @@ internal fun decidePresence(offices: List<Office>, latitude: Double, longitude: 
 internal fun canOpenFromObservation(snapshot: AppSnapshot, officeId: String, coverage: CoverageLedger,
     observedAt: Instant, now: Instant): ReconcileOutcome? {
     if (snapshot.events.any { it.at > observedAt }) return ReconcileOutcome.STALE
-    val open = snapshot.derive(now).sessions.filter { it.isOpen }
+    val candidates = snapshot.input(now).candidateExitIds
+    // A different office's unverified EXIT is not proof that it is still
+    // occupied. A fresh fix may establish this office and settle that EXIT.
+    val open = snapshot.derive(now).sessions.filter { it.isOpen &&
+        (it.officeId == officeId || it.sourceEventIds.none { id -> id in candidates }) }
     if (open.isEmpty()) return null
     if (open.size != 1 || open.single().officeId != officeId)
         return ReconcileOutcome.OVERLAPPING_OFFICES

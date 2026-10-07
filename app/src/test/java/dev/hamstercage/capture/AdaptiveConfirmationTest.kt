@@ -2,6 +2,8 @@ package dev.hamstercage.capture
 
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
+import dev.hamstercage.data.EXIT_VERIFY_INSIDE
+import dev.hamstercage.data.EXIT_VERIFY_OUTSIDE
 import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.Policy
 import dev.hamstercage.domain.RawEvent
@@ -116,6 +118,37 @@ class AdaptiveConfirmationTest {
             .map { it.event.transition })
     }
 
+    @Test fun exitSamplesPreserveAccuracyAndDoNotSupersedeTheirOwnCandidate() {
+        val original = event("exit", "a", Transition.EXIT)
+        var next = 0
+        val inside = exitVerificationFacts(listOf("a"), "a", at.plusSeconds(60),
+            at.plusSeconds(62), 18f) { "fix-${++next}" }.single()
+        val outside = exitVerificationFacts(listOf("a"), null, at.plusSeconds(120),
+            at.plusSeconds(122), 12f) { "fix-${++next}" }.single()
+        assertEquals(EXIT_VERIFY_INSIDE, inside.source)
+        assertEquals(EXIT_VERIFY_OUTSIDE, outside.source)
+        assertEquals(Transition.PRESENCE, inside.event.transition)
+        assertEquals(Transition.ABSENCE, outside.event.transition)
+        assertEquals(18f, inside.accuracyMeters!!, 0f)
+        assertTrue(confirmableCandidate(listOf(original, inside, outside), "exit", "a"))
+        assertFalse(confirmableCandidate(listOf(original, event("early", "a", Transition.PRESENCE,
+            30, "BACKGROUND_LOCATION_RECONCILIATION")), "exit", "a"))
+        assertFalse(confirmableCandidate(listOf(original, inside, outside,
+            event("new-enter", "a", Transition.ENTER, 180)), "exit", "a"))
+        val moved = exitVerificationFacts(listOf("a"), "b", at.plusSeconds(180),
+            at.plusSeconds(182), 12f) { "move-${++next}" }
+        assertEquals(listOf("a" to Transition.ABSENCE, "b" to Transition.PRESENCE),
+            moved.map { it.event.officeId to it.event.transition })
+    }
+
+    @Test fun fiveExitAttemptsTargetAbsoluteMinuteSpacedTimes() {
+        assertEquals(listOf(30L, 90L, 150L, 210L, 270L),
+            (1..AdaptiveConfirmation.MAX_EXIT_ATTEMPTS).map {
+                AdaptiveConfirmation.delaySeconds(Transition.EXIT, it)
+            })
+        assertEquals(45L, AdaptiveConfirmation.delaySeconds(Transition.ENTER, 1))
+    }
+
     @Test fun oldPreRecoveryVisitGetsFixTimeSplitInsteadOfAdaptiveContinuity() {
         val office = Office("a", "A", 0.0, 0.0)
         val opening = event("in", "a", Transition.ENTER, -3600)
@@ -144,6 +177,24 @@ class AdaptiveConfirmationTest {
         var next = 0
         val fix = adaptiveFacts("a", "b", at.plusSeconds(60), at.plusSeconds(65), 12f,
             recoveryPresence = true) { "fix-${++next}" }
+        val result = snapshot.copy(eventEvidence = facts + fix).derive(at.plusSeconds(600))
+        assertEquals(at.plusSeconds(60), result.sessions.single { it.id == "session:fix-2" }.start)
+        assertEquals(0.0, result.intervals.filter { "session:b-old" in it.sessionIds }.sumOf { it.minutes }, 0.0)
+    }
+
+    @Test fun exitVerificationFixInOtherOfficeSplitsUnsafeOldVisit() {
+        val a = Office("a", "A", 0.0, 0.0)
+        val b = Office("b", "B", 1.0, 1.0)
+        val facts = listOf(event("b-old", "b", Transition.ENTER, -3600),
+            event("a-in", "a", Transition.ENTER, -1800),
+            event("a-out", "a", Transition.EXIT))
+        val snapshot = AppSnapshot(listOf(a, b), facts, emptyList(), emptyList(), Policy())
+        val coverage = CoverageLedger(recoveryBoundaryAt = at.minusSeconds(120))
+        assertTrue(requiresAdaptiveRecoverySplit(snapshot, coverage, "a-out", "b", at.plusSeconds(60)))
+        var next = 0
+        val fix = exitVerificationFacts(listOf("a"), "b", at.plusSeconds(60),
+            at.plusSeconds(65), 12f, recoveryPresence = true) { "fix-${++next}" }
+        assertEquals("ADAPTIVE_RECOVERY_CONFIRMATION", fix.last().source)
         val result = snapshot.copy(eventEvidence = facts + fix).derive(at.plusSeconds(600))
         assertEquals(at.plusSeconds(60), result.sessions.single { it.id == "session:fix-2" }.start)
         assertEquals(0.0, result.intervals.filter { "session:b-old" in it.sessionIds }.sumOf { it.minutes }, 0.0)
