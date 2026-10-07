@@ -1,6 +1,5 @@
 package dev.hamstercage.domain
 
-import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -23,7 +22,7 @@ class RedundantExitTest {
             event("out1", Transition.EXIT, "11:41"),
             event("out2", Transition.EXIT, "11:42"),
             event("in2", Transition.ENTER, "12:46"))
-        val data = input(facts).copy(unconfirmedExitIds = setOf("out2"))
+        val data = input(facts)
         val result = AttendanceEngine.derive(data)
         assertEquals(facts, data.events)
         assertEquals(result, AttendanceEngine.derive(data.copy(events = facts.reversed())))
@@ -36,6 +35,64 @@ class RedundantExitTest {
             it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
         assertEquals(319.0, result.sessions.sumOf { AttendanceEngine.observedMinutes(it, data.now) }, 0.0001)
         assertEquals(309.0, result.intervals.sumOf { it.minutes }, 0.0001)
+    }
+
+    @Test fun latestUnconfirmedDuplicateKeepsOneUnresolvedBoundary() {
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "11:00"),
+            event("duplicate", Transition.EXIT, "11:01"))
+        val pending = AttendanceEngine.derive(input(facts, now = "11:05")
+            .copy(unconfirmedExitIds = setOf("duplicate")))
+        assertEquals(1, pending.sessions.size)
+        assertEquals(at("11:00"), pending.sessions.single().end)
+        assertEquals(setOf("in", "out", "duplicate"), pending.sessions.single().sourceEventIds)
+        assertEquals(1, pending.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        assertTrue(pending.reviews.none { it.reason == ReviewReason.MISSING_ENTER })
+        val settled = AttendanceEngine.derive(input(facts + listOf(
+            event("outside", Transition.ABSENCE, "11:03"),
+            event("later-exit", Transition.EXIT, "11:04")), now = "11:05")
+            .copy(unconfirmedExitIds = setOf("later-exit")))
+        assertTrue(settled.reviews.none { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+    }
+
+    @Test fun sameTimestampExitReplayStillNeedsCorroboration() {
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "11:00"),
+            event("duplicate", Transition.EXIT, "11:00"))
+        val result = AttendanceEngine.derive(input(facts, now = "11:05")
+            .copy(unconfirmedExitIds = setOf("duplicate")))
+        assertEquals(1, result.sessions.size)
+        assertEquals(1, result.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        assertTrue(result.reviews.none { it.reason == ReviewReason.MISSING_ENTER })
+    }
+
+    @Test fun exitAfterDecisiveOutsideCheckDoesNotCreateAnOrphan() {
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("outside", Transition.ABSENCE, "11:00"),
+            event("redundant", Transition.EXIT, "11:01"))
+        val result = AttendanceEngine.derive(input(facts, now = "11:05")
+            .copy(unconfirmedExitIds = setOf("redundant")))
+        assertEquals(1, result.sessions.size)
+        assertEquals(at("11:00"), result.sessions.single().end)
+        assertEquals(setOf("in", "outside", "redundant"), result.sessions.single().sourceEventIds)
+        assertTrue(result.reviews.none { it.reason == ReviewReason.MISSING_ENTER ||
+            it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+    }
+
+    @Test fun decisiveOtherOfficeFixKeepsPriorExitSettled() {
+        val b = office.copy(id = "b", name = "Synthetic second office", latitude = 1.0)
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "11:00"),
+            event("other-fix", Transition.PRESENCE, "11:03", "b"),
+            event("redundant", Transition.EXIT, "11:04"))
+        val data = input(facts, now = "11:05", offices = listOf(office, b))
+            .copy(unconfirmedExitIds = setOf("redundant"), recoveryPresenceIds = setOf("other-fix"))
+        val result = AttendanceEngine.derive(data)
+        assertEquals(1, result.sessions.count { it.officeId == "a" })
+        assertTrue(result.reviews.none { it.reason == ReviewReason.MISSING_ENTER ||
+            it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        val uncorroborated = AttendanceEngine.derive(data.copy(recoveryPresenceIds = emptySet()))
+        assertEquals(1, uncorroborated.reviews.count { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
     }
 
     @Test fun repeatedExitsRemainCorroboratingAcrossSpacingAndSourceReplays() {

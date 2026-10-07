@@ -42,6 +42,8 @@ object AttendanceEngine {
             // An EXIT after a completed visit is another outside observation, not
             // evidence of a new visit. An initial orphan EXIT cannot establish this.
             var exitedVisit = false
+            var geofenceExitNeedsConfirmation = false
+            var lastExitAt: Instant? = null
             val ids = linkedSetOf<String>()
             val flags = linkedSetOf<ReviewReason>()
             fun addSession(exit: Observation?) {
@@ -62,7 +64,9 @@ object AttendanceEngine {
                         else -> Confidence.HIGH
                     }, reasons)
                 reasons.forEach { reviews += ReviewItem(it, sourceIds, sessionId) }
-                exitedVisit = enter != null && exit?.event?.transition == Transition.EXIT
+                exitedVisit = enter != null && exit != null
+                geofenceExitNeedsConfirmation = exitedVisit && exit?.event?.transition == Transition.EXIT
+                lastExitAt = if (exitedVisit) exit?.event?.at else null
                 open = null
                 ids.clear()
                 flags.clear()
@@ -105,10 +109,29 @@ object AttendanceEngine {
                     }
                     if (observation.event.transition == Transition.EXIT && open == null && exitedVisit) {
                         // Keep the raw fact and its correction alias attached to the
-                        // preceding visit without adding an orphan boundary or review.
+                        // preceding visit without adding an orphan boundary. The
+                        // repository may mark only the latest EXIT unconfirmed, so
+                        // transfer that uncertainty to the real closed visit.
                         val previous = sessions.lastIndex
-                        sessions[previous] = sessions[previous].copy(
-                            sourceEventIds = sessions[previous].sourceEventIds + observation.ids)
+                        val session = sessions[previous]
+                        val decisiveOtherOffice = lastExitAt?.let { exitAt ->
+                            usable.any { other -> other.officeId != officeId &&
+                                other.transition == Transition.PRESENCE &&
+                                other.id in input.adaptivePresenceIds + input.recoveryPresenceIds &&
+                                other.at > exitAt && other.at <= observation.event.at }
+                        } == true
+                        val unconfirmed = geofenceExitNeedsConfirmation &&
+                            !decisiveOtherOffice &&
+                            observation.ids.any { it in input.unconfirmedExitIds } &&
+                            ReviewReason.TRANSIENT_BOUNDARY !in session.reviewReasons
+                        val reasons = session.reviewReasons + if (unconfirmed)
+                            setOf(ReviewReason.UNCONFIRMED_BOUNDARY) else emptySet()
+                        val sources = session.sourceEventIds + observation.ids
+                        sessions[previous] = session.copy(sourceEventIds = sources,
+                            confidence = if (unconfirmed) Confidence.LOW else session.confidence,
+                            reviewReasons = reasons)
+                        if (unconfirmed && ReviewReason.UNCONFIRMED_BOUNDARY !in session.reviewReasons)
+                            reviews += ReviewItem(ReviewReason.UNCONFIRMED_BOUNDARY, sources, session.id)
                         return@forEach
                     }
                     ids += observation.ids
@@ -136,7 +159,12 @@ object AttendanceEngine {
                             if (open != null) {
                                 flags += ReviewReason.UNCONFIRMED_GAP
                                 addSession(observation)
-                            } else ids.clear()
+                            } else {
+                                // A fresh outside fix settles an earlier geofence
+                                // departure even if more redundant EXITs arrive.
+                                geofenceExitNeedsConfirmation = false
+                                ids.clear()
+                            }
                         }
                         Transition.PRESENCE -> {
                             if (open != null) {
