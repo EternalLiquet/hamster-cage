@@ -37,7 +37,6 @@ class AdaptiveSchedulingIntegrationTest {
         fun event(id: String, second: Long) = RecordedEvent(RawEvent(id, "synthetic-office",
             Transition.EXIT, Instant.parse("2026-09-25T15:00:00Z").plusSeconds(second)),
             Instant.parse("2026-09-25T15:00:00Z").plusSeconds(second))
-        manager.cancelAllWorkByTag(AdaptiveConfirmation.TAG).result.get(5, TimeUnit.SECONDS)
         try {
             val version = AdaptiveConfirmation.fingerprint(mapOf("synthetic-office" to 1L))
             AdaptiveConfirmation.schedule(context, event("old", 0), 0, version, listOf("synthetic-office"))
