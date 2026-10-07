@@ -244,7 +244,11 @@ class AttendanceEngineTest {
     @Test fun repeatedExitDoesNotInventAnotherSessionStart() {
         val data = input(listOf(enter("1", "09:00"), exit("2", "15:00"), exit("3", "15:05")))
         assertMinutes(355.0, data)
-        assertTrue(AttendanceEngine.derive(data).reviews.any { it.reason == ReviewReason.MISSING_ENTER })
+        val result = AttendanceEngine.derive(data)
+        assertEquals(1, result.sessions.size)
+        assertEquals(at("15:00"), result.sessions.single().end)
+        assertEquals(setOf("1", "2", "3"), result.sessions.single().sourceEventIds)
+        assertTrue(result.reviews.isEmpty())
     }
     @Test fun exitWithoutEnterOrInstallInsideOfficeIsUnknownNotInventedHistory() {
         val data = input(listOf(exit("1", "15:00")))

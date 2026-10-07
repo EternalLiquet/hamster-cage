@@ -39,6 +39,9 @@ object AttendanceEngine {
             }.sortedWith(compareBy<Observation> { it.event.at }.thenBy { it.event.transition }.thenBy { it.event.id })
             var open: Observation? = null
             var pendingExit: Observation? = null
+            // An EXIT after a completed visit is another outside observation, not
+            // evidence of a new visit. An initial orphan EXIT cannot establish this.
+            var exitedVisit = false
             val ids = linkedSetOf<String>()
             val flags = linkedSetOf<ReviewReason>()
             fun addSession(exit: Observation?) {
@@ -59,6 +62,7 @@ object AttendanceEngine {
                         else -> Confidence.HIGH
                     }, reasons)
                 reasons.forEach { reviews += ReviewItem(it, sourceIds, sessionId) }
+                exitedVisit = enter != null && exit?.event?.transition == Transition.EXIT
                 open = null
                 ids.clear()
                 flags.clear()
@@ -99,11 +103,19 @@ object AttendanceEngine {
                             flags += ReviewReason.UNCONFIRMED_GAP
                         addSession(pending)
                     }
+                    if (observation.event.transition == Transition.EXIT && open == null && exitedVisit) {
+                        // Keep the raw fact and its correction alias attached to the
+                        // preceding visit without adding an orphan boundary or review.
+                        val previous = sessions.lastIndex
+                        sessions[previous] = sessions[previous].copy(
+                            sourceEventIds = sessions[previous].sourceEventIds + observation.ids)
+                        return@forEach
+                    }
                     ids += observation.ids
                     if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
                     when (observation.event.transition) {
                         Transition.ENTER -> when {
-                            open == null -> open = observation
+                            open == null -> { open = observation; exitedVisit = false }
                             // Same-office arrival observations corroborate an already open
                             // visit. The first opening timestamp remains the grace anchor.
                             else -> Unit
@@ -141,6 +153,7 @@ object AttendanceEngine {
                                 // opening without restarting arrival grace.
                             } else {
                                 open = observation
+                                exitedVisit = false
                             }
                         }
                     }
