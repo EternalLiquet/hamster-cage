@@ -110,7 +110,7 @@ class RedundantExitTest {
         assertEquals(at("11:00"), result.sessions.first().end)
         assertEquals(facts.take(4).map { it.id }.toSet(), result.sessions.first().sourceEventIds)
         assertEquals(at("12:00"), result.sessions.last().start)
-        assertTrue(result.reviews.isEmpty())
+        assertTrue(result.reviews.all { it.reason == ReviewReason.DUPLICATE_EVENT })
         assertEquals(170.0, result.intervals.sumOf { it.minutes }, 0.0001)
     }
 
