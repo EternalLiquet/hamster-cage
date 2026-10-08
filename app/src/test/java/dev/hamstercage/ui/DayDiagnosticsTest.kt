@@ -1,6 +1,7 @@
 package dev.hamstercage.ui
 
 import dev.hamstercage.capture.CaptureStatus
+import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.domain.*
@@ -112,5 +113,50 @@ class DayDiagnosticsTest {
         assertEquals(day.minusDays(1), report.firstIncludedDay)
         assertEquals(day.plusDays(1), report.lastIncludedDay)
         assertEquals(0, report.observationCount)
+    }
+    /**
+     * The engine classifies facts with derived inputs computed from the whole stored history,
+     * including evidence beyond the export bounds. Each exported fact must carry the
+     * classifications the engine actually used, or a bounded replay could disagree with it.
+     */
+    @Test fun everyExportedFactCarriesTheEngineClassificationsItWasDerivedWith() {
+        val receiptTimed = RecordedEvent(RawEvent("receipt-id", office.id, Transition.ENTER,
+            Instant.parse("2025-03-09T19:00:00Z")), Instant.parse("2025-03-09T19:00:00Z"), null,
+            "PLAY_SERVICES_GEOFENCE")
+        val data = snapshot(evidence("arrive-id", Transition.ENTER, "2025-03-09T14:00:00Z"),
+            evidence("leave-id", Transition.EXIT, "2025-03-09T18:00:00Z"), receiptTimed,
+            evidence("receipt-exit-id", Transition.EXIT, "2025-03-09T20:00:00Z"),
+            RecordedEvent(RawEvent("check-id", office.id, Transition.PRESENCE,
+                Instant.parse("2025-03-09T19:30:00Z")), Instant.parse("2025-03-09T19:30:05Z"),
+                Instant.parse("2025-03-09T19:30:00Z"), "ADAPTIVE_RECOVERY_CONFIRMATION", 12f))
+        val json = dayDiagnostics(data, day, now, null, CaptureStatus(), "test").json
+        val input = data.input(now)
+        val expected = mapOf("adaptivePresence" to input.adaptivePresenceIds, "candidateExit" to input.candidateExitIds,
+            "delayedExit" to input.delayedExitIds, "provisionalAbsence" to input.provisionalAbsenceIds,
+            "provisionalPresence" to input.provisionalPresenceIds, "receiptTimed" to input.receiptTimedEventIds,
+            "recoveryPresence" to input.recoveryPresenceIds, "rejectedExit" to input.rejectedExitIds,
+            "unconfirmedExit" to input.unconfirmedExitIds, "unsafeRecoveryPresence" to input.unsafeRecoveryPresenceIds)
+        val observations = "\\{\"fact\":[^}]*\\}".toRegex().findAll(json).map { it.value }.toList()
+        assertEquals(5, observations.size)
+        data.eventEvidence.forEach { item ->
+            val at = item.event.at.toString()
+            val exported = observations.single { it.contains("\"eventAt\":\"$at\"") }
+            val roles = expected.filterValues { item.event.id in it }.keys.joinToString(",") { "\"$it\"" }
+            assertTrue("$at: $exported", exported.endsWith("\"engineRoles\":[$roles]}"))
+        }
+        assertTrue(observations.single { it.contains("2025-03-09T19:00:00Z") }.contains("\"receiptTimed\""))
+        assertTrue(observations.single { it.contains("2025-03-09T19:30:00Z") }
+            .contains("\"engineRoles\":[\"recoveryPresence\",\"unsafeRecoveryPresence\"]"))
+        assertTrue(observations.single { it.contains("\"eventAt\":\"2025-03-09T20:00:00Z\"") }.contains("\"unconfirmedExit\""))
+    }
+
+    @Test fun recoveryWindowThatDecidesAdaptiveSplitsIsIncluded() {
+        val coverage = CoverageLedger(lastOutageStartedAt = Instant.parse("2025-03-09T16:00:00Z"),
+            lastOutageHealthySince = Instant.parse("2025-03-09T12:00:00Z"),
+            outageHealthySince = Instant.parse("2025-03-09T13:00:00Z"))
+        val json = dayDiagnostics(snapshot(), day, now, coverage, CaptureStatus(), "test").json
+        assertTrue(json.contains("\"lastOutageStartedAt\":\"2025-03-09T16:00:00Z\""))
+        assertTrue(json.contains("\"lastOutageHealthySince\":\"2025-03-09T12:00:00Z\""))
+        assertTrue(json.contains("\"openOutageHealthySince\":\"2025-03-09T13:00:00Z\""))
     }
 }
