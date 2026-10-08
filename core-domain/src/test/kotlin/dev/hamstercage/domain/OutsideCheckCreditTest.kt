@@ -83,4 +83,17 @@ class OutsideCheckCreditTest {
         assertTrue(result.intervals.none { it.reconciledGap })
         assertEquals(result, AttendanceEngine.derive(data.copy(events = facts.reversed())))
     }
+
+    @Test fun shortGapPolicyCannotBridgeUnknownTailAfterOutsideCheck() {
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("check", Transition.PRESENCE, "10:00"), event("outside", Transition.ABSENCE, "11:00"),
+            event("return", Transition.ENTER, "11:10"))
+        val result = AttendanceEngine.derive(AttendanceInput(listOf(office), facts,
+            policy = Policy(zoneId = zone, shortGapMinutes = 120), now = at("12:00"),
+            historyStartDate = day))
+        assertEquals(listOf(at("09:05") to at("10:00"), at("11:15") to at("12:00")),
+            result.intervals.map { it.start to it.end })
+        assertTrue(result.intervals.none { it.reconciledGap })
+        assertTrue(ReviewReason.UNCONFIRMED_GAP in result.sessions.first().reviewReasons)
+    }
 }

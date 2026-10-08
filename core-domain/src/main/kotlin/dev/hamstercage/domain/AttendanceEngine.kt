@@ -456,6 +456,8 @@ object AttendanceEngine {
                     // A repeated EXIT after this visit leaves room for an unobserved
                     // zero-credit return, which would block reconciliation of this gap.
                     val contradictoryGap = ReviewReason.REPEATED_EXIT in before.reviewReasons ||
+                        ReviewReason.UNCONFIRMED_GAP in before.reviewReasons ||
+                        ReviewReason.UNCONFIRMED_GAP in after.reviewReasons ||
                         nextEntry != null && before.end != null &&
                         (usable.any { it.officeId != before.officeId && it.at >= before.end && it.at <= nextEntry } ||
                             after.sourceEventIds.any { it in input.recoveryPresenceIds ||
