@@ -99,7 +99,7 @@ class RedundantExitTest {
         val facts = listOf(event("in", Transition.ENTER, "09:00"),
             event("out", Transition.EXIT, "11:00"),
             event("out-seconds", Transition.EXIT, "11:00:10"),
-            event("out-minutes", Transition.EXIT, "11:08"),
+            event("out-minutes", Transition.EXIT, "11:04"),
             event("back", Transition.ENTER, "12:00"),
             event("inside", Transition.PRESENCE, "12:03"),
             event("again", Transition.ENTER, "12:04"))
@@ -113,6 +113,14 @@ class RedundantExitTest {
         assertTrue(result.reviews.all { it.reason in setOf(ReviewReason.OPEN_SESSION,
             ReviewReason.DUPLICATE_EVENT) })
         assertEquals(170.0, result.intervals.sumOf { it.minutes }, 0.0001)
+        // Eight minutes after the last outside observation, an unobserved return could
+        // have earned credit under five-minute grace: the EXIT stays a reviewable orphan.
+        val beyond = AttendanceEngine.derive(input(facts.map {
+            if (it.id == "out-minutes") it.copy(at = at("11:08")) else it }, now = "13:00"))
+        assertEquals(3, beyond.sessions.size)
+        assertTrue(beyond.reviews.any { it.reason == ReviewReason.MISSING_ENTER &&
+            "out-minutes" in it.sourceEventIds })
+        assertEquals(170.0, beyond.intervals.sumOf { it.minutes }, 0.0001)
     }
 
     @Test fun duplicateExitClusterAndCrossOfficeOrphanRemainDistinct() {
@@ -129,5 +137,90 @@ class RedundantExitTest {
         assertTrue(result.reviews.any { it.reason == ReviewReason.MISSING_ENTER })
         assertTrue(result.reviews.none { it.sourceEventIds.contains("duplicate") &&
             it.reason == ReviewReason.MISSING_ENTER })
+    }
+
+    // A later same-office EXIT is redundant only when an unobserved return between the
+    // last outside observation and that EXIT could not have earned credit: it would
+    // have to fit inside the office's arrival grace or the 60-second transient window.
+
+    @Test fun hoursLaterExitAfterMissedReturnKeepsMissingArrivalReview() {
+        val facts = listOf(event("in", Transition.ENTER, "09:43"),
+            event("out", Transition.EXIT, "11:41"),
+            event("late-out", Transition.EXIT, "17:00"))
+        for (unconfirmed in listOf(emptySet(), setOf("late-out"))) {
+            val result = AttendanceEngine.derive(input(facts, now = "17:05")
+                .copy(unconfirmedExitIds = unconfirmed))
+            val morning = result.sessions.single { it.start != null }
+            assertEquals(at("11:41"), morning.end)
+            assertEquals(setOf("in", "out"), morning.sourceEventIds)
+            assertTrue(ReviewReason.UNCONFIRMED_BOUNDARY !in morning.reviewReasons)
+            val orphan = result.sessions.single { it.start == null }
+            assertEquals(at("17:00"), orphan.end)
+            assertTrue(ReviewReason.MISSING_ENTER in orphan.reviewReasons)
+            assertTrue(result.reviews.any { it.reason == ReviewReason.MISSING_ENTER &&
+                "late-out" in it.sourceEventIds })
+            assertEquals(113.0, result.intervals.sumOf { it.minutes }, 0.0001)
+        }
+        // A later decisive outside check settles the departure, not the missing arrival.
+        val settled = AttendanceEngine.derive(input(facts + event("outside", Transition.ABSENCE, "17:02"),
+            now = "17:05"))
+        assertTrue(settled.reviews.any { it.reason == ReviewReason.MISSING_ENTER &&
+            "late-out" in it.sourceEventIds })
+    }
+
+    @Test fun nextDayExitDoesNotAttachToPriorDayVisit() {
+        val nextDay = day.plusDays(1)
+        fun next(time: String) = nextDay.atTime(LocalTime.parse(time)).atZone(zone).toInstant()
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "17:00"),
+            RawEvent("morning-out", "a", Transition.EXIT, next("09:18")))
+        val data = AttendanceInput(listOf(office), facts, policy = Policy(zoneId = zone, shortGapMinutes = 0),
+            now = next("09:20"), historyStartDate = day, unconfirmedExitIds = setOf("morning-out"))
+        val result = AttendanceEngine.derive(data)
+        val prior = result.sessions.single { it.start != null }
+        assertEquals(setOf("in", "out"), prior.sourceEventIds)
+        assertEquals(Confidence.HIGH, prior.confidence)
+        assertTrue(prior.reviewReasons.isEmpty())
+        val orphan = result.sessions.single { it.start == null }
+        assertEquals(next("09:18"), orphan.end)
+        assertTrue(ReviewReason.MISSING_ENTER in orphan.reviewReasons)
+        assertTrue(result.reviews.none { it.sessionId == prior.id })
+    }
+
+    @Test fun redundancyWindowFollowsArrivalGraceAndTransientFloor() {
+        fun derive(grace: Int, second: String) = AttendanceEngine.derive(AttendanceInput(
+            listOf(office.copy(entryGraceMinutes = grace)),
+            listOf(event("in", Transition.ENTER, "09:00"), event("out", Transition.EXIT, "11:00"),
+                event("again", Transition.EXIT, second)),
+            policy = Policy(zoneId = zone, shortGapMinutes = 0), now = at("13:00"), historyStartDate = day))
+        fun redundant(result: AttendanceResult) = result.sessions.size == 1 &&
+            "again" in result.sessions.single().sourceEventIds &&
+            result.reviews.none { it.reason == ReviewReason.MISSING_ENTER }
+        // A missed return inside the window would earn zero credit, so nothing is hidden.
+        assertTrue(redundant(derive(5, "11:05")))
+        assertTrue(redundant(derive(15, "11:12")))
+        assertTrue(redundant(derive(0, "11:00:59")))
+        assertTrue(redundant(derive(0, "11:01")))
+        // Beyond it, a missed return could have earned credit; keep it reviewable.
+        assertFalse(redundant(derive(5, "11:05:01")))
+        assertFalse(redundant(derive(15, "11:15:01")))
+        assertFalse(redundant(derive(0, "11:01:01")))
+    }
+
+    @Test fun windowIsMeasuredFromLatestOutsideObservation() {
+        // Each redundant EXIT or outside check is itself outside evidence at its own
+        // observation time; delivery order does not matter because inputs are sorted.
+        val chained = AttendanceEngine.derive(input(listOf(event("in", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "11:00"), event("out-2", Transition.EXIT, "11:04"),
+            event("check", Transition.ABSENCE, "11:08"), event("out-3", Transition.EXIT, "11:12")),
+            now = "12:00"))
+        assertEquals(1, chained.sessions.size)
+        assertTrue(chained.reviews.none { it.reason == ReviewReason.MISSING_ENTER })
+        // An inside observation ends the outside run: a later EXIT belongs to that visit.
+        val returned = AttendanceEngine.derive(input(listOf(event("in", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "11:00"), event("back", Transition.ENTER, "11:02"),
+            event("out-2", Transition.EXIT, "11:04")), now = "12:00"))
+        assertEquals(2, returned.sessions.size)
+        assertEquals(at("11:04"), returned.sessions.last().end)
     }
 }
