@@ -21,13 +21,17 @@ private val decisivePresenceSources = setOf(EXIT_VERIFY_INSIDE,
 internal val EXIT_VERIFICATION_WINDOW: Duration = Duration.ofMinutes(5)
 
 /**
- * A phantom EXIT may be rejected only when inside sampling began soon enough after the
- * EXIT's own observation that an unobserved departure and return in between is no longer
- * than the engine's three-minute adaptive confirmation window. This compares observation
- * times, so platform delivery latency (documented as typically up to two to three minutes)
- * and late WorkManager execution are both accounted for by the first sample's time.
+ * A phantom EXIT may be rejected only by continuous inside evidence after it: no stretch
+ * from the EXIT's own observation to the first inside sample, or between consecutive
+ * samples, may exceed the engine's three-minute adaptive confirmation window, and the
+ * evidence must reach at least four minutes past the EXIT. Comparing observation times
+ * accounts for both platform delivery latency (documented as typically up to two to three
+ * minutes) and late or bunched WorkManager execution. Four of the five scheduled checks
+ * suffice, so one ambiguous indoor fix does not by itself prevent a rejection.
  */
 internal val EXIT_VERIFICATION_MAX_UNOBSERVED: Duration = Duration.ofMinutes(3)
+internal val EXIT_VERIFICATION_MIN_SPAN: Duration = Duration.ofMinutes(4)
+internal const val EXIT_VERIFICATION_MIN_INSIDE = 4
 
 internal fun exitVerificationState(evidence: List<RecordedEvent>, now: Instant): ExitVerificationState {
     val candidate = mutableSetOf<String>()
@@ -43,11 +47,22 @@ internal fun exitVerificationState(evidence: List<RecordedEvent>, now: Instant):
         var exits = mutableListOf<RecordedEvent>()
         var inside = mutableListOf<RecordedEvent>()
         var outside = mutableListOf<RecordedEvent>()
-        fun hasSustainedInside(): Boolean = exits.isNotEmpty() && outside.isEmpty() &&
-            inside.size >= 5 &&
-            Duration.between(exits.first().event.at, inside.first().event.at) <= EXIT_VERIFICATION_MAX_UNOBSERVED &&
-            Duration.between(inside.first().event.at, inside.last().event.at).toMinutes() >= 4
-        fun settle(terminal: RecordedEvent? = null) {
+        // Evidence must follow the latest departure signal in the epoch; samples taken before
+        // a later EXIT cannot vouch for the time after it.
+        fun hasSustainedInside(): Boolean {
+            if (exits.isEmpty() || outside.isNotEmpty()) return false
+            val lastExit = exits.maxOf { it.event.at }
+            val after = inside.map { it.event.at }.filter { it > lastExit }.sorted()
+            if (after.size < EXIT_VERIFICATION_MIN_INSIDE) return false
+            var previous = lastExit
+            after.forEach { at ->
+                if (Duration.between(previous, at) > EXIT_VERIFICATION_MAX_UNOBSERVED) return false
+                previous = at
+            }
+            return Duration.between(lastExit, after.last()) >= EXIT_VERIFICATION_MIN_SPAN
+        }
+        fun epochDeadline(): Instant = exits.maxOf { it.receivedAt }.plus(EXIT_VERIFICATION_WINDOW)
+        fun settle(terminal: RecordedEvent? = null, asOf: Instant = now) {
             if (exits.isEmpty()) return
             val first = exits.minOf { it.event.at }
             val delayedDelivery = Duration.between(first, exits.first().receivedAt).seconds > 120
@@ -82,11 +97,12 @@ internal fun exitVerificationState(evidence: List<RecordedEvent>, now: Instant):
                 terminal.event.at <= first.plusSeconds(60) && outside.isEmpty()
             // No check can be accepted after the window, so an undecided EXIT is no longer
             // awaiting confirmation: it becomes an unresolved departure for review and later
-            // reconciliation, and its samples count as ordinary observations at their times.
-            val expired = terminal == null &&
-                now > exits.maxOf { it.receivedAt }.plus(EXIT_VERIFICATION_WINDOW)
-            val pendingVerdict = terminal == null && !decisiveOutside && !sustainedInside && !quickReturn
-            if (!sustainedInside && !quickReturn && !(pendingVerdict && expired)) provisionalPresence += inside.filter {
+            // reconciliation. Its inside samples stay evidence only: they neither restore the
+            // closed visit nor open a new one, so an early inside fix after a genuine departure
+            // cannot start live credit. A later routine check or platform ENTER establishes
+            // current presence at its own time.
+            val expired = terminal == null && asOf > epochDeadline()
+            if (!sustainedInside && !quickReturn) provisionalPresence += inside.filter {
                 confirmedOutsideAt?.let { confirmed -> it.event.at < confirmed } ?: true
             }.map { it.event.id }
             when {
@@ -103,14 +119,25 @@ internal fun exitVerificationState(evidence: List<RecordedEvent>, now: Instant):
             exits = mutableListOf(); inside = mutableListOf(); outside = mutableListOf()
         }
         ordered.forEach { fact ->
+            // No check is accepted after an epoch's deadline, so a later fact cannot belong to
+            // it. A later EXIT closes the epoch first (as expired if undecided), carrying
+            // forward only what its own samples last showed. Later inside or outside facts,
+            // including stray verification samples, settle it as ordinary observations.
+            val pastDeadline = exits.isNotEmpty() && fact.event.at > epochDeadline()
+            if (pastDeadline && fact.source == "PLAY_SERVICES_GEOFENCE" && fact.event.transition == Transition.EXIT) {
+                val lastSample = (inside + outside).maxWithOrNull(compareBy<RecordedEvent> { it.event.at }.thenBy { it.event.id })
+                val wasRejected = hasSustainedInside()
+                settle(asOf = fact.event.at)
+                insideKnown = wasRejected || lastSample?.event?.transition == Transition.PRESENCE
+            }
             when {
-                fact.source == EXIT_VERIFY_INSIDE && fact.event.transition == Transition.PRESENCE &&
+                !pastDeadline && fact.source == EXIT_VERIFY_INSIDE && fact.event.transition == Transition.PRESENCE &&
                     exits.isNotEmpty() && fact.event.at > exits.first().event.at -> inside += fact
-                fact.source == EXIT_VERIFY_OUTSIDE && fact.event.transition == Transition.ABSENCE &&
+                !pastDeadline && fact.source == EXIT_VERIFY_OUTSIDE && fact.event.transition == Transition.ABSENCE &&
                     exits.isNotEmpty() && fact.event.at > exits.first().event.at -> outside += fact
                 fact.source == "PLAY_SERVICES_GEOFENCE" && fact.event.transition == Transition.EXIT -> {
                     if (hasSustainedInside()) {
-                        settle()
+                        settle(asOf = fact.event.at)
                         insideKnown = true
                     }
                     if (insideKnown || exits.isNotEmpty()) exits += fact

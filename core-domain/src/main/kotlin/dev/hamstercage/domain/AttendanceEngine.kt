@@ -385,14 +385,29 @@ object AttendanceEngine {
             }.minWithOrNull(compareBy<RawEvent> { it.at }.thenBy { it.id }) }
             conflict?.let { session.id to it }
         }.toMap()
+        // The other office proves only that the user had left before it was observed. Credit
+        // therefore stops at this office's own latest inside observation before that point,
+        // never at the other office's arrival, so travel time is not credited here.
+        val crossOfficeCaps = crossOfficeStops.mapValues { (sessionId, conflict) ->
+            val session = effective.first { it.id == sessionId }
+            usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId &&
+                it.transition in setOf(Transition.ENTER, Transition.PRESENCE) && it.at <= conflict.at }
+                .maxOfOrNull { it.at } ?: session.start!!
+        }
         val bounded = effective.map { session ->
             val conflict = crossOfficeStops[session.id]
             if (conflict == null) session else {
                 if (ReviewReason.UNCONFIRMED_BOUNDARY !in session.reviewReasons)
                     reviews += ReviewItem(ReviewReason.UNCONFIRMED_BOUNDARY,
                         session.sourceEventIds + conflict.id, session.id)
+                // Its credit is already bounded by observed evidence, so viewing it later must not
+                // mark it stale and erase that credit.
+                val withinLimit = Duration.between(session.start, crossOfficeCaps.getValue(session.id)) <=
+                    Duration.ofHours(input.policy.maxOpenSessionHours.toLong())
+                if (withinLimit) reviews.removeAll { it.sessionId == session.id && it.reason == ReviewReason.STALE_OPEN_SESSION }
                 session.copy(confidence = Confidence.LOW,
-                    reviewReasons = session.reviewReasons + ReviewReason.UNCONFIRMED_BOUNDARY)
+                    reviewReasons = session.reviewReasons + ReviewReason.UNCONFIRMED_BOUNDARY -
+                        if (withinLimit) setOf(ReviewReason.STALE_OPEN_SESSION) else emptySet())
             }
         }
 
@@ -419,7 +434,7 @@ object AttendanceEngine {
                     it.id in session.sourceEventIds && it.id in input.candidateExitIds
                 }.minOfOrNull { it.at } else null
                 val end = minOf(session.end ?: input.now, input.now, candidateAt ?: input.now,
-                    crossOfficeStops[session.id]?.at ?: input.now, lastInsideBeforeOutsideCheck ?: input.now)
+                    crossOfficeCaps[session.id] ?: input.now, lastInsideBeforeOutsideCheck ?: input.now)
                 val creditStart = start.plusSeconds(office.entryGraceMinutes * 60L)
                 if (end <= creditStart) null else CreditedInterval(creditStart, end, setOf(session.id))
             }

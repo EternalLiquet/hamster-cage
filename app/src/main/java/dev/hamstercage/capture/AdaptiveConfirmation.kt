@@ -148,7 +148,12 @@ internal fun eligibleAdaptiveBatch(snapshot: AppSnapshot, candidate: AdaptiveCon
 internal fun exitVerificationFactsFor(snapshot: AppSnapshot, coverage: CoverageLedger,
     batch: List<RecordedEvent>, candidateId: String, insideOfficeId: String?, observedAt: Instant,
     now: Instant, accuracyMeters: Float, newId: () -> String = HamsterRepository::newId): List<RecordedEvent> {
-    val recovery = insideOfficeId != null &&
+    // Once one sample has split an unsafe old visit, the next samples belong to the new
+    // fix-time visit; splitting again would restart arrival grace on every check.
+    val alreadySplit = insideOfficeId != null && batch.isNotEmpty() && snapshot.eventEvidence.any {
+        it.event.officeId == insideOfficeId && it.source == "ADAPTIVE_RECOVERY_CONFIRMATION" &&
+            it.event.at > batch.maxOf { exit -> exit.event.at } }
+    val recovery = insideOfficeId != null && !alreadySplit &&
         requiresAdaptiveRecoverySplit(snapshot, coverage, candidateId, insideOfficeId, now)
     return exitVerificationFacts(batch.map { it.event.officeId }, insideOfficeId, observedAt, now,
         accuracyMeters, recoveryPresence = recovery, newId = newId)
@@ -258,7 +263,6 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
                     repository.officeVersions(batch.map { it.event.officeId }), currentReset.generation,
                     MonitoringStore.read(context).enabled, true, LocationPermissions.read(context),
                     coverage) == null) return@withLock
-            if (isExit && batch.none { it.event.id in snapshot.input(now).candidateExitIds }) return@withLock
             val wallAge = now.toEpochMilli() - fix.time
             val age = SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos
             val accuracy = fix.accuracy.takeIf { fix.hasAccuracy() && it.isFinite() && it in 0f..10000f }
@@ -281,6 +285,9 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
                     accuracyMeters = accuracy)
                 return@withLock
             }
+            // Judge whether the EXIT still awaits verification as of the fix's own observation,
+            // so a check observed inside the window is kept even if committing it ran past it.
+            if (isExit && batch.none { it.event.id in snapshot.input(observedAt).candidateExitIds }) return@withLock
             val facts = if (isExit) exitVerificationFactsFor(snapshot, coverage, batch, id, office?.id,
                 observedAt, now, fix.accuracy)
             else {
@@ -304,7 +311,10 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
         } } } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Boundary check unavailable; retry from the app") }
         // Outside the capture gate: re-registration takes the same gate.
-        if (resyncOffices.isNotEmpty()) try { CaptureController.get(context).resyncAfterRejectedExit(resyncOffices) }
+        if (resyncOffices.isNotEmpty()) try {
+            val resynced = withTimeout(8_000) { CaptureController.get(context).resyncAfterRejectedExit(resyncOffices) }
+            if (!resynced) MonitoringStore.record(context, "Office boundary refresh skipped; later checks may recover")
+        }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Office boundary refresh unavailable; later checks may recover") }
         return Result.success()

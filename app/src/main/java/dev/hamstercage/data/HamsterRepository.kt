@@ -73,7 +73,9 @@ data class AppSnapshot(
         rejectedExitIds = verification.rejectedIds,
         provisionalAbsenceIds = verification.provisionalAbsenceIds,
         provisionalPresenceIds = verification.provisionalPresenceIds,
-        delayedExitIds = verification.delayedIds)
+        // An unresolved verification EXIT is never bridged by the bounce rule, so none of its
+        // own samples can silently restore continuity after the window expires.
+        delayedExitIds = verification.delayedIds + verification.uncertainIds)
     }
     fun derive(now: Instant) = AttendanceEngine.derive(input(now))
 }

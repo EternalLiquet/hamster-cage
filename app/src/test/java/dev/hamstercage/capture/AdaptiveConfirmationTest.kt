@@ -223,4 +223,26 @@ class AdaptiveConfirmationTest {
             at.plusSeconds(240), at.plusSeconds(245), 12f) { "fix-${++next}" }
         assertEquals(listOf("ADAPTIVE_RECOVERY_CONFIRMATION"), recovered.map { it.source })
     }
+
+    @Test fun onlyTheFirstUnsafeRecoverySampleSplitsTheOldVisit() {
+        val office = Office("a", "A", 0.0, 0.0)
+        val enter = event("enter", "a", Transition.ENTER, -7200)
+        val exit = RecordedEvent(RawEvent("exit", "a", Transition.EXIT, at), at.plusSeconds(10))
+        val zone = java.time.ZoneId.of("America/New_York")
+        // An outage after the visit opened makes the first inside sample an unsafe recovery.
+        val outage = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+            .outage(at.minusSeconds(3600), zone).registrationSucceeded(at.minusSeconds(3000), zone, true)
+        val base = AppSnapshot(listOf(office), listOf(enter, exit), emptyList(), emptyList(), Policy())
+        var next = 0
+        val first = exitVerificationFactsFor(base, outage, listOf(exit), "exit", "a",
+            at.plusSeconds(40), at.plusSeconds(45), 12f) { "fix-${++next}" }
+        assertEquals(listOf("ADAPTIVE_RECOVERY_CONFIRMATION"), first.map { it.source })
+        val afterFirst = base.copy(eventEvidence = base.eventEvidence + first)
+        val second = exitVerificationFactsFor(afterFirst, outage, listOf(exit), "exit", "a",
+            at.plusSeconds(100), at.plusSeconds(105), 12f) { "fix-${++next}" }
+        assertEquals(listOf(EXIT_VERIFY_INSIDE), second.map { it.source })
+        // One split, then one continuing fix-time visit with a single arrival grace.
+        val derived = afterFirst.copy(eventEvidence = afterFirst.eventEvidence + second).derive(at.plusSeconds(600))
+        assertEquals(first.single().event.at, derived.sessions.last().start)
+    }
 }

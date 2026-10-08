@@ -73,7 +73,9 @@ class CaptureIntegrationTest {
                 assertEquals(entered, result.sessions.first().start)
                 assertEquals(bouncedOut, result.sessions.first().end)
                 assertEquals(bouncedIn, result.sessions.last().start)
-                assertTrue(result.sessions.last().isOpen)
+                // The last EXIT's five-minute verification window has passed with no check, so it
+                // is an unresolved departure: the visit ends there under boundary review.
+                assertEquals(left, result.sessions.last().end)
                 assertEquals(left, result.intervals.last().end)
                 assertTrue(result.reviews.any { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
                 assertTrue(result.reviews.none { it.reason == ReviewReason.REPEATED_ENTER })

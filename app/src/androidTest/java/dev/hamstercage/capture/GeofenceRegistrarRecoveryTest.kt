@@ -121,7 +121,8 @@ class GeofenceRegistrarRecoveryTest {
         assertEquals(false, registrar.registrationTokenPresent(unusedGeneration))
         assertEquals(RegistrationStatus.ACTIVE,
             registrar.synchronize(listOf(office("a", 150f)), true, generation = unusedGeneration).registration)
-        // A reclaimed process keeps this system token; a force-stop or reboot removes it.
+        // A second registrar instance (as a new process would create) still sees the system token.
+        // Survival across a real reclaim, force-stop or reboot needs a device and is not shown here.
         assertEquals(true, GeofenceRegistrar(context, operations = RecordingFences(), retirement = retired)
             .registrationTokenPresent(unusedGeneration))
         registrar.pendingIntent(unusedGeneration).cancel()

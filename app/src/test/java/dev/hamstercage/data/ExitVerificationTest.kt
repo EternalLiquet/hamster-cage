@@ -26,10 +26,13 @@ class ExitVerificationTest {
     @Test fun fiveInsideSamplesRejectPhantomExitWithoutRestartingGrace() {
         val inside = (1L..5L).map { fact("inside-$it", Transition.PRESENCE, 120 + it, EXIT_VERIFY_INSIDE) }
         val facts = listOf(enter, exit) + inside
-        val pending = state(facts, 124)
+        // Three samples reach only three minutes past the EXIT: still pending.
+        val pending = state(facts, 123)
         assertEquals(setOf("exit"), pending.first.candidateExitIds)
         assertEquals(115.0, pending.second.intervals.single().minutes, 0.001)
         assertTrue(pending.second.sessions.single().isOpen)
+        // A fourth sample at four minutes completes continuous evidence.
+        assertEquals(setOf("exit"), state(facts, 124).first.rejectedExitIds)
         val settled = state(facts, 126)
         assertEquals(setOf("exit"), settled.first.rejectedExitIds)
         assertEquals(emptySet<String>(), settled.first.candidateExitIds)
@@ -135,10 +138,12 @@ class ExitVerificationTest {
         assertTrue(result.first.rejectedExitIds.isEmpty())
         assertTrue(result.first.candidateExitIds.isEmpty())
         assertEquals(setOf("exit"), result.first.unconfirmedExitIds)
-        // The bunched samples are still genuine current presence: after the window they
-        // begin a new visit at their own time rather than being discarded.
-        assertEquals(exit.event.at, result.second.sessions.first().end)
-        assertEquals(bunched.first().event.at, result.second.sessions.last().start)
+        // After the window the departure is unresolved: credit ends at the EXIT and the
+        // bunched samples remain evidence only, without starting a visit of their own.
+        assertEquals(1, result.second.sessions.size)
+        assertEquals(exit.event.at, result.second.sessions.single().end)
+        assertEquals(115.0, result.second.intervals.sumOf { it.minutes }, 0.001)
+        assertTrue(result.second.reviews.any { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
     }
 
     @Test fun alternatingInsideOutsideSamplesRemainUnresolved() {
@@ -213,13 +218,15 @@ class ExitVerificationTest {
         assertTrue(pending.first.rejectedExitIds.isEmpty())
         assertEquals(exit.event.at, pending.second.intervals.single().end)
         // An hour-late delivery cannot be rejected, but its observed ENTER-to-EXIT span keeps
-        // its credit. The unobserved hour earns nothing and the later samples start a new visit.
+        // its credit. The unobserved hour earns nothing, and once the window has passed the
+        // departure is unresolved; a later routine check or ENTER establishes current presence.
         val resumed = state(listOf(enter, delayedExit) + laterInside, 190)
-        assertEquals(115.0, resumed.second.intervals.first().minutes, 0.001)
-        assertEquals(exit.event.at, resumed.second.intervals.first().end)
-        assertTrue(resumed.second.intervals.none { it.start > exit.event.at &&
-            it.start < laterInside.first().event.at.plusSeconds(300) })
-        assertEquals(laterInside.first().event.at, resumed.second.sessions.last().start)
+        assertEquals(115.0, resumed.second.intervals.sumOf { it.minutes }, 0.001)
+        assertEquals(exit.event.at, resumed.second.intervals.single().end)
+        assertTrue(resumed.second.reviews.any { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        val checked = state(listOf(enter, delayedExit) + laterInside +
+            fact("check", Transition.PRESENCE, 200, "BACKGROUND_LOCATION_RECONCILIATION"), 210)
+        assertEquals(fact("check", Transition.PRESENCE, 200).event.at, checked.second.sessions.last().start)
         val quick = RecordedEvent(RawEvent("quick", "a", Transition.ENTER,
             exit.event.at.plusSeconds(20)), delayedExit.receivedAt.plusSeconds(20))
         val uncertain = state(listOf(enter, delayedExit, quick), 186)
@@ -296,8 +303,8 @@ class ExitVerificationTest {
 
     @Test fun newlyRejectedExitRequestsPlatformResync() {
         val inside = (1L..5L).map { fact("inside-$it", Transition.PRESENCE, 120 + it, EXIT_VERIFY_INSIDE) }
-        val before = exitVerificationState(listOf(enter, exit) + inside.take(4), zero.plusSeconds(125 * 60))
-        val after = exitVerificationState(listOf(enter, exit) + inside, zero.plusSeconds(126 * 60))
+        val before = exitVerificationState(listOf(enter, exit) + inside.take(3), zero.plusSeconds(124 * 60))
+        val after = exitVerificationState(listOf(enter, exit) + inside.take(4), zero.plusSeconds(124 * 60))
         assertEquals(setOf("exit"), newlyRejectedExitIds(before, after))
         assertTrue(newlyRejectedExitIds(after, after).isEmpty())
     }
@@ -317,8 +324,14 @@ class ExitVerificationTest {
         val a = result.sessions.single { it.officeId == "a" }
         assertTrue(a.isOpen)
         assertTrue(ReviewReason.UNCONFIRMED_BOUNDARY in a.reviewReasons)
-        assertEquals(bArrival.event.at, result.intervals.first().end)
-        assertEquals(170.0, result.intervals.sumOf { it.minutes }, 0.001)
+        // Credit for A stops at its own last inside sample, not at B's arrival: the travel
+        // between them is unobserved. A: 5–125 (120 min); B: 155–180 (25 min).
+        assertEquals(inside.last().event.at, result.intervals.first().end)
+        assertEquals(145.0, result.intervals.sumOf { it.minutes }, 0.001)
+        // Viewing the same history the next day must not mark A stale and erase that credit.
+        val nextDay = snapshot.derive(zero.plusSeconds(20 * 3600))
+        assertTrue(nextDay.sessions.single { it.officeId == "a" }.reviewReasons.none { it == ReviewReason.STALE_OPEN_SESSION })
+        assertEquals(inside.last().event.at, nextDay.intervals.first().end)
         for (returnType in listOf(Transition.ENTER, Transition.PRESENCE)) {
             val returning = RecordedEvent(RawEvent("a-return", "a", returnType,
                 zero.plusSeconds(180 * 60)), zero.plusSeconds(180 * 60),
@@ -332,6 +345,31 @@ class ExitVerificationTest {
             assertTrue(aVisits.last().isOpen)
             assertTrue(resumed.intervals.any { aVisits.last().id in it.sessionIds &&
                 it.end == zero.plusSeconds(210 * 60) })
+        }
+    }
+
+    @Test fun laterExitCannotBeRejectedWithAnEarlierEpochsSamples() {
+        val x1 = fact("x1", Transition.EXIT, 120).let { it.copy(receivedAt = it.event.at.plusSeconds(10)) }
+        val x2 = fact("x2", Transition.EXIT, 180).let { it.copy(receivedAt = it.event.at.plusSeconds(10)) }
+        val early = listOf(121L, 122L, 123L).map { fact("i$it", Transition.PRESENCE, it, EXIT_VERIFY_INSIDE) }
+        val late = listOf(RecordedEvent(RawEvent("i4", "a", Transition.PRESENCE, x2.event.at.plusSeconds(30)),
+                x2.event.at.plusSeconds(30), source = EXIT_VERIFY_INSIDE, accuracyMeters = 12f),
+            RecordedEvent(RawEvent("i5", "a", Transition.PRESENCE, x2.event.at.plusSeconds(90)),
+                x2.event.at.plusSeconds(90), source = EXIT_VERIFY_INSIDE, accuracyMeters = 12f))
+        val result = state(listOf(enter, x1) + early + x2 + late, 240)
+        assertTrue(result.first.rejectedExitIds.isEmpty())
+        assertTrue(result.second.intervals.none { it.end > x1.event.at })
+    }
+
+    @Test fun earlyInsideSampleAfterExpiryDoesNotRestoreOrStartCredit() {
+        // A genuine departure whose only decisive check, 40 seconds later, still read inside.
+        val sample = RecordedEvent(RawEvent("early", "a", Transition.PRESENCE, exit.event.at.plusSeconds(40)),
+            exit.event.at.plusSeconds(40), source = EXIT_VERIFY_INSIDE, accuracyMeters = 12f)
+        for (minute in listOf(126L, 180L, 480L)) {
+            val result = state(listOf(enter, exit, sample), minute)
+            assertEquals("minute=$minute", 115.0, result.second.intervals.sumOf { it.minutes }, 0.001)
+            assertFalse(result.second.sessions.any { it.isOpen })
+            assertTrue(result.second.reviews.any { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
         }
     }
 }

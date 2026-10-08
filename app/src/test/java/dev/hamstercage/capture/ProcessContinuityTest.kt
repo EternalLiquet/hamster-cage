@@ -34,10 +34,32 @@ class ProcessContinuityTest {
         assertEquals(lost, unknown)
     }
 
-    @Test fun continuityRequiresTheRegistrationTokenAndNoUserStop() {
-        assertEquals(ProcessContinuity.SURVIVED, processContinuity(pendingIntentPresent = true, userStopped = false))
-        assertEquals(ProcessContinuity.LOST, processContinuity(pendingIntentPresent = false, userStopped = false))
-        assertEquals(ProcessContinuity.LOST, processContinuity(pendingIntentPresent = true, userStopped = true))
-        assertEquals(ProcessContinuity.UNKNOWN, processContinuity(pendingIntentPresent = null, userStopped = false))
+    private fun decide(token: Boolean? = true, rebooted: Boolean? = false, replaced: Boolean? = false,
+        exit: PreviousExit = PreviousExit.UNKNOWN, forceStop: Boolean? = null, background: Boolean = false,
+        cancelsTokens: Boolean = false) = processContinuity(token, rebooted, replaced, exit, forceStop, background, cancelsTokens)
+
+    @Test fun anyEvidenceOfLostRegistrationIsAnOutage() {
+        assertEquals(ProcessContinuity.LOST, decide(token = false, background = true))
+        assertEquals(ProcessContinuity.LOST, decide(rebooted = true, background = true))
+        assertEquals(ProcessContinuity.LOST, decide(replaced = true, background = true))
+        assertEquals(ProcessContinuity.LOST, decide(forceStop = true, cancelsTokens = true))
+        assertEquals(ProcessContinuity.LOST, decide(exit = PreviousExit.STOPPED_OR_CHANGED, background = true))
+    }
+
+    @Test fun unreadableSignalsStayConservative() {
+        assertEquals(ProcessContinuity.UNKNOWN, decide(token = null, background = true))
+        assertEquals(ProcessContinuity.UNKNOWN, decide(rebooted = null, background = true))
+        assertEquals(ProcessContinuity.UNKNOWN, decide(replaced = null, background = true))
+    }
+
+    @Test fun survivalNeedsPositiveEvidenceOfNoForceStop() {
+        // A background job cannot run for a force-stopped app on any version.
+        assertEquals(ProcessContinuity.SURVIVED, decide(background = true))
+        // Android 15+ cancels the token on force-stop, so a present token rules it out.
+        assertEquals(ProcessContinuity.SURVIVED, decide(cancelsTokens = true, forceStop = false))
+        // Android 11–14: a recorded system reclaim of the last healthy process.
+        assertEquals(ProcessContinuity.SURVIVED, decide(exit = PreviousExit.RECLAIMED))
+        // A foreground launch with no exit record (Android 8–10) cannot rule out a force-stop.
+        assertEquals(ProcessContinuity.UNKNOWN, decide())
     }
 }
