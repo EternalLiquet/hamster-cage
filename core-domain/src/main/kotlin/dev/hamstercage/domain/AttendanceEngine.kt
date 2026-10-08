@@ -418,14 +418,36 @@ object AttendanceEngine {
             // delivered after capture became uncertain. None establishes presence through
             // that boundary. Keep only the prefix ending at the last earlier current-location
             // fix that placed the user inside. An ENTER establishes an arrival, not presence
-            // after it; a later same-office ENTER or any other-office observation shows the
-            // user may already have left, so no fix after the first of those counts.
+            // after it. A later same-office ENTER implies the user had been outside, unless it
+            // is a merged bounce (within the bounce window of an in-session EXIT) or follows
+            // another inside observation within the confirmation window, as the resync ENTER
+            // after a rejected phantom EXIT does; any implied absence there is within the
+            // engine's accepted tolerance. Another office's ENTER or PRESENCE shows the user was
+            // elsewhere. No fix after the first of those counts.
             val lastInsideBeforeGap = if (session.correctionId == null && session.end != null && start != null &&
                 ReviewReason.UNCONFIRMED_GAP in session.reviewReasons) {
-                val leftBy = usable.filter { it.at > start && it.at < session.end!! &&
-                    (it.officeId != session.officeId ||
-                        (it.transition == Transition.ENTER && it.id in session.sourceEventIds)) }
-                    .minOfOrNull { it.at } ?: session.end
+                val inSession = usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId }
+                    .sortedWith(compareBy<RawEvent> { it.at }.thenBy { it.id })
+                var lastInside: Instant = start
+                var lastExit: Instant? = null
+                val missedDeparture = inSession.firstOrNull { event ->
+                    if (event.at <= start) return@firstOrNull false
+                    when (event.transition) {
+                        Transition.EXIT -> { lastExit = event.at; false }
+                        Transition.ENTER -> {
+                            val bounce = lastExit?.let { Duration.between(it, event.at) <= boundaryBounceWindow } == true
+                            val continuous = Duration.between(lastInside, event.at) <= adaptiveConfirmationWindow
+                            lastInside = event.at
+                            !bounce && !continuous
+                        }
+                        Transition.PRESENCE -> { if (event.id !in input.provisionalPresenceIds) lastInside = event.at; false }
+                        Transition.ABSENCE -> false
+                    }
+                }?.at
+                val elsewhere = usable.filter { it.officeId != session.officeId && it.at > start &&
+                    it.at < session.end!! && it.transition in setOf(Transition.ENTER, Transition.PRESENCE) }
+                    .minOfOrNull { it.at }
+                val leftBy = listOfNotNull(missedDeparture, elsewhere, session.end).min()
                 usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId &&
                     it.transition == Transition.PRESENCE && it.id !in input.provisionalPresenceIds &&
                     it.at > start && it.at < leftBy }
