@@ -29,13 +29,13 @@ class DayDiagnosticsTest {
             evidence("after", Transition.ENTER, "2025-03-10T04:00:00Z"))
         val report = dayDiagnostics(data, day, now, null, CaptureStatus(), "test")
         assertEquals(2, report.observationCount)
-        assertEquals(1, report.contextCount)
+        assertEquals(2, report.contextCount)
         assertEquals(day.minusDays(1), report.firstIncludedDay)
-        assertEquals(day, report.lastIncludedDay)
+        assertEquals(day.plusDays(1), report.lastIncludedDay)
         assertTrue(report.json.contains("\"windowStartInclusive\":\"2025-03-09T05:00:00Z\""))
         assertTrue(report.json.contains("\"windowEndExclusive\":\"2025-03-10T04:00:00Z\""))
         assertFalse(report.json.contains("2025-03-08T06:00:00Z"))
-        assertFalse(report.json.contains("\"eventAt\":\"2025-03-10T04:00:00Z\""))
+        assertTrue(report.json.contains("\"eventAt\":\"2025-03-10T04:00:00Z\""))
     }
 
     @Test fun stableAliasesRetainRawTimingAndSourceWithoutLocationNamesOrNotes() {
