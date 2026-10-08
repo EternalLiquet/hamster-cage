@@ -159,4 +159,39 @@ class DayDiagnosticsTest {
         assertTrue(json.contains("\"lastOutageHealthySince\":\"2025-03-09T12:00:00Z\""))
         assertTrue(json.contains("\"openOutageHealthySince\":\"2025-03-09T13:00:00Z\""))
     }
+    /** Current capture status must not disclose times outside the date span shown in the preview. */
+    @Test fun currentCaptureStatusOutsideTheDisclosedSpanIsCoarsened() {
+        val coverage = CoverageLedger(historyStartDate = LocalDate.of(2025, 1, 6),
+            lastObservationAt = Instant.parse("2025-06-10T13:12:00Z"), lastHealthyAt = Instant.parse("2025-06-10T13:12:00Z"),
+            recoveryBoundaryAt = Instant.parse("2025-02-01T12:00:00Z"),
+            lastOutageStartedAt = Instant.parse("2025-03-09T16:00:00Z"))
+        val capture = CaptureStatus(lastVerifiedAt = Instant.parse("2025-06-10T13:12:00Z"), lastCheckResult = "Inside office")
+        val report = dayDiagnostics(snapshot(evidence("arrive", Transition.ENTER, "2025-03-09T14:00:00Z")),
+            day, Instant.parse("2025-06-10T14:00:00Z"), coverage, capture, "test")
+        assertEquals(day, report.firstIncludedDay)
+        assertEquals(day, report.lastIncludedDay)
+        listOf("2025-06-10T13:12:00Z", "Inside office", "2025-02-01T12:00:00Z", "2025-01-06").forEach {
+            assertFalse("Leaked $it", report.json.contains(it))
+        }
+        assertTrue(report.json.contains("\"lastVerifiedAt\":\"afterSpan\""))
+        assertTrue(report.json.contains("\"lastCheckResult\":null"))
+        assertTrue(report.json.contains("\"lastObservationAt\":\"afterSpan\""))
+        assertTrue(report.json.contains("\"recoveryBoundaryAt\":\"beforeSpan\""))
+        assertTrue(report.json.contains("\"historyStartDate\":\"beforeSpan\""))
+        assertTrue(report.json.contains("\"lastOutageStartedAt\":\"2025-03-09T16:00:00Z\""))
+    }
+
+    @Test fun captureCheckInsideTheSpanKeepsItsTimeAndResult() {
+        val capture = CaptureStatus(lastVerifiedAt = Instant.parse("2025-03-09T18:00:00Z"), lastCheckResult = "Inside office")
+        val json = dayDiagnostics(snapshot(), day, now, null, capture, "test").json
+        assertTrue(json.contains("\"lastVerifiedAt\":\"2025-03-09T18:00:00Z\",\"lastCheckResult\":\"Inside office\""))
+    }
+
+    @Test fun manualDerivedSessionsLinkToTheirManualAlias() {
+        val data = snapshot().copy(manualSessions = listOf(ManualSession("manual-secret", office.id,
+            Instant.parse("2025-03-09T19:00:00Z"), Instant.parse("2025-03-09T20:00:00Z"), now)))
+        val json = dayDiagnostics(data, day, now, null, CaptureStatus(), "test").json
+        assertTrue(json, "\"session\":\"session-1\"[^}]*\"manual\":\"manual-1\"".toRegex().containsMatchIn(json))
+        assertFalse(json.contains("manual-secret"))
+    }
 }
