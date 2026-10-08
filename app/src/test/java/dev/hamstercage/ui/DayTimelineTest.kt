@@ -40,7 +40,7 @@ class DayTimelineTest {
         val result = AttendanceEngine.derive(input)
         val timeline = dayTimeline(input, explainDay(input, result, LocalDate.parse("2026-09-23")))
         assertTrue(timeline.any { it.title == "Outside Westerville Office at a later check" &&
-            it.detail.contains("actual exit time is unknown") })
+            it.detail.contains("exit time is unknown") })
         assertFalse(timeline.any { it.title.startsWith("Left") })
         assertEquals(0.0, AttendanceEngine.daily(input, result, LocalDate.parse("2026-09-23")).creditedMinutes, 0.0)
     }
@@ -71,9 +71,25 @@ class DayTimelineTest {
         assertFalse(result.intervals.any { prior.id in it.sessionIds })
         val timeline = dayTimeline(input, explainDay(input, result, LocalDate.parse("2026-09-23")))
         assertTrue(timeline.any { it.title == "Current presence checked again at Westerville Office" &&
-            it.detail.contains("not continuous presence before it") })
+            it.detail.contains("earlier continuity is unknown") })
         assertFalse(timeline.any { it.title.startsWith("Outside") })
         assertTrue(timeline.any { it.title == "Ongoing at Westerville Office" })
+    }
+
+    @Test fun uncertainGapCopyKeepsEarlierConfirmedCreditVisible() {
+        val input = AttendanceInput(listOf(office), listOf(
+            event("in", Transition.ENTER, "2026-09-23T09:00:00Z"),
+            event("check", Transition.PRESENCE, "2026-09-23T10:00:00Z"),
+            event("outside", Transition.ABSENCE, "2026-09-23T11:00:00Z"),
+            event("return", Transition.ENTER, "2026-09-23T11:10:00Z")),
+            policy = policy.copy(shortGapMinutes = 120), now = Instant.parse("2026-09-23T12:00:00Z"))
+        val result = AttendanceEngine.derive(input)
+        assertEquals(Instant.parse("2026-09-23T10:00:00Z"), result.intervals.first().end)
+        val timeline = dayTimeline(input, explainDay(input, result, LocalDate.parse("2026-09-23")))
+        assertTrue(timeline.any { it.title == "Outside Westerville Office at a later check" &&
+            it.detail.contains("Earlier confirmed time may count") })
+        assertTrue(timeline.any { it.title == "Unconfirmed time between checks" &&
+            it.detail.contains("Uncertain time is uncredited") })
     }
 
     @Test fun crossMidnightShowsContinuationWithoutSecondArrival() {

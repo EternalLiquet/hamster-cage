@@ -85,7 +85,7 @@ class DayDetailTest {
         compose.onNodeWithText("Effective session duration: 30m.").assertDoesNotExist()
         compose.onAllNodesWithText("Device-observed in-zone time: 10m")[0]
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("The listed end is a later current-location check, not an observed EXIT. The exit time is unknown, and this earlier segment earns no credit until corrected.")
+        compose.onNodeWithText("Confirmed time before the gap may count. The uncertain time needs review; see credited intervals for exact bounds.")
             .performScrollTo().assertIsDisplayed()
     }
     @Test fun missedExitOutsideCheckExplainsUnknownTimeAndZeroCredit() {
@@ -105,7 +105,7 @@ class DayDetailTest {
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("One-shot current-location fix establishes outside at this check. The exact departure time remains unknown.")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("The listed end is a later current-location check, not an observed EXIT. The exit time is unknown, and this earlier segment earns no credit until corrected.")
+        compose.onNodeWithText("Confirmed time before the gap may count. The uncertain time needs review; see credited intervals for exact bounds.")
             .performScrollTo().assertIsDisplayed()
     }
     @Test fun historyNavigationShowsCorrectedTotalAndRetainedRawEvidenceAtLargeText() {

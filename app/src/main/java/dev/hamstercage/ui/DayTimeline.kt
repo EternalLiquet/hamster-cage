@@ -55,7 +55,9 @@ internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<D
             val gapEnd = minOf(start, dayEnd)
             if (gapEnd > gapStart) rows += DayTimelineRow(gapStart,
                 if (latestCoverageUncertain) "Unconfirmed time between checks" else "No active recorded session",
-                "Until ${instantText(gapEnd, input.policy.zoneId)} · ${minutesText(Duration.between(gapStart, gapEnd).toMinutes().toDouble())}. Short-gap credit, if applicable, is shown in credited intervals.")
+                "Until ${instantText(gapEnd, input.policy.zoneId)} · ${minutesText(Duration.between(gapStart, gapEnd).toMinutes().toDouble())}. " +
+                    (if (latestCoverageUncertain) "Uncertain time is uncredited and needs review."
+                    else "Short-gap credit, if applicable, is shown in credited intervals."))
         }
         val startEvent = session.sourceEventIds.mapNotNull(events::get).firstOrNull {
             it.at == start && it.transition in setOf(Transition.ENTER, Transition.PRESENCE)
@@ -108,9 +110,9 @@ internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<D
                     else -> "Left office area · $name"
                 }, when {
                     uncertain && endEvent?.transition == Transition.ABSENCE ->
-                        "The check confirms outside now, but the actual exit time is unknown. The earlier span earns no credit until reviewed."
-                    presenceSplit -> "Current presence is confirmed at this check, not continuous presence before it. The earlier uncertain span earns no credit until reviewed."
-                    uncertain -> "The earlier visit's end time is unknown. The uncertain span earns no credit until reviewed."
+                        "Outside now; the exit time is unknown. Earlier confirmed time may count. The gap needs review."
+                    presenceSplit -> "Inside now; earlier continuity is unknown. Confirmed time may count. The gap needs review."
+                    uncertain -> "The visit's end is uncertain. Earlier confirmed time may count. The gap needs review."
                     transient -> "A brief office-area entry and exit may be boundary jitter. This visit earns no credit unless corrected."
                     unconfirmedDeparture -> "The office-area exit signal has not been confirmed by a current-location check. The actual departure is uncertain."
                     endEvent?.transition == Transition.EXIT -> "A crossing out of the configured office area was recorded; physical building exit may differ."
