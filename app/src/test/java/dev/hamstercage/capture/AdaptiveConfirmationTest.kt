@@ -2,6 +2,7 @@ package dev.hamstercage.capture
 
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
+import dev.hamstercage.data.PRESENCE_CORROBORATION
 import dev.hamstercage.data.EXIT_VERIFY_INSIDE
 import dev.hamstercage.data.EXIT_VERIFY_OUTSIDE
 import dev.hamstercage.domain.Office
@@ -224,6 +225,36 @@ class AdaptiveConfirmationTest {
         assertEquals(listOf("ADAPTIVE_RECOVERY_CONFIRMATION"), recovered.map { it.source })
     }
 
+    @Test fun continuityControlsRecoveryMarkingWithoutDiscardingEarlierInsideCredit() {
+        val zone = java.time.ZoneId.of("America/New_York")
+        val office = Office("a", "A", 0.0, 0.0)
+        val enter = event("enter", "a", Transition.ENTER, -7200)
+        val check = event("check", "a", Transition.PRESENCE, -3600,
+            PRESENCE_CORROBORATION)
+        val exit = event("exit", "a", Transition.EXIT)
+        val original = listOf(enter, check, exit)
+        val snapshot = AppSnapshot(listOf(office), original, emptyList(), emptyList(), Policy(zoneId = zone))
+        val healthy = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+            .observed(check.event.at)
+        for (continuity in ProcessContinuity.entries) {
+            val started = healthy.processStarted(at.plusSeconds(300), zone, continuity)
+            val registered = started.registrationSucceeded(at.plusSeconds(301), zone, true)
+            val recovery = requiresAdaptiveRecoverySplit(snapshot, registered, "exit", "a", at.plusSeconds(600))
+            assertEquals(continuity != ProcessContinuity.SURVIVED, recovery)
+            val fix = adaptiveFacts("a", "a", at.plusSeconds(600), at.plusSeconds(601), 12f,
+                recoveryPresence = recovery) { "fix-${continuity.name}" }.single()
+            val result = snapshot.copy(eventEvidence = original + fix).derive(at.plusSeconds(1200))
+            val oldCredit = result.intervals.single { "session:enter" in it.sessionIds }
+            assertEquals(enter.event.at.plusSeconds(300), oldCredit.start)
+            assertEquals(if (recovery) check.event.at else exit.event.at, oldCredit.end)
+            if (recovery) {
+                assertTrue(dev.hamstercage.domain.ReviewReason.UNCONFIRMED_GAP in
+                    result.sessions.single { it.id == "session:enter" }.reviewReasons)
+                assertTrue(result.intervals.none { it.start < fix.event.at && it.end > check.event.at })
+            }
+        }
+    }
+
     @Test fun onlyTheFirstUnsafeRecoverySampleSplitsTheOldVisit() {
         val office = Office("a", "A", 0.0, 0.0)
         val enter = event("enter", "a", Transition.ENTER, -7200)
@@ -244,5 +275,47 @@ class AdaptiveConfirmationTest {
         // One split, then one continuing fix-time visit with a single arrival grace.
         val derived = afterFirst.copy(eventEvidence = afterFirst.eventEvidence + second).derive(at.plusSeconds(600))
         assertEquals(first.single().event.at, derived.sessions.last().start)
+    }
+
+    @Test fun visitObservedEntirelyBeforeAnOutageKeepsItsCredit() {
+        // Issue #113's example on the production path: ENTER and inside check after the last
+        // recovery, an EXIT delivered while healthy (so the next outage begins at it), then an
+        // inconclusive restart and an EXIT verification fix inside the five-minute window.
+        val zone = java.time.ZoneId.of("America/New_York")
+        val office = Office("a", "A", 0.0, 0.0)
+        val enter = event("enter", "a", Transition.ENTER, -7200)
+        val check = event("check", "a", Transition.PRESENCE, -3600, PRESENCE_CORROBORATION)
+        val exit = event("exit", "a", Transition.EXIT)
+        val snapshot = AppSnapshot(listOf(office), listOf(enter, check, exit), emptyList(), emptyList(),
+            Policy(zoneId = zone))
+        val healthy = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+            .observed(check.event.at).observed(exit.event.at)
+        val ledger = healthy.processStarted(at.plusSeconds(60), zone, ProcessContinuity.UNKNOWN)
+            .registrationSucceeded(at.plusSeconds(61), zone, true)
+        assertFalse(requiresAdaptiveRecoverySplit(snapshot, ledger, "exit", "a", at.plusSeconds(90)))
+        var next = 0
+        val sample = exitVerificationFactsFor(snapshot, ledger, listOf(exit), "exit", "a",
+            at.plusSeconds(90), at.plusSeconds(95), 12f) { "fix-${++next}" }
+        assertEquals(listOf(EXIT_VERIFY_INSIDE), sample.map { it.source })
+        val result = snapshot.copy(eventEvidence = snapshot.eventEvidence + sample).derive(at.plusSeconds(1200))
+        val old = result.intervals.single { "session:enter" in it.sessionIds }
+        assertEquals(enter.event.at.plusSeconds(300), old.start)
+        assertEquals(exit.event.at, old.end)
+        // A visit that also spans an earlier outage is not exempt, even though its EXIT came
+        // before the latest outage began.
+        val earlier = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+            .observed(at.minusSeconds(6000))
+            .processStarted(at.minusSeconds(5000), zone, ProcessContinuity.LOST)
+            .registrationSucceeded(at.minusSeconds(4900), zone, true)
+            .observed(check.event.at).observed(exit.event.at)
+            .processStarted(at.plusSeconds(60), zone, ProcessContinuity.UNKNOWN)
+            .registrationSucceeded(at.plusSeconds(61), zone, true)
+        assertTrue(requiresAdaptiveRecoverySplit(snapshot, earlier, "exit", "a", at.plusSeconds(90)))
+        // If the EXIT came after the last healthy observation, the visit still splits.
+        val laterExit = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+            .observed(check.event.at)
+            .processStarted(at.plusSeconds(60), zone, ProcessContinuity.UNKNOWN)
+            .registrationSucceeded(at.plusSeconds(61), zone, true)
+        assertTrue(requiresAdaptiveRecoverySplit(snapshot, laterExit, "exit", "a", at.plusSeconds(90)))
     }
 }

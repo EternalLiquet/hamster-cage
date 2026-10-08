@@ -2,6 +2,7 @@ package dev.hamstercage.capture
 
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
+import dev.hamstercage.data.PRESENCE_CORROBORATION
 import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.AttendanceEngine
 import dev.hamstercage.domain.DepartureStatus
@@ -122,18 +123,22 @@ class ForegroundReconciliationTest {
     }
 
     @Test fun retainedPreOutageEnterIsSplitWithoutBackdatedOrOverlappingCredit() {
-        val oldAt = observed.minusSeconds(1_200)
+        val oldAt = observed.minusSeconds(1_800)
         val zone = Policy().zoneId
-        val recovered = CoverageLedger(lastHealthyAt = oldAt, lastObservationAt = oldAt,
+        val old = event("old-enter", Transition.ENTER, oldAt)
+        val priorAt = observed.minusSeconds(900)
+        val priorCheck = RecordedEvent(RawEvent("prior-check", office.id, Transition.PRESENCE, priorAt),
+            priorAt, priorAt, PRESENCE_CORROBORATION)
+        val recovered = CoverageLedger(lastHealthyAt = priorCheck.event.at,
+            lastObservationAt = priorCheck.event.at,
             registration = RegistrationStatus.ACTIVE, policyZoneId = zone)
             .outage(observed.minusSeconds(600), zone)
             .registrationSucceeded(observed.minusSeconds(30), zone, true)
-        val old = event("old-enter", Transition.ENTER, oldAt)
-        val before = snapshot(listOf(old))
+        val before = snapshot(listOf(old, priorCheck))
         val now = observed.plusSeconds(360)
         assertEquals(false, recovered.presenceConfirmed(now, zone))
         assertNull(canOpenFromObservation(before, office.id, recovered, observed, now))
-        val after = snapshot(listOf(old, event("current-fix", Transition.PRESENCE, observed)))
+        val after = snapshot(listOf(old, priorCheck, event("current-fix", Transition.PRESENCE, observed)))
         val result = after.derive(now)
         assertEquals(2, result.sessions.size)
         val former = result.sessions.single { it.id == "session:old-enter" }
@@ -142,8 +147,11 @@ class ForegroundReconciliationTest {
         assertEquals(true, ReviewReason.UNCONFIRMED_GAP in former.reviewReasons)
         assertEquals(observed, current.start)
         assertEquals(true, current.isOpen)
-        assertEquals(listOf(observed.plusSeconds(300)), result.intervals.map { it.start })
-        assertEquals(1.0, result.intervals.single().minutes, 0.0)
+        assertEquals(listOf(oldAt.plusSeconds(300), observed.plusSeconds(300)),
+            result.intervals.map { it.start })
+        assertEquals(priorCheck.event.at, result.intervals.first().end)
+        assertEquals(10.0, result.intervals.first().minutes, 0.0)
+        assertEquals(1.0, result.intervals.last().minutes, 0.0)
         assertEquals(true, recovered.observed(observed).presenceConfirmed(now, zone))
         assertEquals("In Synthetic office", dashboardPresence(after.input(now), result, true).label)
         assertEquals(true, dashboardPresence(after.input(now), result, true).needsReview)

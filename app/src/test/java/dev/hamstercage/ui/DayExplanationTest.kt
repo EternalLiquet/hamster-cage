@@ -40,7 +40,8 @@ class DayExplanationTest {
         assertEquals(at("10:00"), detail.sessions.single().end)
         assertTrue(ReviewReason.UNCONFIRMED_GAP in detail.sessions.single().reviewReasons)
         val explanation = reviewExplanation(ReviewReason.UNCONFIRMED_GAP)
-        assertTrue(explanation.contains("exit time is unknown"))
+        assertTrue(explanation.contains("last confirmed inside check"))
+        assertTrue(explanation.contains("Later time is uncredited"))
         assertFalse(explanation.contains("restarted presence"))
     }
 
