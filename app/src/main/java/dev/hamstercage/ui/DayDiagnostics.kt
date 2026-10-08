@@ -64,6 +64,15 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         items.map { it.note }.distinct() }
     val correctionNoteVariants = detail.corrections.groupBy { it.id }.mapValues { (_, items) ->
         items.map { it.note }.distinct() }
+    // These classifications come from the full stored history, including evidence beyond the
+    // export bounds, so they are recorded with each fact rather than left to a bounded replay.
+    val engineRoles = linkedMapOf("adaptivePresence" to input.adaptivePresenceIds,
+        "candidateExit" to input.candidateExitIds, "delayedExit" to input.delayedExitIds,
+        "provisionalAbsence" to input.provisionalAbsenceIds, "provisionalPresence" to input.provisionalPresenceIds,
+        "receiptTimed" to input.receiptTimedEventIds, "recoveryPresence" to input.recoveryPresenceIds,
+        "rejectedExit" to input.rejectedExitIds, "unconfirmedExit" to input.unconfirmedExitIds,
+        "unsafeRecoveryPresence" to input.unsafeRecoveryPresenceIds)
+    fun rolesOf(id: String) = engineRoles.filterValues { id in it }.keys.toList()
     fun localDay(at: Instant) = at.atZone(zone).toLocalDate()
     val includedDays = evidence.flatMap { listOfNotNull(it.event.at, it.receivedAt, it.observedLocationAt) }.map(::localDay) +
         detail.manualSessions.flatMap { listOfNotNull(it.start, it.end, it.createdAt) }.map(::localDay) +
@@ -98,13 +107,17 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
             "lastHealthyAt" to coverage?.lastHealthyAt?.toString(),
             "outageStartedAt" to coverage?.outageStartedAt?.toString(),
             "recoveryBoundaryAt" to coverage?.recoveryBoundaryAt?.toString(),
+            "lastOutageStartedAt" to coverage?.lastOutageStartedAt?.toString(),
+            "lastOutageHealthySince" to coverage?.lastOutageHealthySince?.toString(),
+            "openOutageHealthySince" to coverage?.outageHealthySince?.toString(),
             "lastObservationAt" to coverage?.lastObservationAt?.toString()),
         "observations" to evidence.map { item -> linkedMapOf<String, Any?>(
             "fact" to factAlias[item.event.id], "office" to officeAlias[item.event.officeId],
             "transition" to item.event.transition.name, "eventAt" to item.event.at.toString(),
             "receivedAt" to item.receivedAt.toString(), "observedLocationAt" to item.observedLocationAt?.toString(),
             "source" to item.source, "accuracyMeters" to item.accuracyMeters?.takeIf { it.isFinite() },
-            "context" to (item.event.at < start || item.event.at >= end)) },
+            "context" to (item.event.at < start || item.event.at >= end),
+            "engineRoles" to rolesOf(item.event.id)) },
         "manualSessions" to detail.manualSessions.map { item -> linkedMapOf<String, Any?>(
             "manual" to manualAlias[item.id], "office" to officeAlias[item.officeId],
             "start" to item.start.toString(), "end" to item.end?.toString(),
