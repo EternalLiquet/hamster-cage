@@ -40,7 +40,9 @@ data class AppSnapshot(
     val corrections: List<Correction>, val manualSessions: List<ManualSession>, val policy: Policy,
 ) {
     val events: List<RawEvent> get() = eventEvidence.map { it.event }
-    fun input(now: Instant) = AttendanceInput(offices, events, corrections, policy, now, manualSessions = manualSessions,
+    fun input(now: Instant): AttendanceInput {
+        val verification = exitVerificationState(eventEvidence, now)
+        return AttendanceInput(offices, events, corrections, policy, now, manualSessions = manualSessions,
         recoveryPresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
             it.source in setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION",
                 "ADAPTIVE_RECOVERY_CONFIRMATION") }
@@ -60,13 +62,21 @@ data class AppSnapshot(
                 other.source in setOf("ADAPTIVE_LOCATION_CONFIRMATION", "ADAPTIVE_RECOVERY_CONFIRMATION",
                     "FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION") }
             latest.event.id.takeUnless { outsideCorroboration }
-        }.toSet(),
+        }.toSet() + verification.uncertainIds,
         unsafeRecoveryPresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
             it.source == "ADAPTIVE_RECOVERY_CONFIRMATION" }.map { it.event.id }.toSet(),
         // Without a platform fix time the stored time is the delivery receipt, which
         // may be later than the observation by an unknown delay.
         receiptTimedEventIds = eventEvidence.filter { it.source == "PLAY_SERVICES_GEOFENCE" &&
-            it.observedLocationAt == null }.map { it.event.id }.toSet())
+            it.observedLocationAt == null }.map { it.event.id }.toSet(),
+        candidateExitIds = verification.candidateIds,
+        rejectedExitIds = verification.rejectedIds,
+        provisionalAbsenceIds = verification.provisionalAbsenceIds,
+        provisionalPresenceIds = verification.provisionalPresenceIds,
+        // An unresolved verification EXIT is never bridged by the bounce rule, so none of its
+        // own samples can silently restore continuity after the window expires.
+        delayedExitIds = verification.delayedIds + verification.uncertainIds)
+    }
     fun derive(now: Instant) = AttendanceEngine.derive(input(now))
 }
 
@@ -130,14 +140,7 @@ class HamsterRepository internal constructor(
         events.forEach { evidence ->
             val event = evidence.event
             validId(event.id); validId(event.officeId)
-            require(when (evidence.source) {
-                "PLAY_SERVICES_GEOFENCE" -> event.transition in setOf(Transition.ENTER, Transition.EXIT)
-                "FOREGROUND_LOCATION_RECONCILIATION" -> event.transition == Transition.PRESENCE
-                "BACKGROUND_LOCATION_RECONCILIATION" -> event.transition in setOf(Transition.PRESENCE, Transition.ABSENCE)
-                "ADAPTIVE_LOCATION_CONFIRMATION" -> event.transition in setOf(Transition.PRESENCE, Transition.ABSENCE)
-                "ADAPTIVE_RECOVERY_CONFIRMATION" -> event.transition == Transition.PRESENCE
-                else -> false
-            }) { "Observation source and type disagree." }
+            require(observationSourceAccepts(evidence.source, event.transition)) { "Observation source and type disagree." }
             require(evidence.accuracyMeters == null || evidence.accuracyMeters.isFinite() &&
                 evidence.accuracyMeters in 0f..10000f) { "Invalid fix accuracy." }
             val record = EventRecord(event.id, event.officeId, event.transition.name, event.at.persistedMillis(),

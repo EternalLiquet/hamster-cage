@@ -126,7 +126,10 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             edit?.let { action -> OutlinedButton(onClick = { action(session) }) { Text("Correct session") } }
         }
         EvidenceSection("Raw observations", detail.rawEvents) { event ->
-            val currentFix = evidenceById[event.id]?.source in setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION", "ADAPTIVE_LOCATION_CONFIRMATION", "ADAPTIVE_RECOVERY_CONFIRMATION")
+            val currentFix = evidenceById[event.id]?.source in setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION",
+                "ADAPTIVE_LOCATION_CONFIRMATION", "ADAPTIVE_RECOVERY_CONFIRMATION",
+                dev.hamstercage.data.EXIT_VERIFY_INSIDE, dev.hamstercage.data.EXIT_VERIFY_OUTSIDE,
+                dev.hamstercage.data.PRESENCE_CORROBORATION)
             Text("${when {
                 currentFix && event.transition == Transition.ABSENCE -> "Current-location outside"
                 currentFix && event.transition == Transition.PRESENCE -> "Current-location presence"

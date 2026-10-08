@@ -61,14 +61,8 @@ class GeofenceRegistrar(
             // Initial trigger zero avoids treating "already inside at registration" as
             // an observed entry. The first credited entry must be a real transition.
             sorted.forEach { office ->
-                val boundary = Geofence.Builder()
-                    .setRequestId(office.officeId)
-                    .setCircularRegion(office.latitude, office.longitude, office.radiusMeters)
-                    .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
-                    .setExpirationDuration(Geofence.NEVER_EXPIRE)
-                    .build()
                 operations.add(GeofencingRequest.Builder().setInitialTrigger(0)
-                    .addGeofence(boundary).build(), pendingIntent(generation))
+                    .addGeofence(fence(office)).build(), pendingIntent(generation))
             }
             lastApplied = sorted
             lastAppliedGeneration = generation
@@ -86,6 +80,45 @@ class GeofenceRegistrar(
             CaptureStatus(RegistrationStatus.FAILED).also { CaptureHealth.registration(it.registration) }
         }
     }
+
+    /**
+     * Whether this generation's registration token still exists in the system. The token
+     * outlives a reclaimed app process but not a force-stop, reboot, update or data clear,
+     * after which Play services has also discarded the geofences. Null if it cannot be read.
+     */
+    fun registrationTokenPresent(generation: Long): Boolean? = try {
+        val flags = PendingIntent.FLAG_NO_CREATE or
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+        PendingIntent.getBroadcast(application, 0, Intent(application, GeofenceTransitionReceiver::class.java)
+            .setPackage(application.packageName).setAction(action(generation)), flags) != null
+    } catch (_: RuntimeException) { null }
+
+    /**
+     * After a phantom EXIT is rejected the platform may still treat the device as outside and
+     * report no EXIT for a real departure. Re-adding the same request IDs with an initial
+     * ENTER trigger asks Play services to report ENTER only if the device is inside now, which
+     * restores its inside state. It reports nothing if the device is outside, and it never
+     * creates an earlier arrival: any ENTER carries its own observation time.
+     */
+    suspend fun resyncInside(offices: List<OfficeRegistrationIntent>, generation: Long): Boolean = lock.withLock {
+        require(generation >= 0)
+        if (offices.isEmpty() || lastApplied == null || lastAppliedGeneration != generation) return@withLock false
+        val active = lastApplied.orEmpty().associateBy { it.officeId }
+        val targets = offices.filter { active[it.officeId] == it }
+        if (targets.isEmpty()) return@withLock false
+        targets.forEach { office ->
+            operations.add(GeofencingRequest.Builder().setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+                .addGeofence(fence(office)).build(), pendingIntent(generation))
+        }
+        true
+    }
+
+    private fun fence(office: OfficeRegistrationIntent): Geofence = Geofence.Builder()
+        .setRequestId(office.officeId)
+        .setCircularRegion(office.latitude, office.longitude, office.radiusMeters)
+        .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
+        .setExpirationDuration(Geofence.NEVER_EXPIRE)
+        .build()
 
     private suspend fun removeCurrentAndPrevious(generation: Long) {
         // The durable cursor bounds the healthy path while retaining every

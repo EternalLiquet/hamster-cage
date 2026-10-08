@@ -56,7 +56,8 @@ class WeekdayMonitoringUiTest {
         compose.onNodeWithText("Last verified Mon 3:30 PM · weekday checks 7 AM–7 PM")
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Latest check: Inside office").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("With monitoring on", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Office exits may prompt up to five fresh checks", substring = true)
+            .performScrollTo().assertIsDisplayed()
         compose.onNode(hasText("Disable attendance monitoring") and hasClickAction()).performScrollTo().performClick()
         compose.runOnIdle { assertEquals(false, toggle) }
     }

@@ -16,10 +16,27 @@ data class CoverageLedger(
     val lastObservationAt: Instant? = null,
     val registration: RegistrationStatus = RegistrationStatus.UNKNOWN,
     val policyZoneId: ZoneId? = null,
+    /** Boot count and app update time when registration last succeeded; null if unrecorded. */
+    val registeredBootCount: Int? = null,
+    val registeredPackageUpdatedAt: Long? = null,
 ) {
-    /** A new process cannot assume an old OS registration survived a force-stop. */
-    fun processStarted(now: Instant, zone: ZoneId): CoverageLedger =
-        if (lastHealthyAt == null && outageStartedAt == null) this else outage(now, zone)
+    /** Null when either side is unknown. */
+    fun rebootedSince(current: ProcessIdentity): Boolean? =
+        registeredBootCount?.let { recorded -> current.bootCount?.let { it != recorded } }
+    fun packageReplacedSince(current: ProcessIdentity): Boolean? =
+        registeredPackageUpdatedAt?.let { recorded -> current.packageUpdatedAt?.let { it != recorded } }
+
+    /**
+     * A new process cannot assume an old OS registration survived a force-stop, reboot or data
+     * clear. Ordinary reclamation of the process leaves the registration in place, so only a
+     * lost or uninspectable registration opens an outage.
+     */
+    fun processStarted(now: Instant, zone: ZoneId,
+        continuity: ProcessContinuity = ProcessContinuity.UNKNOWN): CoverageLedger = when {
+        lastHealthyAt == null && outageStartedAt == null -> this
+        continuity == ProcessContinuity.SURVIVED -> this
+        else -> outage(now, zone)
+    }
 
     fun outage(now: Instant, zone: ZoneId): CoverageLedger {
         val current = inZone(now, zone)
@@ -56,7 +73,8 @@ data class CoverageLedger(
             registration = RegistrationStatus.FAILED, policyZoneId = zone)
     }
 
-    fun registrationSucceeded(now: Instant, zone: ZoneId, hasOffices: Boolean): CoverageLedger {
+    fun registrationSucceeded(now: Instant, zone: ZoneId, hasOffices: Boolean,
+        identity: ProcessIdentity? = null): CoverageLedger {
         if (!hasOffices) return outage(now, zone).copy(registration = RegistrationStatus.NO_OFFICES)
         val current = inZone(now, zone)
         val recovered = if (current.outageStartedAt != null) current.outage(now, zone) else current
@@ -67,7 +85,9 @@ data class CoverageLedger(
                 recovered.unknownDates + firstObservedDay else recovered.unknownDates,
             lastHealthyAt = now, outageStartedAt = null, outageRecordedThrough = null,
             recoveryBoundaryAt = if (current.outageStartedAt != null) now else current.recoveryBoundaryAt ?: now,
-            registration = RegistrationStatus.ACTIVE, policyZoneId = zone)
+            registration = RegistrationStatus.ACTIVE, policyZoneId = zone,
+            registeredBootCount = identity?.bootCount ?: registeredBootCount,
+            registeredPackageUpdatedAt = identity?.packageUpdatedAt ?: registeredPackageUpdatedAt)
     }
 
     fun observed(at: Instant): CoverageLedger {

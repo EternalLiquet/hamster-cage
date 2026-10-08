@@ -79,7 +79,8 @@ object AttendanceEngine {
                 val sessionId = "session:${enter?.event?.id ?: exit!!.event.id}"
                 val reasons = flags.toSet() +
                     (if (exit != null && (exit.ids + redundant).any { it in input.unconfirmedExitIds } &&
-                        ReviewReason.TRANSIENT_BOUNDARY !in flags)
+                        ReviewReason.TRANSIENT_BOUNDARY !in flags &&
+                        ReviewReason.UNCONFIRMED_GAP !in flags)
                         setOf(ReviewReason.UNCONFIRMED_BOUNDARY) else emptySet()) +
                     (if (enter != null && exit != null && enter.event.at == exit.event.at)
                         setOf(ReviewReason.ZERO_LENGTH_SESSION) else emptySet())
@@ -103,6 +104,25 @@ object AttendanceEngine {
                 flags.clear()
                 redundant.clear()
             }
+            fun contradictedReturn(at: Instant): Boolean {
+                val rejectedAt = usable.filter { it.officeId == officeId &&
+                    it.id in ids && it.id in input.rejectedExitIds }.minOfOrNull { it.at }
+                    ?: return false
+                return usable.any { it.officeId != officeId &&
+                    it.transition in setOf(Transition.ENTER, Transition.PRESENCE) &&
+                    it.at > rejectedAt && it.at < at }
+            }
+            fun splitAtObservedInside(observation: Observation, reason: ReviewReason) {
+                // A later inside observation anchors a new visit; it does not
+                // manufacture an EXIT at the contradictory other-office time.
+                ids.removeAll(observation.ids)
+                flags += reason
+                addSession(observation)
+                ids += observation.ids
+                open = observation
+                exitedVisit = false
+                outsideAnchor = null
+            }
             observations.groupBy { it.event.at }.values.forEach { simultaneous ->
                 // Close a preceding visit before starting another at a simultaneous boundary.
                 // Without a preceding visit, ENTER+EXIT remains a zero-length observation.
@@ -112,6 +132,12 @@ object AttendanceEngine {
                     when (it.event.transition) { Transition.PRESENCE -> 0; Transition.ENTER -> 1; Transition.EXIT, Transition.ABSENCE -> 2 }
                 }.thenBy { it.event.id })
                 ordered.forEach { observation ->
+                    if (observation.ids.any { it in input.provisionalPresenceIds }) {
+                        // An early inside sample cannot cancel an EXIT that later
+                        // receives sustained outside corroboration. Keep its raw ID.
+                        if (open != null || pendingExit != null) ids += observation.ids
+                        return@forEach
+                    }
                     val pending = pendingExit
                     if (pending != null && observation.event.transition == Transition.EXIT &&
                         !receiptTimed(pending) && Duration.between(pending.event.at, observation.event.at) <= boundaryBounceWindow &&
@@ -136,6 +162,7 @@ object AttendanceEngine {
                             it.at <= observation.event.at }
                         val adaptive = observation.ids.any { it in input.adaptivePresenceIds }
                         if (observation.event.transition in setOf(Transition.ENTER, Transition.PRESENCE) &&
+                            pending.ids.none { it in input.delayedExitIds } &&
                             observation.ids.none { it in input.recoveryPresenceIds } &&
                             !otherOfficeBetween && !otherContradiction && !elapsed.isNegative &&
                             elapsed <= if (adaptive) adaptiveConfirmationWindow else boundaryBounceWindow) {
@@ -197,6 +224,8 @@ object AttendanceEngine {
                     when (observation.event.transition) {
                         Transition.ENTER -> when {
                             open == null -> { open = observation; exitedVisit = false; outsideAnchor = null }
+                            contradictedReturn(observation.event.at) ->
+                                splitAtObservedInside(observation, ReviewReason.UNCONFIRMED_BOUNDARY)
                             // Same-office arrival observations corroborate an already open
                             // visit. The first opening timestamp remains the grace anchor.
                             else -> Unit
@@ -205,6 +234,12 @@ object AttendanceEngine {
                             if (open == null) {
                                 flags += ReviewReason.MISSING_ENTER
                                 addSession(observation)
+                            } else if (observation.ids.any { it in input.candidateExitIds || it in input.rejectedExitIds }) {
+                                // The raw boundary is retained in the open visit. A
+                                // candidate caps credit at its observed time below;
+                                // only later decisive evidence can settle it.
+                                if (observation.ids.any { it in input.candidateExitIds })
+                                    flags += ReviewReason.UNCONFIRMED_BOUNDARY
                             } else {
                                 if (Duration.between(open!!.event.at, observation.event.at) <= boundaryBounceWindow)
                                     flags += ReviewReason.TRANSIENT_BOUNDARY
@@ -214,7 +249,10 @@ object AttendanceEngine {
                         Transition.ABSENCE -> {
                             // A check proves only that the user is outside now. The exit
                             // could have happened at any time since the last inside fact.
-                            if (open != null) {
+                            if (open != null && observation.ids.any { it in input.provisionalAbsenceIds }) {
+                                // One early outside sample is insufficient to confirm
+                                // a departure; retain the fact without splitting.
+                            } else if (open != null) {
                                 flags += ReviewReason.UNCONFIRMED_GAP
                                 addSession(observation)
                             } else {
@@ -231,15 +269,14 @@ object AttendanceEngine {
                         }
                         Transition.PRESENCE -> {
                             if (open != null) {
-                                if (observation.ids.any { it in input.recoveryPresenceIds }) {
+                                if (observation.ids.any { it in input.unsafeRecoveryPresenceIds }) {
                                     // #88 appends this foreground fact only when its
                                     // recovery gate found an unsafe earlier opening.
-                                    ids.removeAll(observation.ids)
-                                    flags += ReviewReason.UNCONFIRMED_GAP
-                                    addSession(observation)
-                                    ids += observation.ids
-                                    open = observation
-                                }
+                                    splitAtObservedInside(observation, ReviewReason.UNCONFIRMED_GAP)
+                                } else if (contradictedReturn(observation.event.at))
+                                    splitAtObservedInside(observation, ReviewReason.UNCONFIRMED_BOUNDARY)
+                                else if (observation.ids.any { it in input.recoveryPresenceIds })
+                                    splitAtObservedInside(observation, ReviewReason.UNCONFIRMED_GAP)
                                 // Routine current-state checks otherwise corroborate the
                                 // opening without restarting arrival grace.
                             } else {
@@ -254,7 +291,12 @@ object AttendanceEngine {
             pendingExit?.let { addSession(it) }
             open?.let {
                 flags += ReviewReason.OPEN_SESSION
-                if (Duration.between(it.event.at, input.now) > Duration.ofHours(input.policy.maxOpenSessionHours.toLong()))
+                // A pending EXIT caps both credit and the age of observed presence.
+                // Evaluating history days later must not erase safe pre-EXIT credit.
+                val candidateAt = usable.filter { fact -> fact.id in ids &&
+                    fact.id in input.candidateExitIds }.minOfOrNull { fact -> fact.at }
+                if (Duration.between(it.event.at, candidateAt ?: input.now) >
+                    Duration.ofHours(input.policy.maxOpenSessionHours.toLong()))
                     flags += ReviewReason.STALE_OPEN_SESSION
                 addSession(null)
             }
@@ -329,14 +371,70 @@ object AttendanceEngine {
             }
         }.sortedWith(compareBy<Session> { it.start ?: it.end }.thenBy { it.id })
 
-        val credited = effective.mapNotNull { session ->
+        // A rejected false EXIT does not grant indefinite credit after a later
+        // observation at another office. That observation is not an invented EXIT
+        // for this office: retain the visit as open, cap credit, and request review.
+        val crossOfficeStops = effective.mapNotNull { session ->
+            val rejectedAt = if (session.start != null && session.correctionId == null)
+                usable.filter { it.id in session.sourceEventIds && it.id in input.rejectedExitIds }
+                    .minOfOrNull { it.at } else null
+            val conflict = rejectedAt?.let { exitAt -> usable.filter {
+                it.officeId != session.officeId && it.at > exitAt &&
+                    it.at <= (session.end ?: input.now) &&
+                    it.transition in setOf(Transition.ENTER, Transition.PRESENCE)
+            }.minWithOrNull(compareBy<RawEvent> { it.at }.thenBy { it.id }) }
+            conflict?.let { session.id to it }
+        }.toMap()
+        // The other office proves only that the user had left before it was observed. Credit
+        // therefore stops at this office's own latest inside observation before that point,
+        // never at the other office's arrival, so travel time is not credited here.
+        val crossOfficeCaps = crossOfficeStops.mapValues { (sessionId, conflict) ->
+            val session = effective.first { it.id == sessionId }
+            usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId &&
+                it.transition in setOf(Transition.ENTER, Transition.PRESENCE) && it.at <= conflict.at }
+                .maxOfOrNull { it.at } ?: session.start!!
+        }
+        val bounded = effective.map { session ->
+            val conflict = crossOfficeStops[session.id]
+            if (conflict == null) session else {
+                if (ReviewReason.UNCONFIRMED_BOUNDARY !in session.reviewReasons)
+                    reviews += ReviewItem(ReviewReason.UNCONFIRMED_BOUNDARY,
+                        session.sourceEventIds + conflict.id, session.id)
+                // Its credit is already bounded by observed evidence, so viewing it later must not
+                // mark it stale and erase that credit.
+                val withinLimit = Duration.between(session.start, crossOfficeCaps.getValue(session.id)) <=
+                    Duration.ofHours(input.policy.maxOpenSessionHours.toLong())
+                if (withinLimit) reviews.removeAll { it.sessionId == session.id && it.reason == ReviewReason.STALE_OPEN_SESSION }
+                session.copy(confidence = Confidence.LOW,
+                    reviewReasons = session.reviewReasons + ReviewReason.UNCONFIRMED_BOUNDARY -
+                        if (withinLimit) setOf(ReviewReason.STALE_OPEN_SESSION) else emptySet())
+            }
+        }
+
+        val credited = bounded.mapNotNull { session ->
             val office = offices.getValue(session.officeId)
             val start = session.start
+            // A visit closed by an outside check has an unknown departure time. Its credit may
+            // run only to the latest same-office inside observation within it; the span from
+            // there to the check stays uncredited and under UNCONFIRMED_GAP review. Visits
+            // split by an outage recovery, or closed by an EXIT after one, earn nothing.
+            val lastInsideBeforeOutsideCheck = if (session.correctionId == null && session.end != null &&
+                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons &&
+                usable.any { it.id in session.sourceEventIds && it.transition == Transition.ABSENCE && it.at == session.end })
+                usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId &&
+                    it.transition in setOf(Transition.ENTER, Transition.PRESENCE) && it.at < session.end }
+                    .maxOfOrNull { it.at } ?: start
+            else null
             if (start == null || !office.enabled || !office.countsTowardAttendance ||
                 ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons ||
-                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons || ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons) null
+                (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons && lastInsideBeforeOutsideCheck == null) ||
+                ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons) null
             else {
-                val end = minOf(session.end ?: input.now, input.now)
+                val candidateAt = if (session.correctionId == null) usable.filter {
+                    it.id in session.sourceEventIds && it.id in input.candidateExitIds
+                }.minOfOrNull { it.at } else null
+                val end = minOf(session.end ?: input.now, input.now, candidateAt ?: input.now,
+                    crossOfficeCaps[session.id] ?: input.now, lastInsideBeforeOutsideCheck ?: input.now)
                 val creditStart = start.plusSeconds(office.entryGraceMinutes * 60L)
                 if (end <= creditStart) null else CreditedInterval(creditStart, end, setOf(session.id))
             }
@@ -344,7 +442,7 @@ object AttendanceEngine {
         // Reconcile only the observed gap between visits at the same office. The next
         // visit's arrival window remains uncredited even when that gap is short.
         val creditBySession = credited.associateBy { it.sessionIds.single() }
-        val reconciled = effective.groupBy { it.officeId }.values.flatMap { officeSessions ->
+        val reconciled = bounded.groupBy { it.officeId }.values.flatMap { officeSessions ->
                 val officeIntervals = officeSessions.mapNotNull { creditBySession[it.id] }
                 // Include visits that earned no credit in adjacency. Reconcile only
                 // between two positive-credit visits; a brief uncredited visit blocks
@@ -368,7 +466,7 @@ object AttendanceEngine {
                 }
                 union(officeIntervals + gapCredits)
             }
-        return AttendanceResult(effective, union(reconciled), reviews.distinct().sortedWith(
+        return AttendanceResult(bounded, union(reconciled), reviews.distinct().sortedWith(
             compareBy<ReviewItem> { it.sessionId ?: "" }.thenBy { it.reason.name }.thenBy { it.sourceEventIds.sorted().joinToString() }))
     }
 

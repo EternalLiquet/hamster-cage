@@ -23,11 +23,14 @@ data class DashboardPresence(val label: String, val needsReview: Boolean, val se
 fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, trackingReady: Boolean): DashboardPresence {
     val eligibleIds = input.offices.filter { it.enabled && it.countsTowardAttendance }.map { it.id }.toSet()
     val open = result.sessions.filter { it.isOpen && it.officeId in eligibleIds }
+    val candidateOpen = open.size == 1 && open.single().sourceEventIds.any { it in input.candidateExitIds }
     val review = result.reviews.any { it.reason != ReviewReason.OPEN_SESSION && it.reason !in ADVISORY_REVIEW_REASONS } || open.size > 1
     // An old interval closed for review by a fresh presence observation does not
     // make the newly observed current office ambiguous. Keep its review notice.
     val liveReview = result.reviews.any { it.reason !in setOf(ReviewReason.OPEN_SESSION,
-        ReviewReason.UNCONFIRMED_GAP) + ADVISORY_REVIEW_REASONS } || open.size > 1
+        ReviewReason.UNCONFIRMED_GAP) + ADVISORY_REVIEW_REASONS &&
+        !(candidateOpen && it.sessionId == open.single().id &&
+            it.reason == ReviewReason.UNCONFIRMED_BOUNDARY) } || open.size > 1
     val safeLiveProjection = open.size == 1 && AttendanceEngine.departure(input, result,
         TargetWindow.TODAY).status in setOf(DepartureStatus.ESTIMATED, DepartureStatus.TARGET_SATISFIED)
     val today = input.now.atZone(input.policy.zoneId).toLocalDate()
@@ -35,6 +38,7 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
     val label = when {
         !trackingReady -> "Office state unknown"
         liveReview && !safeLiveProjection -> "Needs review"
+        candidateOpen -> "Office exit awaiting confirmation"
         open.size == 1 -> if (open.single().manualSessionId != null) "Manual session active" else
             "In ${dashboardOfficeName(input.offices.single { it.id == open.single().officeId }.name)}"
         latest?.transition in setOf(Transition.EXIT, Transition.ABSENCE) &&

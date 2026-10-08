@@ -11,6 +11,8 @@ import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.StorageState
+import dev.hamstercage.data.PRESENCE_CORROBORATION
+import dev.hamstercage.data.needsPresenceCorroboration
 import dev.hamstercage.domain.Transition
 import dev.hamstercage.domain.RawEvent
 import dev.hamstercage.location.LocationPermissions
@@ -95,10 +97,16 @@ internal fun reconciliationFacts(snapshot: AppSnapshot, coverage: CoverageLedger
     val absent = (open.map { it.officeId } + unresolvedExits).filter { it != officeId }.distinct()
     val facts = absent.map { id -> RecordedEvent(RawEvent(HamsterRepository.newId(), id,
         Transition.ABSENCE, fixAt), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters) }.toMutableList()
-    if (officeId != null && canOpenFromObservation(snapshot, officeId, coverage, fixAt, now) !=
-        ReconcileOutcome.ALREADY_PRESENT) {
-        facts += RecordedEvent(RawEvent(HamsterRepository.newId(), officeId,
-            Transition.PRESENCE, fixAt), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters)
+    if (officeId != null) {
+        if (canOpenFromObservation(snapshot, officeId, coverage, fixAt, now) != ReconcileOutcome.ALREADY_PRESENT) {
+            facts += RecordedEvent(RawEvent(HamsterRepository.newId(), officeId,
+                Transition.PRESENCE, fixAt), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters)
+        } else if (needsPresenceCorroboration(snapshot, now, officeId)) {
+            // The platform may not report a real departure after a rejected EXIT, so this
+            // routine inside check is the evidence that bounds the visit's credit.
+            facts += RecordedEvent(RawEvent(HamsterRepository.newId(), officeId,
+                Transition.PRESENCE, fixAt), now, fixAt, PRESENCE_CORROBORATION, accuracyMeters)
+        }
     }
     return facts
 }
