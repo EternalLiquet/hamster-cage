@@ -199,4 +199,28 @@ class AdaptiveConfirmationTest {
         assertEquals(at.plusSeconds(60), result.sessions.single { it.id == "session:fix-2" }.start)
         assertEquals(0.0, result.intervals.filter { "session:b-old" in it.sessionIds }.sumOf { it.minutes }, 0.0)
     }
+
+    @Test fun delayedExitInsideFixIsNotARecoverySplitWhileCoverageIsHealthy() {
+        val office = Office("a", "A", 0.0, 0.0)
+        val enter = event("enter", "a", Transition.ENTER, -7200)
+        // Delivered three minutes after its observation, within documented platform latency.
+        val exit = RecordedEvent(RawEvent("exit", "a", Transition.EXIT, at), at.plusSeconds(180))
+        val snapshot = AppSnapshot(listOf(office), listOf(enter, exit), emptyList(), emptyList(), Policy())
+        val zone = java.time.ZoneId.of("America/New_York")
+        val healthy = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+        var next = 0
+        val facts = exitVerificationFactsFor(snapshot, healthy, listOf(exit), "exit", "a",
+            at.plusSeconds(240), at.plusSeconds(245), 12f) { "fix-${++next}" }
+        assertEquals(listOf(EXIT_VERIFY_INSIDE), facts.map { it.source })
+        val derived = snapshot.copy(eventEvidence = snapshot.eventEvidence + facts).derive(at.plusSeconds(900))
+        // The observed ENTER-to-EXIT visit keeps its credit (115 minutes after arrival grace).
+        assertEquals(enter.event.at.plusSeconds(300), derived.intervals.first().start)
+        assertTrue(derived.intervals.first().end >= exit.event.at)
+        // A genuine outage after the visit opened still makes the same fix an unsafe recovery.
+        val outage = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+            .outage(at.minusSeconds(3600), zone).registrationSucceeded(at.minusSeconds(3000), zone, true)
+        val recovered = exitVerificationFactsFor(snapshot, outage, listOf(exit), "exit", "a",
+            at.plusSeconds(240), at.plusSeconds(245), 12f) { "fix-${++next}" }
+        assertEquals(listOf("ADAPTIVE_RECOVERY_CONFIRMATION"), recovered.map { it.source })
+    }
 }

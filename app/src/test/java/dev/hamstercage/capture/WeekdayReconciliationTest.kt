@@ -232,4 +232,29 @@ class WeekdayReconciliationTest {
         assertTrue(result.intervals.none { "session:old-a" in it.sessionIds })
         assertTrue(result.reviews.none { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
     }
+
+    @Test fun rejectedExitVisitRecordsCorroboratingInsideChecksOnly() {
+        val start = time("2026-09-28T13:00:00Z")
+        val enter = RecordedEvent(RawEvent("enter", office.id, Transition.ENTER, start), start)
+        val exit = RecordedEvent(RawEvent("exit", office.id, Transition.EXIT, start.plusSeconds(7200)),
+            start.plusSeconds(7200))
+        val samples = (1L..5L).map { minute -> val at = exit.event.at.plusSeconds(minute * 60)
+            RecordedEvent(RawEvent("inside-$minute", office.id, Transition.PRESENCE, at), at, at,
+                dev.hamstercage.data.EXIT_VERIFY_INSIDE, 12f) }
+        val fixAt = exit.event.at.plusSeconds(1800)
+        val healthy = CoverageLedger().registrationSucceeded(start.minusSeconds(60), zone, true)
+            .observed(samples.last().event.at)
+        val rejected = snapshotEvidence(enter, exit, *samples.toTypedArray())
+        val facts = reconciliationFacts(rejected, healthy, fixAt, fixAt, office.id, 12f)
+        assertEquals(listOf(dev.hamstercage.data.PRESENCE_CORROBORATION), facts.map { it.source })
+        assertEquals(listOf(Transition.PRESENCE), facts.map { it.event.transition })
+        // The corroborating check continues the same visit without restarting arrival grace.
+        val updated = rejected.copy(eventEvidence = rejected.eventEvidence + facts).derive(fixAt)
+        assertEquals(1, updated.sessions.size)
+        assertEquals(start, updated.sessions.single().start)
+        // An ordinary already-present visit still records nothing.
+        val ordinary = snapshotEvidence(enter)
+        assertTrue(reconciliationFacts(ordinary, CoverageLedger().registrationSucceeded(start.minusSeconds(60), zone, true)
+            .observed(start), fixAt, fixAt, office.id, 12f).isEmpty())
+    }
 }

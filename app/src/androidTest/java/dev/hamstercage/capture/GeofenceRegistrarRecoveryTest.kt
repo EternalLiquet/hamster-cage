@@ -8,6 +8,7 @@ import com.google.android.gms.location.GeofencingRequest
 import dev.hamstercage.offices.OfficeRegistrationIntent
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -84,6 +85,49 @@ class GeofenceRegistrarRecoveryTest {
         assertEquals(setOf("a", "b"), operations.registered)
     }
 
+    @Test fun rejectedExitResyncReaddsOnlyThatOfficeWithInitialEnter() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        grantLocation()
+        val operations = RecordingFences()
+        val registrar = GeofenceRegistrar(context, operations = operations)
+        val a = office("a", 150f)
+        val b = office("b", 150f)
+        assertEquals(RegistrationStatus.ACTIVE, registrar.synchronize(listOf(a, b), true).registration)
+        assertEquals(listOf(0, 0), operations.initialTriggers)
+
+        assertTrue(registrar.resyncInside(listOf(a), 0L))
+        // Same request ID and PendingIntent replace the fence; only the initial trigger differs.
+        assertEquals(listOf(0, 0, GeofencingRequest.INITIAL_TRIGGER_ENTER), operations.initialTriggers)
+        assertEquals(listOf("a"), operations.lastAddIds)
+        assertEquals(setOf("a", "b"), operations.registered)
+
+        // An office outside the applied set, a stale edit or another generation is never re-added.
+        assertFalse(registrar.resyncInside(listOf(office("c", 150f)), 0L))
+        assertFalse(registrar.resyncInside(listOf(a.copy(radiusMeters = 300f)), 0L))
+        assertFalse(registrar.resyncInside(listOf(a), 1L))
+        assertEquals(3, operations.adds)
+    }
+
+    @Test fun registrationTokenIsVisibleOnlyAfterItWasCreated() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        grantLocation()
+        val unusedGeneration = 9_000L + (System.nanoTime() % 1_000L)
+        // Earlier generations are treated as retired so no real reset journal is touched.
+        val retired = object : FenceRetirementLedger {
+            override suspend fun retiredThrough() = unusedGeneration - 1
+            override suspend fun markRetiredThrough(generation: Long) = Unit
+        }
+        val registrar = GeofenceRegistrar(context, operations = RecordingFences(), retirement = retired)
+        assertEquals(false, registrar.registrationTokenPresent(unusedGeneration))
+        assertEquals(RegistrationStatus.ACTIVE,
+            registrar.synchronize(listOf(office("a", 150f)), true, generation = unusedGeneration).registration)
+        // A reclaimed process keeps this system token; a force-stop or reboot removes it.
+        assertEquals(true, GeofenceRegistrar(context, operations = RecordingFences(), retirement = retired)
+            .registrationTokenPresent(unusedGeneration))
+        registrar.pendingIntent(unusedGeneration).cancel()
+        assertEquals(false, registrar.registrationTokenPresent(unusedGeneration))
+    }
+
     private fun grantLocation() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val packageName = instrumentation.targetContext.packageName
@@ -99,6 +143,8 @@ class GeofenceRegistrarRecoveryTest {
         var failRemoval = false
         var failAddNumber: Int? = null
         var adds = 0
+        val initialTriggers = mutableListOf<Int>()
+        var lastAddIds = emptyList<String>()
         val registered = mutableSetOf<String>()
         val radiusByOffice = mutableMapOf<String, Float>()
 
@@ -111,6 +157,8 @@ class GeofenceRegistrarRecoveryTest {
         override suspend fun add(request: GeofencingRequest, intent: PendingIntent) {
             adds++
             if (adds == failAddNumber) error("synthetic partial-add failure")
+            initialTriggers += request.initialTrigger
+            lastAddIds = request.geofences.map { it.requestId }
             request.geofences.forEach { fence ->
                 registered += fence.requestId
                 radiusByOffice[fence.requestId] = fence.radius
