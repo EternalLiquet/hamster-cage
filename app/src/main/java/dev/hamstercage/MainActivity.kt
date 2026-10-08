@@ -3,7 +3,6 @@ package dev.hamstercage
 import android.graphics.Color
 import android.Manifest
 import android.content.ActivityNotFoundException
-import android.content.ClipData
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -40,6 +39,8 @@ import dev.hamstercage.privacy.PrivacyResetStore
 import dev.hamstercage.privacy.PrivacyStorageState
 import dev.hamstercage.privacy.privacyVisibleStorage
 import dev.hamstercage.ui.HamsterApp
+import dev.hamstercage.ui.DayShareFiles
+import dev.hamstercage.ui.dayShareIntent
 import dev.hamstercage.ui.OfficeActions
 import dev.hamstercage.ui.CorrectionActions
 import dev.hamstercage.ui.CalendarActions
@@ -69,7 +70,7 @@ class MainActivity : ComponentActivity() {
         val officeLocations = OfficeLocationServices(this)
         val foregroundReconciliation = ForegroundReconciliation(this, officeLocations)
         val privacy = PrivacyController.get(this)
-        clearOldDayDiagnostics()
+        DayShareFiles.clearExpired(cacheDir)
         CaptureController.get(this)
         setContent {
             val visible = remember(repository, privacy) {
@@ -156,37 +157,19 @@ class MainActivity : ComponentActivity() {
         catch (_: ActivityNotFoundException) { setupError = "System settings could not be opened. Use your device's Settings app to review location permissions." }
     }
 
-    private fun clearOldDayDiagnostics() {
-        val directory = File(cacheDir, "day-diagnostics")
-        directory.listFiles()?.filter { it.isFile && System.currentTimeMillis() - it.lastModified() > 60 * 60 * 1000L }
-            ?.forEach { it.delete() }
-    }
-
     private fun shareDayDiagnostics(json: String, date: LocalDate) {
         shareError = null
-        if (json.toByteArray(Charsets.UTF_8).size > 2_000_000) {
-            shareError = "This day has too much data to share safely. No file was made."
-            return
-        }
         var file: File? = null
         try {
-            val directory = File(cacheDir, "day-diagnostics")
-            check(directory.isDirectory || directory.mkdirs())
-            val created = File.createTempFile("hamster-day-$date-", ".json", directory)
+            val created = DayShareFiles.create(cacheDir, date, json)
             file = created
-            created.writeText(json, Charsets.UTF_8)
             val uri = FileProvider.getUriForFile(this, "$packageName.daydiagnostics", created)
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "application/json"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                clipData = ClipData.newUri(contentResolver, "Hamster Cage day data", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
+            val send = dayShareIntent(this, uri)
             startActivity(Intent.createChooser(send, "Share day data"))
             Handler(Looper.getMainLooper()).postDelayed({ created.delete() }, 60 * 60 * 1000L)
         } catch (_: Exception) {
             file?.delete()
-            shareError = "Couldn't open sharing. No data was sent."
+            shareError = "Couldn't share this day, or the file was too large. No data was sent."
         }
     }
 }

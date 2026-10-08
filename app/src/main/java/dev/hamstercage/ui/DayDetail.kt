@@ -42,7 +42,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             sharePreview?.let { prepared ->
                 AlertDialog(onDismissRequest = { sharePreview = null },
                     title = { Text("Share $date?") },
-                    text = { Text("${prepared.observationCount} observations, ${prepared.contextCount} nearby or linked context. Includes ${prepared.firstIncludedDay} through ${prepared.lastIncludedDay}, times, office settings and capture status. Office names, coordinates and notes are left out. Choose where to send it next.") },
+                    text = { Text("${prepared.observationCount} observations, ${prepared.contextCount} nearby or linked context. Evidence dates span ${prepared.firstIncludedDay} through ${prepared.lastIncludedDay}; includes observation and edit times, manual intervals, office settings and capture status. Office names, coordinates and notes are left out. Choose where to send it next.") },
                     confirmButton = { TextButton(onClick = { sharePreview = null; shareDay(prepared) }) { Text("Choose app") } },
                     dismissButton = { TextButton(onClick = { sharePreview = null }) { Text("Cancel") } })
             }

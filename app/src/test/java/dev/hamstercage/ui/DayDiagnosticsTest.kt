@@ -56,4 +56,49 @@ class DayDiagnosticsTest {
         assertTrue(report.json.contains("\"entryGraceMinutes\":5"))
         assertTrue(report.json.contains("\"schemaVersion\":1"))
     }
+
+    @Test fun missingCorrectionTargetsAndNoteOnlyConflictsRemainDistinguishable() {
+        val start = Instant.parse("2025-03-09T16:00:00Z")
+        val end = Instant.parse("2025-03-09T17:00:00Z")
+        val data = snapshot().copy(
+            corrections = listOf(
+                Correction("same-edit", "session:absent-a", start, end, now, "secret one"),
+                Correction("same-edit", "session:absent-a", start, end, now, "secret two"),
+                Correction("other-edit", "session:absent-b", start, end, now, "secret one")))
+        val json = dayDiagnostics(data, day, now, null, CaptureStatus(), "test").json
+        assertTrue(json.contains("\"redactedNoteVariant\":1"))
+        assertTrue(json.contains("\"redactedNoteVariant\":2"))
+        assertEquals(2, "\"target\":\"target-1\"".toRegex().findAll(json).count())
+        assertEquals(1, "\"target\":\"target-2\"".toRegex().findAll(json).count())
+        listOf("absent-a", "absent-b", "same-edit", "other-edit", "secret one", "secret two")
+            .forEach { assertFalse(json.contains(it)) }
+    }
+
+    @Test fun nextDayCrossOfficePresenceCanExplainLateExit() {
+        val other = Office("other-private-id", "Other private place", 40.0, -83.0)
+        val data = snapshot(
+            evidence("arrive", Transition.ENTER, "2025-03-09T20:00:00Z"),
+            evidence("exit", Transition.EXIT, "2025-03-10T03:50:00Z"))
+            .copy(offices = listOf(office, other), eventEvidence = listOf(
+                evidence("arrive", Transition.ENTER, "2025-03-09T20:00:00Z"),
+                evidence("exit", Transition.EXIT, "2025-03-10T03:50:00Z"),
+                RecordedEvent(RawEvent("later-private-id", other.id, Transition.PRESENCE,
+                    Instant.parse("2025-03-10T04:05:00Z")), Instant.parse("2025-03-10T04:05:10Z"),
+                    Instant.parse("2025-03-10T04:05:00Z"), "FOREGROUND_LOCATION_RECONCILIATION")))
+        val report = dayDiagnostics(data, day, now, null, CaptureStatus(), "test")
+        assertEquals(day.plusDays(1), report.lastIncludedDay)
+        assertTrue(report.json.contains("2025-03-10T04:05:00Z"))
+        assertFalse(report.json.contains("later-private-id"))
+        assertFalse(report.json.contains("Other private place"))
+    }
+
+    @Test fun previewSpanIncludesManualAndEditTimesOutsideSelectedDay() {
+        val data = snapshot().copy(manualSessions = listOf(ManualSession("manual", office.id,
+            Instant.parse("2025-03-09T04:00:00Z"), Instant.parse("2025-03-09T06:00:00Z"),
+            Instant.parse("2025-03-10T12:00:00Z"))))
+        val report = dayDiagnostics(data, day, now, null, CaptureStatus(), "test")
+        assertEquals(day.minusDays(1), report.firstIncludedDay)
+        assertEquals(day.plusDays(1), report.lastIncludedDay)
+        assertEquals(0, report.observationCount)
+    }
 }

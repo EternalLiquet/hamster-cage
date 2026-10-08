@@ -4,11 +4,12 @@ import dev.hamstercage.capture.CaptureStatus
 import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.domain.AttendanceEngine
+import dev.hamstercage.domain.Transition
 import java.time.Instant
 import java.time.LocalDate
 
 /** A read-only, redacted copy of source facts for one policy-local day. Never persist this in Room. */
-internal data class DayDiagnostics(val json: String, val observationCount: Int, val contextCount: Int,
+data class DayDiagnostics(val json: String, val observationCount: Int, val contextCount: Int,
     val firstIncludedDay: LocalDate, val lastIncludedDay: LocalDate)
 
 internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant,
@@ -20,13 +21,20 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
     val start = date.atStartOfDay(zone).toInstant()
     val end = date.plusDays(1).atStartOfDay(zone).toInstant()
     val previousDay = date.minusDays(1).atStartOfDay(zone).toInstant()
+    val nextDayEnd = date.plusDays(2).atStartOfDay(zone).toInstant()
     val relatedOfficeIds = detail.rawEvents.map { it.officeId }.toSet() +
         detail.manualSessions.map { it.officeId } + detail.sessions.map { it.officeId }
     val previous = snapshot.eventEvidence.filter { it.event.officeId in relatedOfficeIds &&
         it.event.at >= previousDay && it.event.at < start }
         .groupBy { it.event.officeId }.values.mapNotNull { candidates -> candidates.maxWithOrNull(
             compareBy<dev.hamstercage.data.RecordedEvent> { it.event.at }.thenBy { it.event.id }) }
-    val includedFacts = detail.rawEvents.toSet() + previous.map { it.event }
+    // A post-midnight presence at another office can corroborate a late EXIT on the chosen day.
+    val next = if (detail.rawEvents.none { it.transition == Transition.EXIT }) emptyList() else
+        snapshot.eventEvidence.filter { it.event.at >= end && it.event.at < nextDayEnd &&
+            it.event.transition == Transition.PRESENCE }
+            .groupBy { it.event.officeId }.values.mapNotNull { candidates -> candidates.minWithOrNull(
+                compareBy<dev.hamstercage.data.RecordedEvent> { it.event.at }.thenBy { it.event.id }) }
+    val includedFacts = detail.rawEvents.toSet() + previous.map { it.event } + next.map { it.event }
     val evidence = snapshot.eventEvidence.filter { it.event in includedFacts }
         .sortedWith(compareBy<dev.hamstercage.data.RecordedEvent> { it.event.at }.thenBy { it.event.id })
     val officeIds = (evidence.map { it.event.officeId } + detail.manualSessions.map { it.officeId } +
@@ -36,13 +44,21 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
     val factAlias = factIds.mapIndexed { index, id -> id to "fact-${index + 1}" }.toMap()
     val sessionIds = detail.sessions.map { it.id }.distinct().sorted()
     val sessionAlias = sessionIds.mapIndexed { index, id -> id to "session-${index + 1}" }.toMap()
-    fun sessionRef(id: String): String? = sessionAlias[id] ?: factAlias[id.removePrefix("session:")]
-        ?.let { "session-for-$it" }
+    val targetIds = detail.corrections.map { it.sessionId }.distinct().sorted()
+    val targetAlias = targetIds.mapIndexed { index, id -> id to "target-${index + 1}" }.toMap()
     val editIds = detail.corrections.map { it.id }.distinct().sorted()
     val editAlias = editIds.mapIndexed { index, id -> id to "edit-${index + 1}" }.toMap()
     val manualIds = detail.manualSessions.map { it.id }.distinct().sorted()
     val manualAlias = manualIds.mapIndexed { index, id -> id to "manual-${index + 1}" }.toMap()
-    val includedDays = evidence.map { it.event.at.atZone(zone).toLocalDate() } + date
+    val manualNoteVariants = detail.manualSessions.groupBy { it.id }.mapValues { (_, items) ->
+        items.map { it.note }.distinct() }
+    val correctionNoteVariants = detail.corrections.groupBy { it.id }.mapValues { (_, items) ->
+        items.map { it.note }.distinct() }
+    fun localDay(at: Instant) = at.atZone(zone).toLocalDate()
+    val includedDays = evidence.flatMap { listOfNotNull(it.event.at, it.receivedAt, it.observedLocationAt) }.map(::localDay) +
+        detail.manualSessions.flatMap { listOfNotNull(it.start, it.end, it.createdAt) }.map(::localDay) +
+        detail.corrections.flatMap { listOfNotNull(it.start, it.end, it.createdAt) }.map(::localDay) +
+        detail.sessions.flatMap { listOfNotNull(it.start, it.end) }.map(::localDay) + date
     val policy = input.policy
     val payload = linkedMapOf<String, Any?>(
         "schemaVersion" to 1,
@@ -52,7 +68,7 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "policyZone" to zone.id,
         "windowStartInclusive" to start.toString(),
         "windowEndExclusive" to end.toString(),
-        "contextRule" to "Selected day, linked session boundary facts, and at most one preceding fact per related office from the previous local day",
+        "contextRule" to "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day, and at most one next-day presence per office if the day has an EXIT",
         "evaluatedAt" to now.toString(),
         "offices" to officeIds.map { id -> snapshot.offices.find { it.id == id }?.let { office ->
             linkedMapOf<String, Any?>("alias" to officeAlias[id], "radiusMeters" to office.radiusMeters,
@@ -82,15 +98,18 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "manualSessions" to detail.manualSessions.map { item -> linkedMapOf<String, Any?>(
             "manual" to manualAlias[item.id], "office" to officeAlias[item.officeId],
             "start" to item.start.toString(), "end" to item.end?.toString(),
-            "createdAt" to item.createdAt.toString()) },
+            "createdAt" to item.createdAt.toString(),
+            "redactedNoteVariant" to (manualNoteVariants[item.id]!!.indexOf(item.note) + 1)) },
         "corrections" to detail.corrections.map { item -> linkedMapOf<String, Any?>(
-            "edit" to editAlias[item.id], "session" to sessionRef(item.sessionId),
+            "edit" to editAlias[item.id], "target" to targetAlias[item.sessionId],
             "start" to item.start.toString(), "end" to item.end?.toString(),
             "createdAt" to item.createdAt.toString(), "revertToOriginal" to item.revertToOriginal,
-            "appendSequence" to item.appendSequence) },
+            "appendSequence" to item.appendSequence,
+            "redactedNoteVariant" to (correctionNoteVariants[item.id]!!.indexOf(item.note) + 1)) },
         "sessions" to detail.sessions.map { item -> linkedMapOf<String, Any?>(
             "session" to sessionAlias[item.id], "office" to officeAlias[item.officeId],
             "start" to item.start?.toString(), "end" to item.end?.toString(),
+            "correctionTargets" to item.correctionTargetIds.mapNotNull { targetAlias[it] }.sorted(),
             "facts" to item.sourceEventIds.mapNotNull { factAlias[it] }.sorted(),
             "redundantFacts" to item.redundantEventIds.mapNotNull { factAlias[it] }.sorted(),
             "confidence" to item.confidence.name, "reviewReasons" to item.reviewReasons.map { it.name }.sorted()) },
