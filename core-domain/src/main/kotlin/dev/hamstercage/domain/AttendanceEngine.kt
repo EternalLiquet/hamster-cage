@@ -44,6 +44,14 @@ object AttendanceEngine {
             var exitedVisit = false
             var geofenceExitNeedsConfirmation = false
             var lastExitAt: Instant? = null
+            // Latest same-office outside observation (EXIT or ABSENCE) with no inside
+            // observation after it. Observation time is used, never delivery time.
+            var lastOutsideAt: Instant? = null
+            // An unobserved return between lastOutsideAt and a later EXIT could earn
+            // credit only if it outlasted both the arrival grace and the transient
+            // window. Inside this bound a missed return cannot hide credited time.
+            val redundantExitWindow = maxOf(Duration.ofMinutes(offices.getValue(officeId).entryGraceMinutes.toLong()),
+                boundaryBounceWindow)
             val ids = linkedSetOf<String>()
             val flags = linkedSetOf<ReviewReason>()
             fun addSession(exit: Observation?) {
@@ -67,6 +75,7 @@ object AttendanceEngine {
                 exitedVisit = enter != null && exit != null
                 geofenceExitNeedsConfirmation = exitedVisit && exit?.event?.transition == Transition.EXIT
                 lastExitAt = if (exitedVisit) exit?.event?.at else null
+                lastOutsideAt = exit?.event?.at
                 open = null
                 ids.clear()
                 flags.clear()
@@ -107,7 +116,9 @@ object AttendanceEngine {
                             flags += ReviewReason.UNCONFIRMED_GAP
                         addSession(pending)
                     }
-                    if (observation.event.transition == Transition.EXIT && open == null && exitedVisit) {
+                    val outsideSince = lastOutsideAt
+                    if (observation.event.transition == Transition.EXIT && open == null && exitedVisit &&
+                        outsideSince != null && Duration.between(outsideSince, observation.event.at) <= redundantExitWindow) {
                         // Keep the raw fact and its correction alias attached to the
                         // preceding visit without adding an orphan boundary. The
                         // repository may mark only the latest EXIT unconfirmed, so
@@ -132,13 +143,14 @@ object AttendanceEngine {
                             reviewReasons = reasons)
                         if (unconfirmed && ReviewReason.UNCONFIRMED_BOUNDARY !in session.reviewReasons)
                             reviews += ReviewItem(ReviewReason.UNCONFIRMED_BOUNDARY, sources, session.id)
+                        lastOutsideAt = observation.event.at
                         return@forEach
                     }
                     ids += observation.ids
                     if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
                     when (observation.event.transition) {
                         Transition.ENTER -> when {
-                            open == null -> { open = observation; exitedVisit = false }
+                            open == null -> { open = observation; exitedVisit = false; lastOutsideAt = null }
                             // Same-office arrival observations corroborate an already open
                             // visit. The first opening timestamp remains the grace anchor.
                             else -> Unit
@@ -163,6 +175,7 @@ object AttendanceEngine {
                                 // A fresh outside fix settles an earlier geofence
                                 // departure even if more redundant EXITs arrive.
                                 geofenceExitNeedsConfirmation = false
+                                lastOutsideAt = observation.event.at
                                 ids.clear()
                             }
                         }
@@ -182,6 +195,7 @@ object AttendanceEngine {
                             } else {
                                 open = observation
                                 exitedVisit = false
+                                lastOutsideAt = null
                             }
                         }
                     }
