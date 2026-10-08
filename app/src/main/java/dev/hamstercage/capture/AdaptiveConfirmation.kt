@@ -202,8 +202,14 @@ internal fun requiresAdaptiveRecoverySplit(snapshot: AppSnapshot, coverage: Cove
         ?: sessions.firstOrNull { it.isOpen } ?: return false
     val start = old.start ?: return false
     val boundary = coverage.recoveryBoundaryAt ?: return true
-    return start < boundary || snapshot.events.any { it.officeId != officeId &&
-        it.at >= start && it.at <= now }
+    // A visit whose EXIT was observed no later than the start of the recovered outage was
+    // observed entirely under healthy capture: the outage cannot have hidden its departure.
+    val observedEnd = old.end ?: snapshot.events.firstOrNull { it.id == candidateId &&
+        it.transition == Transition.EXIT && it.id in old.sourceEventIds }?.at
+    val healthyThrough = coverage.lastOutageStartedAt
+    val evidenceUntil = if (observedEnd != null && healthyThrough != null && observedEnd <= healthyThrough) observedEnd else now
+    return (start < boundary && evidenceUntil == now) || snapshot.events.any { it.officeId != officeId &&
+        it.at >= start && it.at <= evidenceUntil }
 }
 
 /** WorkManager may start later under Doze; a late fix only establishes state at its own time. */

@@ -19,6 +19,8 @@ data class CoverageLedger(
     /** Boot count and app update time when registration last succeeded; null if unrecorded. */
     val registeredBootCount: Int? = null,
     val registeredPackageUpdatedAt: Long? = null,
+    /** Start of the most recently recovered outage: capture was healthy until this instant. */
+    val lastOutageStartedAt: Instant? = null,
 ) {
     /** Null when either side is unknown. */
     fun rebootedSince(current: ProcessIdentity): Boolean? =
@@ -86,6 +88,7 @@ data class CoverageLedger(
             lastHealthyAt = now, outageStartedAt = null, outageRecordedThrough = null,
             recoveryBoundaryAt = if (current.outageStartedAt != null) now else current.recoveryBoundaryAt ?: now,
             registration = RegistrationStatus.ACTIVE, policyZoneId = zone,
+            lastOutageStartedAt = current.outageStartedAt ?: current.lastOutageStartedAt,
             registeredBootCount = identity?.bootCount ?: registeredBootCount,
             registeredPackageUpdatedAt = identity?.packageUpdatedAt ?: registeredPackageUpdatedAt)
     }
