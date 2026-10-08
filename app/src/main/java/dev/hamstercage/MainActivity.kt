@@ -3,13 +3,18 @@ package dev.hamstercage
 import android.graphics.Color
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,10 +48,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
     private var setupError by mutableStateOf<String?>(null)
+    private var shareError by mutableStateOf<String?>(null)
     private var fullResetRequested by mutableStateOf(false)
     private val foregroundRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshLocationSetup() }
     private val backgroundRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshLocationSetup() }
@@ -61,6 +69,7 @@ class MainActivity : ComponentActivity() {
         val officeLocations = OfficeLocationServices(this)
         val foregroundReconciliation = ForegroundReconciliation(this, officeLocations)
         val privacy = PrivacyController.get(this)
+        clearOldDayDiagnostics()
         CaptureController.get(this)
         setContent {
             val visible = remember(repository, privacy) {
@@ -113,7 +122,10 @@ class MainActivity : ComponentActivity() {
                     { date, enabled -> historyWrite { repository.setWfh(date, enabled) } }),
                 privacyActions = PrivacyActions(privacy::deleteHistory, privacy::recoverPending, {
                     privacy.resetAllAppData().also { if (it) fullResetRequested = true }
-                }))
+                }),
+                appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown",
+                shareError = shareError,
+                shareDayDiagnostics = { json, date -> shareDayDiagnostics(json, date) })
         }
     }
 
@@ -142,5 +154,39 @@ class MainActivity : ComponentActivity() {
     private fun openSettings(intent: android.content.Intent) {
         try { startActivity(intent) }
         catch (_: ActivityNotFoundException) { setupError = "System settings could not be opened. Use your device's Settings app to review location permissions." }
+    }
+
+    private fun clearOldDayDiagnostics() {
+        val directory = File(cacheDir, "day-diagnostics")
+        directory.listFiles()?.filter { it.isFile && System.currentTimeMillis() - it.lastModified() > 60 * 60 * 1000L }
+            ?.forEach { it.delete() }
+    }
+
+    private fun shareDayDiagnostics(json: String, date: LocalDate) {
+        shareError = null
+        if (json.toByteArray(Charsets.UTF_8).size > 2_000_000) {
+            shareError = "This day has too much data to share safely. No file was made."
+            return
+        }
+        var file: File? = null
+        try {
+            val directory = File(cacheDir, "day-diagnostics")
+            check(directory.isDirectory || directory.mkdirs())
+            val created = File.createTempFile("hamster-day-$date-", ".json", directory)
+            file = created
+            created.writeText(json, Charsets.UTF_8)
+            val uri = FileProvider.getUriForFile(this, "$packageName.daydiagnostics", created)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newUri(contentResolver, "Hamster Cage day data", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, "Share day data"))
+            Handler(Looper.getMainLooper()).postDelayed({ created.delete() }, 60 * 60 * 1000L)
+        } catch (_: Exception) {
+            file?.delete()
+            shareError = "Couldn't open sharing. No data was sent."
+        }
     }
 }

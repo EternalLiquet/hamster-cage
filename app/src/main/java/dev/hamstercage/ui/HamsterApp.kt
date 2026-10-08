@@ -76,6 +76,8 @@ fun HamsterApp(
     savePolicy: (suspend (PolicySettings, PolicySettings) -> Unit)? = null,
     calendarActions: CalendarActions? = null,
     privacyActions: PrivacyActions? = null,
+    appVersion: String = "unknown", shareError: String? = null,
+    shareDayDiagnostics: ((String, LocalDate) -> Unit)? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     var detailDate by rememberSaveable(privacyState.generation) { mutableStateOf<String?>(null) }
@@ -188,7 +190,15 @@ fun HamsterApp(
                                     edit = if (correctionActions == null) null else { session -> detailEditSessionId = session.id },
                                     eventEvidence = snapshot.eventEvidence,
                                     backLabel = if (selected == Destination.DASHBOARD) "Back to Dashboard" else "Back to History",
-                                    trackingReady = effectiveTrackingReady)
+                                    trackingReady = effectiveTrackingReady,
+                                    shareError = shareError,
+                                    prepareDayShare = if (shareDayDiagnostics == null) null else {
+                                        { dayDiagnostics(snapshot, LocalDate.parse(detailDate), now, coverage,
+                                            captureStatus, appVersion) }
+                                    },
+                                    shareDay = if (shareDayDiagnostics == null) null else { prepared ->
+                                        shareDayDiagnostics(prepared.json, LocalDate.parse(detailDate))
+                                    })
                             } else if (selected == Destination.HISTORY) key(privacyState.generation) {
                                 pageState.SaveableStateProvider("history-${privacyState.generation}") {
                                     HistoryScreen(input, result, correctionActions, snapshot.eventEvidence,
