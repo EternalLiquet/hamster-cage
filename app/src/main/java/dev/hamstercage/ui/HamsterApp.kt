@@ -76,6 +76,8 @@ fun HamsterApp(
     savePolicy: (suspend (PolicySettings, PolicySettings) -> Unit)? = null,
     calendarActions: CalendarActions? = null,
     privacyActions: PrivacyActions? = null,
+    appVersion: String = "unknown", shareError: String? = null,
+    shareDayDiagnostics: ((String, LocalDate, Long) -> Unit)? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     var detailDate by rememberSaveable(privacyState.generation) { mutableStateOf<String?>(null) }
@@ -86,6 +88,7 @@ fun HamsterApp(
         selected == Destination.HISTORY || selected == Destination.SETTINGS)
     val usableStorage = if (privacyState is PrivacyResetState.Idle && !fullResetRequested) storageState else StorageState.Unavailable
     val snapshot = (usableStorage as? StorageState.Ready)?.snapshot
+    val editingGeneration = (privacyState as? PrivacyResetState.Idle)?.generation
     val displayZone = snapshot?.policy?.zoneId ?: zoneId
     val effectiveTrackingReady = privacyState is PrivacyResetState.Idle && !fullResetRequested &&
         (if (coverage == null) trackingReady else
@@ -188,7 +191,17 @@ fun HamsterApp(
                                     edit = if (correctionActions == null) null else { session -> detailEditSessionId = session.id },
                                     eventEvidence = snapshot.eventEvidence,
                                     backLabel = if (selected == Destination.DASHBOARD) "Back to Dashboard" else "Back to History",
-                                    trackingReady = effectiveTrackingReady)
+                                    trackingReady = effectiveTrackingReady,
+                                    shareError = shareError,
+                                    prepareDayShare = if (shareDayDiagnostics == null) null else {
+                                        { dayDiagnostics(snapshot, LocalDate.parse(detailDate), now, coverage,
+                                            captureStatus, appVersion) }
+                                    },
+                                    shareDay = if (shareDayDiagnostics == null) null else { prepared ->
+                                        editingGeneration?.let { generation ->
+                                            shareDayDiagnostics(prepared.json, LocalDate.parse(detailDate), generation)
+                                        }
+                                    })
                             } else if (selected == Destination.HISTORY) key(privacyState.generation) {
                                 pageState.SaveableStateProvider("history-${privacyState.generation}") {
                                     HistoryScreen(input, result, correctionActions, snapshot.eventEvidence,

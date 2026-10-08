@@ -40,7 +40,12 @@ class FoundationPrivacyTest {
         assertTrue(info.requestedPermissions.orEmpty().contains("android.permission.INTERNET"))
         assertEquals(0, info.applicationInfo!!.flags and ApplicationInfo.FLAG_ALLOW_BACKUP)
         assertEquals(0, info.applicationInfo!!.flags and ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC)
-        assertTrue(info.providers.orEmpty().all { !it.exported && !it.grantUriPermissions })
+        val providers = info.providers.orEmpty()
+        assertTrue(providers.all { !it.exported })
+        val grantable = providers.filter { it.grantUriPermissions }
+        assertEquals(1, grantable.size)
+        assertEquals("androidx.core.content.FileProvider", grantable.single().name)
+        assertEquals("${context.packageName}.daydiagnostics", grantable.single().authority)
         assertTrue(info.activities.orEmpty().filter { it.exported }.all { it.name == "dev.hamstercage.MainActivity" })
         val services = info.services.orEmpty()
         // WorkManager's JobScheduler entry is OS-bound. It is the sole exported

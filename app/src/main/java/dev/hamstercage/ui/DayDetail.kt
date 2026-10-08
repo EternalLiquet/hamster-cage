@@ -18,7 +18,10 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: LocalDate, back: () -> Unit,
     edit: ((Session) -> Unit)? = null, eventEvidence: List<RecordedEvent> = emptyList(),
-    backLabel: String = "Back to daily history", trackingReady: Boolean = true) {
+    backLabel: String = "Back to daily history", trackingReady: Boolean = true,
+    prepareDayShare: (() -> DayDiagnostics)? = null, shareDay: ((DayDiagnostics) -> Unit)? = null,
+    shareError: String? = null) {
+    var sharePreview by remember(date) { mutableStateOf<DayDiagnostics?>(null) }
     val detail = remember(input, result, date) { explainDay(input, result, date) }
     val timeline = remember(input, detail) { dayTimeline(input, detail) }
     val beforeTracking = remember(input, result, date) {
@@ -32,6 +35,19 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         OutlinedButton(onClick = back) { Text(backLabel) }
         Text("Explain $date", style = MaterialTheme.typography.headlineSmall)
         Text("${input.policy.zoneId.id} · evaluated ${at(input.now)}", style = MaterialTheme.typography.bodyMedium)
+        if (prepareDayShare != null && shareDay != null) {
+            OutlinedButton(onClick = { sharePreview = prepareDayShare() }, modifier = Modifier.testTag("share_day_data")) {
+                Text("Share this day's data")
+            }
+            sharePreview?.let { prepared ->
+                AlertDialog(onDismissRequest = { sharePreview = null },
+                    title = { Text("Share $date?") },
+                    text = { Text("${prepared.observationCount} observations, ${prepared.contextCount} nearby or linked context. Evidence dates span ${prepared.firstIncludedDay} through ${prepared.lastIncludedDay}; includes observation and edit times with engine classifications, manual intervals, office settings, the day's policy and result, app version, capture status within that span, and when this file was prepared. Office names, coordinates and notes are left out. Choose where to send it next.") },
+                    confirmButton = { TextButton(onClick = { sharePreview = null; shareDay(prepared) }) { Text("Choose app") } },
+                    dismissButton = { TextButton(onClick = { sharePreview = null }) { Text("Cancel") } })
+            }
+            shareError?.let { FormError(it) }
+        }
         Panel {
             Text("Recorded credit: ${minutesText(detail.summary.creditedMinutes)}", Modifier.testTag("detail_credit"), style = MaterialTheme.typography.titleLarge)
             Text("${if (detail.sessions.any { ReviewReason.UNCONFIRMED_GAP in it.reviewReasons }) "Confirmed in-zone time" else "Device-observed time"}: ${minutesText(AttendanceEngine.observedDailyMinutes(input, date))}", Modifier.testTag("detail_observed"))

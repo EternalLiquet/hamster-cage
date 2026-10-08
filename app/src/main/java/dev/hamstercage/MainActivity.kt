@@ -3,14 +3,19 @@ package dev.hamstercage
 import android.graphics.Color
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +40,8 @@ import dev.hamstercage.privacy.PrivacyResetStore
 import dev.hamstercage.privacy.PrivacyStorageState
 import dev.hamstercage.privacy.privacyVisibleStorage
 import dev.hamstercage.ui.HamsterApp
+import dev.hamstercage.ui.DayShareFiles
+import dev.hamstercage.ui.dayShareIntent
 import dev.hamstercage.ui.OfficeActions
 import dev.hamstercage.ui.CorrectionActions
 import dev.hamstercage.ui.CalendarActions
@@ -42,11 +49,15 @@ import dev.hamstercage.ui.PrivacyActions
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
     private var setupError by mutableStateOf<String?>(null)
+    private var shareError by mutableStateOf<String?>(null)
     private var fullResetRequested by mutableStateOf(false)
     private val foregroundRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshLocationSetup() }
     private val backgroundRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshLocationSetup() }
@@ -61,6 +72,7 @@ class MainActivity : ComponentActivity() {
         val officeLocations = OfficeLocationServices(this)
         val foregroundReconciliation = ForegroundReconciliation(this, officeLocations)
         val privacy = PrivacyController.get(this)
+        DayShareFiles.clearExpired(cacheDir)
         CaptureController.get(this)
         setContent {
             val visible = remember(repository, privacy) {
@@ -113,7 +125,18 @@ class MainActivity : ComponentActivity() {
                     { date, enabled -> historyWrite { repository.setWfh(date, enabled) } }),
                 privacyActions = PrivacyActions(privacy::deleteHistory, privacy::recoverPending, {
                     privacy.resetAllAppData().also { if (it) fullResetRequested = true }
-                }))
+                }),
+                appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown",
+                shareError = shareError,
+                shareDayDiagnostics = { json, date, generation ->
+                    lifecycleScope.launch {
+                        CaptureWriteGate.mutex.withLock {
+                            if (PrivacyResetStore.read(this@MainActivity) != PrivacyResetState.Idle(generation)) {
+                                shareError = "Attendance changed. Reopen the day before sharing."
+                            } else shareDayDiagnostics(json, date)
+                        }
+                    }
+                })
         }
     }
 
@@ -142,5 +165,21 @@ class MainActivity : ComponentActivity() {
     private fun openSettings(intent: android.content.Intent) {
         try { startActivity(intent) }
         catch (_: ActivityNotFoundException) { setupError = "System settings could not be opened. Use your device's Settings app to review location permissions." }
+    }
+
+    private fun shareDayDiagnostics(json: String, date: LocalDate) {
+        shareError = null
+        var file: File? = null
+        try {
+            val created = DayShareFiles.create(cacheDir, date, json)
+            file = created
+            val uri = FileProvider.getUriForFile(this, "$packageName.daydiagnostics", created)
+            val send = dayShareIntent(this, uri)
+            startActivity(Intent.createChooser(send, "Share day data"))
+            Handler(Looper.getMainLooper()).postDelayed({ created.delete() }, 60 * 60 * 1000L)
+        } catch (_: Exception) {
+            file?.delete()
+            shareError = "Couldn't share this day, or the file was too large. No data was sent."
+        }
     }
 }

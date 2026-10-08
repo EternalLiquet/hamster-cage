@@ -61,6 +61,8 @@ def audit(root, variant="debug"):
     if variant == "release":
         require(app.get(A + "debuggable", "false") == "false", "Release must not be debuggable")
         require(app.get(A + "testOnly", "false") == "false", "Release must not be test-only")
+    require(sum(component.tag == "provider" and component.get(A + "name") == "androidx.core.content.FileProvider"
+                for component in app) == 1, "Exactly one reviewed day diagnostic provider")
     for component in app:
         if component.tag not in {"activity", "activity-alias", "service", "receiver", "provider"}:
             continue
@@ -73,8 +75,22 @@ def audit(root, variant="debug"):
                     component.get(A + "permission") is None and not component.findall("intent-filter"),
                     "Geofence transition receiver must remain private and filter-free")
         if component.tag == "provider":
-            require(component.get(A + "exported") == "false" and component.get(A + "grantUriPermissions", "false") == "false"
-                    and component.find("grant-uri-permission") is None, "No exported or grantable data provider")
+            if name == "androidx.core.content.FileProvider":
+                metadata = component.findall("meta-data")
+                require(component.get(A + "exported") == "false" and
+                        component.get(A + "grantUriPermissions") == "true" and
+                        component.get(A + "permission") is None and
+                        component.get(A + "readPermission") is None and
+                        component.get(A + "writePermission") is None and
+                        component.get(A + "authorities") == package + ".daydiagnostics" and
+                        len(metadata) == 1 and len(component) == 1 and
+                        metadata[0].get(A + "name") == "android.support.FILE_PROVIDER_PATHS" and
+                        metadata[0].get(A + "resource") == "@xml/day_diagnostics_paths",
+                        "Day diagnostic provider must grant only the reviewed private cache path")
+            else:
+                require(component.get(A + "exported") == "false" and
+                        component.get(A + "grantUriPermissions", "false") == "false" and
+                        component.find("grant-uri-permission") is None, "No exported or grantable data provider")
         if component.get(A + "exported") == "true":
             if name == "dev.hamstercage.MainActivity" and component.tag == "activity":
                 filters = component.findall("intent-filter")
@@ -98,6 +114,14 @@ def audit(root, variant="debug"):
                 require((component.tag, name, component.get(A + "permission")) == (
                     "receiver", "androidx.profileinstaller.ProfileInstallReceiver", "android.permission.DUMP"),
                     f"Unreviewed exported component: {name}")
+    share_paths = root / "app/src/main/res/xml/day_diagnostics_paths.xml"
+    require(set((root / "app/src").glob("*/res/xml*/day_diagnostics_paths.xml")) == {share_paths},
+            "Day diagnostic provider path overlays need review")
+    share_root = ET.parse(share_paths).getroot()
+    require(share_root.tag == "paths" and len(share_root) == 1 and
+            share_root[0].tag == "cache-path" and
+            share_root[0].attrib == {"name": "day-diagnostics", "path": "day-diagnostics/"},
+            "Day diagnostic provider must expose only its private cache subdirectory")
     for filename in ["backup_rules.xml", "data_extraction_rules.xml"]:
         audited_rules = root / "app/src/main/res/xml" / filename
         require(set((root / "app/src").glob(f"*/res/xml*/{filename}")) == {audited_rules},

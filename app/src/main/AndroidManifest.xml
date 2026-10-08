@@ -17,6 +17,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.HamsterCage"
         android:usesCleartextTraffic="false">
+        <provider android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.daydiagnostics" android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/day_diagnostics_paths" />
+        </provider>
         <service android:name="androidx.work.impl.foreground.SystemForegroundService" tools:node="remove" />
         <receiver android:name="androidx.work.impl.diagnostics.DiagnosticsReceiver" tools:node="remove" />
         <receiver android:name=".capture.GeofenceTransitionReceiver" android:exported="false" />

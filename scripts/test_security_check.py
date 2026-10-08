@@ -9,11 +9,17 @@ import unittest
 
 SOURCE = Path(__file__).resolve().parent
 XML = SOURCE.parent / "app/src/main/res/xml"
+REVIEWED_PROVIDER = '<provider android:name="androidx.core.content.FileProvider" ' \
+    'android:exported="false" android:grantUriPermissions="true" ' \
+    'android:authorities="dev.hamstercage.preview.daydiagnostics">' \
+    '<meta-data android:name="android.support.FILE_PROVIDER_PATHS" ' \
+    'android:resource="@xml/day_diagnostics_paths" /></provider>'
 SAFE_MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 <uses-permission android:name="android.permission.INTERNET" />
 <application android:allowBackup="false" android:usesCleartextTraffic="false"
 android:dataExtractionRules="@xml/data_extraction_rules"
-android:fullBackupContent="@xml/backup_rules" /></manifest>'''
+android:fullBackupContent="@xml/backup_rules">''' + REVIEWED_PROVIDER + '</application></manifest>'
+SAFE_MANIFEST = SAFE_MANIFEST.replace('<manifest ', '<manifest package="dev.hamstercage.preview" ')
 
 
 class SecurityAuditTest(unittest.TestCase):
@@ -113,7 +119,7 @@ class SecurityAuditTest(unittest.TestCase):
             '<receiver android:name="synthetic.ImplicitReceiver"><intent-filter><action android:name="synthetic.ACTION" /></intent-filter></receiver>',
         ]:
             with self.subTest(component=component), tempfile.TemporaryDirectory() as directory:
-                manifest = SAFE_MANIFEST.replace(" /></manifest>", ">" + component + "</application></manifest>")
+                manifest = SAFE_MANIFEST.replace("</application></manifest>", component + "</application></manifest>")
                 script, _, _ = self.fixture(Path(directory), manifest)
                 self.run_modes(script, False, "FAIL:")
 
@@ -125,7 +131,7 @@ class SecurityAuditTest(unittest.TestCase):
                       (service.replace(' />', '><intent-filter><action android:name="synthetic.ACTION" /></intent-filter></service>'), False)]
         for candidate, allowed in candidates:
             with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as directory:
-                manifest = SAFE_MANIFEST.replace(" /></manifest>", ">" + candidate + "</application></manifest>")
+                manifest = SAFE_MANIFEST.replace("</application></manifest>", candidate + "</application></manifest>")
                 script, _, _ = self.fixture(Path(directory), manifest)
                 self.run_modes(script, allowed, "PASS:" if allowed else "WorkManager job entry")
 
@@ -139,7 +145,7 @@ class SecurityAuditTest(unittest.TestCase):
                                    (component.replace("BOOT_COMPLETED", "synthetic.ACTION"), False)]:
             with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as directory:
                 manifest = SAFE_MANIFEST.replace("<application", '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /><application')
-                manifest = manifest.replace(" /></manifest>", ">" + candidate + "</application></manifest>")
+                manifest = manifest.replace("</application></manifest>", candidate + "</application></manifest>")
                 script, _, _ = self.fixture(Path(directory), manifest)
                 self.run_modes(script, allowed, "PASS:" if allowed else "Recovery receiver")
 
@@ -149,7 +155,7 @@ class SecurityAuditTest(unittest.TestCase):
                       (safe.replace(' />', '><intent-filter><action android:name="synthetic.ACTION" /></intent-filter></receiver>'), False)]
         for candidate, allowed in candidates:
             with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as directory:
-                manifest = SAFE_MANIFEST.replace(" /></manifest>", ">" + candidate + "</application></manifest>")
+                manifest = SAFE_MANIFEST.replace("</application></manifest>", candidate + "</application></manifest>")
                 script, _, _ = self.fixture(Path(directory), manifest)
                 self.run_modes(script, allowed, "PASS:" if allowed else "Geofence transition receiver")
 
@@ -208,8 +214,32 @@ class SecurityAuditTest(unittest.TestCase):
                            'android:exported="false" android:grantUriPermissions="true"']:
             with self.subTest(attributes=attributes), tempfile.TemporaryDirectory() as directory:
                 component = f'<provider android:name="synthetic.DataProvider" {attributes} />'
-                script, _, _ = self.fixture(Path(directory), SAFE_MANIFEST.replace(" /></manifest>", ">" + component + "</application></manifest>"))
+                script, _, _ = self.fixture(Path(directory), SAFE_MANIFEST.replace("</application></manifest>", component + "</application></manifest>"))
                 self.run_modes(script, False, "No exported or grantable")
+
+    def test_only_narrow_private_day_share_provider_can_grant_reads(self):
+        reviewed = REVIEWED_PROVIDER
+        manifest = SAFE_MANIFEST
+        for candidate, allowed in [
+            (reviewed, True),
+            (reviewed.replace('android:exported="false"', 'android:exported="true"'), False),
+            (reviewed.replace('dev.hamstercage.preview.daydiagnostics', 'dev.hamstercage.preview.other'), False),
+            (reviewed.replace('@xml/day_diagnostics_paths', '@xml/backup_rules'), False),
+            (reviewed.replace('android:grantUriPermissions="true"', 'android:grantUriPermissions="false"'), False),
+            (reviewed.replace('android:exported="false"', 'android:exported="false" android:permission="android.permission.DUMP"'), False),
+        ]:
+            with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as directory:
+                script, _, rules = self.fixture(Path(directory), manifest.replace(reviewed, candidate))
+                self.run_modes(script, allowed, 'PASS:' if allowed else 'Day diagnostic provider')
+                if allowed:
+                    (rules / 'day_diagnostics_paths.xml').write_text('<paths><cache-path name="all" path="." /></paths>')
+                    self.run_modes(script, False, 'only its private cache subdirectory')
+        with tempfile.TemporaryDirectory() as directory:
+            script, _, _ = self.fixture(Path(directory), manifest.replace(reviewed, reviewed + reviewed))
+            self.run_modes(script, False, 'Exactly one reviewed day diagnostic provider')
+        with tempfile.TemporaryDirectory() as directory:
+            script, _, _ = self.fixture(Path(directory), manifest.replace(reviewed, ''))
+            self.run_modes(script, False, 'Exactly one reviewed day diagnostic provider')
 
     def test_launcher_must_not_silently_add_a_data_or_intent_surface(self):
         safe = '<activity android:name="dev.hamstercage.MainActivity" android:exported="true"><intent-filter>' \
@@ -218,7 +248,7 @@ class SecurityAuditTest(unittest.TestCase):
         for extra in ['', '<data android:scheme="synthetic" />', '<action android:name="android.intent.action.SEND" />']:
             with self.subTest(extra=extra), tempfile.TemporaryDirectory() as directory:
                 activity = safe.replace('</intent-filter>', extra + '</intent-filter>')
-                script, _, _ = self.fixture(Path(directory), SAFE_MANIFEST.replace(" /></manifest>", ">" + activity + "</application></manifest>"))
+                script, _, _ = self.fixture(Path(directory), SAFE_MANIFEST.replace("</application></manifest>", activity + "</application></manifest>"))
                 self.run_modes(script, not extra, "only the launcher" if extra else "PASS:")
 
     def test_release_debug_or_test_flags_are_rejected(self):
