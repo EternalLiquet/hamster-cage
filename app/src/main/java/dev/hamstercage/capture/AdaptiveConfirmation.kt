@@ -202,13 +202,17 @@ internal fun requiresAdaptiveRecoverySplit(snapshot: AppSnapshot, coverage: Cove
         ?: sessions.firstOrNull { it.isOpen } ?: return false
     val start = old.start ?: return false
     val boundary = coverage.recoveryBoundaryAt ?: return true
-    // A visit whose EXIT was observed no later than the start of the recovered outage was
-    // observed entirely under healthy capture: the outage cannot have hidden its departure.
+    // A visit that opened after the previous recovery and whose EXIT was observed no later
+    // than the start of the latest outage lies wholly inside one healthy capture window, so no
+    // outage can have hidden a departure and return within it.
     val observedEnd = old.end ?: snapshot.events.firstOrNull { it.id == candidateId &&
         it.transition == Transition.EXIT && it.id in old.sourceEventIds }?.at
-    val healthyThrough = coverage.lastOutageStartedAt
-    val evidenceUntil = if (observedEnd != null && healthyThrough != null && observedEnd <= healthyThrough) observedEnd else now
-    return (start < boundary && evidenceUntil == now) || snapshot.events.any { it.officeId != officeId &&
+    val healthySince = coverage.lastOutageHealthySince
+    val healthyUntil = coverage.lastOutageStartedAt
+    val wholeVisitHealthy = observedEnd != null && healthySince != null && healthyUntil != null &&
+        start >= healthySince && observedEnd <= healthyUntil
+    val evidenceUntil = if (wholeVisitHealthy) observedEnd!! else now
+    return (!wholeVisitHealthy && start < boundary) || snapshot.events.any { it.officeId != officeId &&
         it.at >= start && it.at <= evidenceUntil }
 }
 

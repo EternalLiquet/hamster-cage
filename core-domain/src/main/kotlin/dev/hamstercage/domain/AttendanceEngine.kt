@@ -416,16 +416,21 @@ object AttendanceEngine {
             val start = session.start
             // An unconfirmed gap can end at an outside check, a recovery fix, or an EXIT
             // delivered after capture became uncertain. None establishes presence through
-            // that boundary. Keep only the prefix ending at the last earlier inside fact;
-            // ENTER alone establishes an arrival, not a positive-duration visit.
-            val lastInsideBeforeGap = if (session.correctionId == null && session.end != null &&
-                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons)
+            // that boundary. Keep only the prefix ending at the last earlier current-location
+            // fix that placed the user inside. An ENTER establishes an arrival, not presence
+            // after it; a later same-office ENTER or any other-office observation shows the
+            // user may already have left, so no fix after the first of those counts.
+            val lastInsideBeforeGap = if (session.correctionId == null && session.end != null && start != null &&
+                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons) {
+                val leftBy = usable.filter { it.at > start && it.at < session.end!! &&
+                    (it.officeId != session.officeId ||
+                        (it.transition == Transition.ENTER && it.id in session.sourceEventIds)) }
+                    .minOfOrNull { it.at } ?: session.end
                 usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId &&
-                    it.transition in setOf(Transition.ENTER, Transition.PRESENCE) &&
-                    it.id !in input.provisionalPresenceIds &&
-                    start != null && it.at > start && it.at < session.end }
+                    it.transition == Transition.PRESENCE && it.id !in input.provisionalPresenceIds &&
+                    it.at > start && it.at < leftBy }
                     .maxOfOrNull { it.at } ?: start
-            else null
+            } else null
             if (start == null || !office.enabled || !office.countsTowardAttendance ||
                 ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons ||
                 (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons && lastInsideBeforeGap == null) ||
@@ -456,8 +461,9 @@ object AttendanceEngine {
                     // A repeated EXIT after this visit leaves room for an unobserved
                     // zero-credit return, which would block reconciliation of this gap.
                     val contradictoryGap = ReviewReason.REPEATED_EXIT in before.reviewReasons ||
+                        // The bridge would start at the earlier visit's last supported time and
+                        // cross its uncertain tail. A gap that ends a later visit is unaffected.
                         ReviewReason.UNCONFIRMED_GAP in before.reviewReasons ||
-                        ReviewReason.UNCONFIRMED_GAP in after.reviewReasons ||
                         nextEntry != null && before.end != null &&
                         (usable.any { it.officeId != before.officeId && it.at >= before.end && it.at <= nextEntry } ||
                             after.sourceEventIds.any { it in input.recoveryPresenceIds ||
@@ -634,9 +640,10 @@ object AttendanceEngine {
                     }
             }.map { it.id }.toSet()
         } else emptySet()
-        // A fresh same-office PRESENCE can leave an older, uncredited segment for
-        // review. It cannot contribute to today's projected credit, so that one
-        // resolved boundary does not make the new open visit unsafe to project.
+        // A fresh same-office PRESENCE can leave an older segment for review. Only its
+        // observed prefix (if any) is credited and already counts in the summary; its
+        // uncertain tail cannot add projected credit, so that one resolved boundary does
+        // not make the new open visit unsafe to project.
         val repairedGapIds = if (target == TargetWindow.TODAY && current.size == 1 &&
             input.events.any { it.id in current.single().sourceEventIds && it.transition == Transition.PRESENCE }) {
             relevant.filter { it.officeId == current.single().officeId && it.end == current.single().start &&

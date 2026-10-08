@@ -19,8 +19,15 @@ data class CoverageLedger(
     /** Boot count and app update time when registration last succeeded; null if unrecorded. */
     val registeredBootCount: Int? = null,
     val registeredPackageUpdatedAt: Long? = null,
-    /** Start of the most recently recovered outage: capture was healthy until this instant. */
+    /**
+     * The most recently recovered outage began at [lastOutageStartedAt]; capture had been
+     * continuously healthy from [lastOutageHealthySince] (the recovery boundary then in
+     * effect) until it. Only that window is known to be free of earlier outages.
+     */
     val lastOutageStartedAt: Instant? = null,
+    val lastOutageHealthySince: Instant? = null,
+    /** While an outage is open: the recovery boundary that was in effect when it began. */
+    val outageHealthySince: Instant? = null,
 ) {
     /** Null when either side is unknown. */
     fun rebootedSince(current: ProcessIdentity): Boolean? =
@@ -50,14 +57,17 @@ data class CoverageLedger(
         policyZoneId == null || policyZoneId == zone -> copy(policyZoneId = zone)
         else -> copy(historyStartDate = null, unknownDates = emptySet(), reviewedDates = emptySet(),
             lastObservationAt = null, outageStartedAt = outageStartedAt ?: lastHealthyAt ?: now,
-            outageRecordedThrough = null, recoveryBoundaryAt = null,
+            outageRecordedThrough = null, recoveryBoundaryAt = null, outageHealthySince = healthySinceForOutage(),
             registration = RegistrationStatus.FAILED, policyZoneId = zone)
     }
+
+    /** The healthy-since instant to keep when an outage is opened or continued. */
+    private fun healthySinceForOutage(): Instant? = if (outageStartedAt == null) recoveryBoundaryAt else outageHealthySince
 
     /** A receiver may know an outage instant before it can safely read policy timezone. */
     fun unlocatedOutage(now: Instant): CoverageLedger = copy(
         outageStartedAt = outageStartedAt ?: lastHealthyAt ?: now,
-        recoveryBoundaryAt = null, registration = RegistrationStatus.FAILED,
+        recoveryBoundaryAt = null, outageHealthySince = healthySinceForOutage(), registration = RegistrationStatus.FAILED,
     )
 
     private fun outage(start: Instant, now: Instant, zone: ZoneId): CoverageLedger {
@@ -67,12 +77,13 @@ data class CoverageLedger(
         if (firstDate.plusDays(3660) < through) return copy(
             historyStartDate = null, unknownDates = emptySet(), reviewedDates = emptySet(),
             lastObservationAt = null, outageStartedAt = first, outageRecordedThrough = through,
-            recoveryBoundaryAt = null, registration = RegistrationStatus.FAILED, policyZoneId = zone,
+            recoveryBoundaryAt = null, outageHealthySince = healthySinceForOutage(),
+            registration = RegistrationStatus.FAILED, policyZoneId = zone,
         )
         val newlyAffected = dates(firstDate, through)
         return copy(unknownDates = unknownDates + newlyAffected, reviewedDates = reviewedDates - newlyAffected,
             outageStartedAt = first, outageRecordedThrough = through, recoveryBoundaryAt = null,
-            registration = RegistrationStatus.FAILED, policyZoneId = zone)
+            outageHealthySince = healthySinceForOutage(), registration = RegistrationStatus.FAILED, policyZoneId = zone)
     }
 
     fun registrationSucceeded(now: Instant, zone: ZoneId, hasOffices: Boolean,
@@ -89,6 +100,9 @@ data class CoverageLedger(
             recoveryBoundaryAt = if (current.outageStartedAt != null) now else current.recoveryBoundaryAt ?: now,
             registration = RegistrationStatus.ACTIVE, policyZoneId = zone,
             lastOutageStartedAt = current.outageStartedAt ?: current.lastOutageStartedAt,
+            lastOutageHealthySince = if (current.outageStartedAt != null) current.outageHealthySince
+                else current.lastOutageHealthySince,
+            outageHealthySince = null,
             registeredBootCount = identity?.bootCount ?: registeredBootCount,
             registeredPackageUpdatedAt = identity?.packageUpdatedAt ?: registeredPackageUpdatedAt)
     }
