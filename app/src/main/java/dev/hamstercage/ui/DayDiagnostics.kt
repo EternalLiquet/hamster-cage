@@ -21,19 +21,23 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
     val start = date.atStartOfDay(zone).toInstant()
     val end = date.plusDays(1).atStartOfDay(zone).toInstant()
     val previousDay = date.minusDays(1).atStartOfDay(zone).toInstant()
-    val nextDayEnd = date.plusDays(2).atStartOfDay(zone).toInstant()
     val relatedOfficeIds = detail.rawEvents.map { it.officeId }.toSet() +
         detail.manualSessions.map { it.officeId } + detail.sessions.map { it.officeId }
     val previous = snapshot.eventEvidence.filter { it.event.officeId in relatedOfficeIds &&
         it.event.at >= previousDay && it.event.at < start }
         .groupBy { it.event.officeId }.values.mapNotNull { candidates -> candidates.maxWithOrNull(
             compareBy<dev.hamstercage.data.RecordedEvent> { it.event.at }.thenBy { it.event.id }) }
-    // A post-midnight presence at another office can corroborate a late EXIT on the chosen day.
-    val next = if (detail.rawEvents.none { it.transition == Transition.EXIT }) emptyList() else
-        snapshot.eventEvidence.filter { it.event.at >= end && it.event.at < nextDayEnd &&
-            it.event.transition == Transition.PRESENCE }
-            .groupBy { it.event.officeId }.values.mapNotNull { candidates -> candidates.minWithOrNull(
-                compareBy<dev.hamstercage.data.RecordedEvent> { it.event.at }.thenBy { it.event.id }) }
+    // Only a late EXIT can need after-midnight corroboration. Limit disclosure to the first
+    // same-office return and first different-office presence within two hours of midnight.
+    val lateExit = detail.rawEvents.filter { it.transition == Transition.EXIT &&
+        it.at >= end.minusSeconds(2 * 60 * 60) && it.at < end }.maxWithOrNull(
+        compareBy<dev.hamstercage.domain.RawEvent> { it.at }.thenBy { it.id })
+    val next = if (lateExit == null) emptyList() else snapshot.eventEvidence.filter {
+        it.event.at >= end && it.event.at < end.plusSeconds(2 * 60 * 60) &&
+            it.event.at <= now && it.event.transition == Transition.PRESENCE
+    }.groupBy { it.event.officeId == lateExit.officeId }.values.mapNotNull { candidates ->
+        candidates.minWithOrNull(compareBy<dev.hamstercage.data.RecordedEvent> { it.event.at }
+            .thenBy { it.event.id }) }
     val includedFacts = detail.rawEvents.toSet() + previous.map { it.event } + next.map { it.event }
     val evidence = snapshot.eventEvidence.filter { it.event in includedFacts }
         .sortedWith(compareBy<dev.hamstercage.data.RecordedEvent> { it.event.at }.thenBy { it.event.id })
@@ -68,7 +72,7 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "policyZone" to zone.id,
         "windowStartInclusive" to start.toString(),
         "windowEndExclusive" to end.toString(),
-        "contextRule" to "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day, and at most one next-day presence per office if the day has an EXIT",
+        "contextRule" to "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day; for a late EXIT, the earliest same-office return and earliest cross-office presence within two hours after local midnight",
         "evaluatedAt" to now.toString(),
         "offices" to officeIds.map { id -> snapshot.offices.find { it.id == id }?.let { office ->
             linkedMapOf<String, Any?>("alias" to officeAlias[id], "radiusMeters" to office.radiusMeters,

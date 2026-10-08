@@ -77,7 +77,7 @@ fun HamsterApp(
     calendarActions: CalendarActions? = null,
     privacyActions: PrivacyActions? = null,
     appVersion: String = "unknown", shareError: String? = null,
-    shareDayDiagnostics: ((String, LocalDate) -> Unit)? = null,
+    shareDayDiagnostics: ((String, LocalDate, Long) -> Unit)? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     var detailDate by rememberSaveable(privacyState.generation) { mutableStateOf<String?>(null) }
@@ -197,7 +197,9 @@ fun HamsterApp(
                                             captureStatus, appVersion) }
                                     },
                                     shareDay = if (shareDayDiagnostics == null) null else { prepared ->
-                                        shareDayDiagnostics(prepared.json, LocalDate.parse(detailDate))
+                                        editingGeneration?.let { generation ->
+                                            shareDayDiagnostics(prepared.json, LocalDate.parse(detailDate), generation)
+                                        }
                                     })
                             } else if (selected == Destination.HISTORY) key(privacyState.generation) {
                                 pageState.SaveableStateProvider("history-${privacyState.generation}") {

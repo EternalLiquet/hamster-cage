@@ -15,6 +15,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,7 @@ import dev.hamstercage.ui.PrivacyActions
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
@@ -126,7 +128,15 @@ class MainActivity : ComponentActivity() {
                 }),
                 appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown",
                 shareError = shareError,
-                shareDayDiagnostics = { json, date -> shareDayDiagnostics(json, date) })
+                shareDayDiagnostics = { json, date, generation ->
+                    lifecycleScope.launch {
+                        CaptureWriteGate.mutex.withLock {
+                            if (PrivacyResetStore.read(this@MainActivity) != PrivacyResetState.Idle(generation)) {
+                                shareError = "Attendance changed. Reopen the day before sharing."
+                            } else shareDayDiagnostics(json, date)
+                        }
+                    }
+                })
         }
     }
 

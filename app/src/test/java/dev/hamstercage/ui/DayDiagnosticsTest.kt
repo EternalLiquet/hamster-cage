@@ -76,20 +76,26 @@ class DayDiagnosticsTest {
 
     @Test fun nextDayCrossOfficePresenceCanExplainLateExit() {
         val other = Office("other-private-id", "Other private place", 40.0, -83.0)
+        val unrelated = Office("unrelated-private-id", "Unrelated private place", 41.0, -84.0)
         val data = snapshot(
             evidence("arrive", Transition.ENTER, "2025-03-09T20:00:00Z"),
             evidence("exit", Transition.EXIT, "2025-03-10T03:50:00Z"))
-            .copy(offices = listOf(office, other), eventEvidence = listOf(
+            .copy(offices = listOf(office, other, unrelated), eventEvidence = listOf(
                 evidence("arrive", Transition.ENTER, "2025-03-09T20:00:00Z"),
                 evidence("exit", Transition.EXIT, "2025-03-10T03:50:00Z"),
                 RecordedEvent(RawEvent("later-private-id", other.id, Transition.PRESENCE,
                     Instant.parse("2025-03-10T04:05:00Z")), Instant.parse("2025-03-10T04:05:10Z"),
-                    Instant.parse("2025-03-10T04:05:00Z"), "FOREGROUND_LOCATION_RECONCILIATION")))
+                    Instant.parse("2025-03-10T04:05:00Z"), "FOREGROUND_LOCATION_RECONCILIATION"),
+                RecordedEvent(RawEvent("unrelated-fact", unrelated.id, Transition.PRESENCE,
+                    Instant.parse("2025-03-10T04:30:00Z")), Instant.parse("2025-03-10T04:30:10Z"),
+                    Instant.parse("2025-03-10T04:30:00Z"), "FOREGROUND_LOCATION_RECONCILIATION")))
         val report = dayDiagnostics(data, day, now, null, CaptureStatus(), "test")
         assertEquals(day.plusDays(1), report.lastIncludedDay)
         assertTrue(report.json.contains("2025-03-10T04:05:00Z"))
         assertFalse(report.json.contains("later-private-id"))
         assertFalse(report.json.contains("Other private place"))
+        assertFalse(report.json.contains("2025-03-10T04:30:00Z"))
+        assertFalse(report.json.contains("Unrelated private place"))
     }
 
     @Test fun previewSpanIncludesManualAndEditTimesOutsideSelectedDay() {
