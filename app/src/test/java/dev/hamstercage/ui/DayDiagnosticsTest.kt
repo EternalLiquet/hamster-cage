@@ -83,6 +83,10 @@ class DayDiagnosticsTest {
             .copy(offices = listOf(office, other, unrelated), eventEvidence = listOf(
                 evidence("arrive", Transition.ENTER, "2025-03-09T20:00:00Z"),
                 evidence("exit", Transition.EXIT, "2025-03-10T03:50:00Z"),
+                evidence("return-private-id", Transition.ENTER, "2025-03-10T04:04:00Z"),
+                RecordedEvent(RawEvent("untrusted-earlier", unrelated.id, Transition.PRESENCE,
+                    Instant.parse("2025-03-10T04:01:00Z")), Instant.parse("2025-03-10T04:01:10Z"),
+                    Instant.parse("2025-03-10T04:01:00Z"), "PLAY_SERVICES_GEOFENCE"),
                 RecordedEvent(RawEvent("later-private-id", other.id, Transition.PRESENCE,
                     Instant.parse("2025-03-10T04:05:00Z")), Instant.parse("2025-03-10T04:05:10Z"),
                     Instant.parse("2025-03-10T04:05:00Z"), "FOREGROUND_LOCATION_RECONCILIATION"),
@@ -92,9 +96,11 @@ class DayDiagnosticsTest {
         val report = dayDiagnostics(data, day, now, null, CaptureStatus(), "test")
         assertEquals(day.plusDays(1), report.lastIncludedDay)
         assertTrue(report.json.contains("2025-03-10T04:05:00Z"))
+        assertTrue(report.json.contains("2025-03-10T04:04:00Z"))
         assertFalse(report.json.contains("later-private-id"))
         assertFalse(report.json.contains("Other private place"))
         assertFalse(report.json.contains("2025-03-10T04:30:00Z"))
+        assertFalse(report.json.contains("2025-03-10T04:01:00Z"))
         assertFalse(report.json.contains("Unrelated private place"))
     }
 

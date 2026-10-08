@@ -88,6 +88,7 @@ fun HamsterApp(
         selected == Destination.HISTORY || selected == Destination.SETTINGS)
     val usableStorage = if (privacyState is PrivacyResetState.Idle && !fullResetRequested) storageState else StorageState.Unavailable
     val snapshot = (usableStorage as? StorageState.Ready)?.snapshot
+    val editingGeneration = (privacyState as? PrivacyResetState.Idle)?.generation
     val displayZone = snapshot?.policy?.zoneId ?: zoneId
     val effectiveTrackingReady = privacyState is PrivacyResetState.Idle && !fullResetRequested &&
         (if (coverage == null) trackingReady else

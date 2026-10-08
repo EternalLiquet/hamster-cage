@@ -3,6 +3,7 @@ package dev.hamstercage.ui
 import dev.hamstercage.capture.CaptureStatus
 import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.data.AppSnapshot
+import dev.hamstercage.data.decisivePresenceSources
 import dev.hamstercage.domain.AttendanceEngine
 import dev.hamstercage.domain.Transition
 import java.time.Instant
@@ -33,8 +34,13 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         it.at >= end.minusSeconds(2 * 60 * 60) && it.at < end }.maxWithOrNull(
         compareBy<dev.hamstercage.domain.RawEvent> { it.at }.thenBy { it.id })
     val next = if (lateExit == null) emptyList() else snapshot.eventEvidence.filter {
+        val sameOffice = it.event.officeId == lateExit.officeId
+        val relevant = if (sameOffice)
+            (it.event.transition == Transition.ENTER && it.source == "PLAY_SERVICES_GEOFENCE") ||
+                (it.event.transition == Transition.PRESENCE && it.source in decisivePresenceSources)
+        else it.event.transition == Transition.PRESENCE && it.source in decisivePresenceSources
         it.event.at >= end && it.event.at < end.plusSeconds(2 * 60 * 60) &&
-            it.event.at <= now && it.event.transition == Transition.PRESENCE
+            it.event.at <= now && relevant
     }.groupBy { it.event.officeId == lateExit.officeId }.values.mapNotNull { candidates ->
         candidates.minWithOrNull(compareBy<dev.hamstercage.data.RecordedEvent> { it.event.at }
             .thenBy { it.event.id }) }
