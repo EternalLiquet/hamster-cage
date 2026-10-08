@@ -146,7 +146,9 @@ class RedundantExitTest {
     // not earn its own credit. A separate visit earns credit only if it outlasts both the
     // arrival grace and the 60 s transient window. After the closing EXIT a return within
     // 60 s merges as a bounce, so the bound is 60 s + max(grace, 60 s); after a decisive
-    // ABSENCE no merge is possible and the bound is max(grace, 60 s).
+    // ABSENCE no merge is possible and the bound is max(grace, 60 s). Both are capped at the
+    // four-minute repeated-EXIT horizon (bounce window plus the three-minute confirmation
+    // window), so a large grace never turns a much later EXIT into an advisory.
 
     @Test fun hoursLaterExitAfterMissedReturnKeepsMissingArrivalReview() {
         val facts = listOf(event("in", Transition.ENTER, "09:43"),
@@ -203,15 +205,17 @@ class RedundantExitTest {
             "again" !in result.sessions.single().sourceEventIds &&
             result.reviews.none { it.reason == ReviewReason.MISSING_ENTER }
         // A missed return inside the window would earn zero credit of its own.
-        assertTrue(redundant(derive(5, "11:06")))
-        assertTrue(redundant(derive(15, "11:16")))
         assertTrue(redundant(derive(0, "11:00:59")))
         assertTrue(redundant(derive(0, "11:01")))
         assertTrue(redundant(derive(0, "11:02")))
-        // Beyond it, a missed return could have earned credit; keep it reviewable.
-        assertFalse(redundant(derive(5, "11:06:01")))
-        assertFalse(redundant(derive(15, "11:16:01")))
+        assertTrue(redundant(derive(5, "11:04")))
+        assertTrue(redundant(derive(120, "11:04")))
+        // Beyond it, a missed return could have earned credit or the repeat is past the
+        // confirmation horizon; keep it reviewable.
         assertFalse(redundant(derive(0, "11:02:01")))
+        assertFalse(redundant(derive(5, "11:04:01")))
+        assertFalse(redundant(derive(120, "11:04:01")))
+        assertFalse(redundant(derive(120, "13:00")))
         // Within the bounce window the repeat is the same departure and needs no note.
         assertTrue(derive(5, "11:01").reviews.isEmpty())
         assertEquals(setOf(ReviewReason.REPEATED_EXIT), derive(5, "11:01:01").reviews.map { it.reason }.toSet())
@@ -302,5 +306,36 @@ class RedundantExitTest {
             event("out-3", Transition.EXIT, "11:08")), now = "12:00"))
         assertEquals(setOf("out-2"), result.sessions.single { it.start != null }.redundantEventIds)
         assertTrue(result.reviews.any { it.reason == ReviewReason.MISSING_ENTER && "out-3" in it.sourceEventIds })
+    }
+
+    @Test fun largeArrivalGraceKeepsHoursLaterExitReviewable() {
+        val result = AttendanceEngine.derive(AttendanceInput(listOf(office.copy(entryGraceMinutes = 120)),
+            listOf(event("in", Transition.ENTER, "08:00"), event("out", Transition.EXIT, "11:00"),
+                event("later", Transition.EXIT, "13:00")),
+            policy = Policy(zoneId = zone), now = at("14:00"), historyStartDate = day))
+        assertTrue(result.reviews.any { it.reason == ReviewReason.MISSING_ENTER && "later" in it.sourceEventIds })
+        assertTrue(result.reviews.none { it.reason == ReviewReason.REPEATED_EXIT })
+        assertTrue(result.sessions.single { it.start != null }.redundantEventIds.isEmpty())
+    }
+
+    @Test fun otherOfficeEvidenceBetweenRepeatsIsNotSilentlyAbsorbed() {
+        val b = office.copy(id = "b", name = "Synthetic second office", latitude = 1.0)
+        val result = AttendanceEngine.derive(input(listOf(event("in", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "12:00"), event("b-in", Transition.ENTER, "12:00:10", "b"),
+            event("again", Transition.EXIT, "12:00:40")), now = "12:30", offices = listOf(office, b)))
+        val a = result.sessions.single { it.officeId == "a" }
+        assertEquals(at("12:00"), a.end)
+        assertEquals(setOf("again"), a.redundantEventIds)
+        assertTrue(ReviewReason.REPEATED_EXIT in a.reviewReasons)
+        assertTrue(result.reviews.none { it.reason == ReviewReason.MISSING_ENTER && "again" in it.sourceEventIds })
+    }
+
+    @Test fun severalRepeatsKeepOneAdvisoryNote() {
+        val result = AttendanceEngine.derive(input(listOf(event("in", Transition.ENTER, "09:00"),
+            event("out", Transition.EXIT, "11:00"), event("r1", Transition.EXIT, "11:02"),
+            event("r2", Transition.EXIT, "11:03")), now = "12:00"))
+        val notes = result.reviews.filter { it.reason == ReviewReason.REPEATED_EXIT }
+        assertEquals(1, notes.size)
+        assertTrue(notes.single().sourceEventIds.containsAll(setOf("r1", "r2")))
     }
 }

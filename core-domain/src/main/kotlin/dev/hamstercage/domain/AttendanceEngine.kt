@@ -15,6 +15,9 @@ object AttendanceEngine {
     private val boundaryBounceWindow = Duration.ofSeconds(60)
     /** A short, accurate inside fix can explain an isolated false EXIT; longer gaps remain unknown. */
     private val adaptiveConfirmationWindow = Duration.ofMinutes(3)
+    /** Beyond the confirmation horizon after a departure, a repeated EXIT is no longer
+     * treated as part of that boundary event; a possibly missed return stays reviewable. */
+    private val repeatedExitHorizon = boundaryBounceWindow.plus(adaptiveConfirmationWindow)
 
     fun derive(input: AttendanceInput): AttendanceResult {
         require(input.now.isStorageTime()) { "Current time must fit the persisted epoch-millisecond representation" }
@@ -54,6 +57,9 @@ object AttendanceEngine {
             //   nothing unless it lasts longer than both arrival grace and the
             //   transient window, so the bound is that window plus that floor;
             // - after a decisive ABSENCE no merge is possible, so the bound is the floor.
+            // Both are capped by the repeated-EXIT horizon so a large arrival grace can
+            // never turn a much later EXIT into an advisory: a shorter bound only keeps
+            // more repeats reviewable.
             // A receipt-timed anchor has an unknown earlier observation time and
             // cannot bound the gap at all.
             val separateVisitFloor = maxOf(Duration.ofMinutes(offices.getValue(officeId).entryGraceMinutes.toLong()),
@@ -89,8 +95,8 @@ object AttendanceEngine {
                 geofenceExitNeedsConfirmation = exitedVisit && exit?.event?.transition == Transition.EXIT
                 lastExitAt = if (exitedVisit) exit?.event?.at else null
                 outsideAnchor = if (exitedVisit) exit?.event?.at else null
-                anchorBound = if (exit?.event?.transition == Transition.EXIT) boundaryBounceWindow.plus(separateVisitFloor)
-                    else separateVisitFloor
+                anchorBound = minOf(repeatedExitHorizon, if (exit?.event?.transition == Transition.EXIT)
+                    boundaryBounceWindow.plus(separateVisitFloor) else separateVisitFloor)
                 anchorReceiptTimed = exit != null && receiptTimed(exit)
                 open = null
                 ids.clear()
@@ -108,10 +114,15 @@ object AttendanceEngine {
                 ordered.forEach { observation ->
                     val pending = pendingExit
                     if (pending != null && observation.event.transition == Transition.EXIT &&
-                        !receiptTimed(pending) && Duration.between(pending.event.at, observation.event.at) <= boundaryBounceWindow) {
+                        !receiptTimed(pending) && Duration.between(pending.event.at, observation.event.at) <= boundaryBounceWindow &&
+                        usable.none { it.officeId != officeId && it.at >= pending.event.at && it.at <= observation.event.at }) {
                         // A repeated EXIT within the bounce window of an unresolved departure
                         // is the same departure: any return between them would merge into
                         // this visit. Keep waiting for a bounce ENTER from the first EXIT.
+                        // If no return follows, credit still ends at the first EXIT; the at
+                        // most 60 s difference is the same jitter tolerance as the bounce rule.
+                        // Another office's evidence in between is not jitter and is handled
+                        // after the departure closes, with an advisory note.
                         redundant += observation.ids
                         if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
                         return@forEach
@@ -174,7 +185,9 @@ object AttendanceEngine {
                                 else -> session.confidence
                             },
                             reviewReasons = reasons)
-                        reviews += ReviewItem(ReviewReason.REPEATED_EXIT, evidence, session.id)
+                        reviews.removeAll { it.sessionId == session.id && it.reason == ReviewReason.REPEATED_EXIT }
+                        reviews += ReviewItem(ReviewReason.REPEATED_EXIT,
+                            evidence + session.redundantEventIds, session.id)
                         if (unconfirmed && ReviewReason.UNCONFIRMED_BOUNDARY !in session.reviewReasons)
                             reviews += ReviewItem(ReviewReason.UNCONFIRMED_BOUNDARY, evidence, session.id)
                         return@forEach
@@ -210,7 +223,7 @@ object AttendanceEngine {
                                 geofenceExitNeedsConfirmation = false
                                 if (exitedVisit) {
                                     outsideAnchor = observation.event.at
-                                    anchorBound = separateVisitFloor
+                                    anchorBound = minOf(repeatedExitHorizon, separateVisitFloor)
                                     anchorReceiptTimed = receiptTimed(observation)
                                 }
                                 ids.clear()
