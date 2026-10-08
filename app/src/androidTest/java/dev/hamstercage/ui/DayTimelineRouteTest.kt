@@ -113,7 +113,7 @@ class DayTimelineRouteTest {
         } } }
         compose.onNodeWithText("Current presence checked again at Westerville Office", substring = true)
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Current presence is confirmed at this check, not continuous presence before it.", substring = true)
+        compose.onNodeWithText("Inside now; earlier continuity is unknown. Confirmed time may count. The gap needs review.", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Outside Westerville Office at a later check", substring = true).assertDoesNotExist()
         assertPlainReview("earlier visit ended")
