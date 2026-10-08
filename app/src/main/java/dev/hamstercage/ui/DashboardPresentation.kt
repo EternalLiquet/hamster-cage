@@ -1,5 +1,6 @@
 package dev.hamstercage.ui
 
+import dev.hamstercage.domain.ADVISORY_REVIEW_REASONS
 import dev.hamstercage.domain.AttendanceInput
 import dev.hamstercage.domain.AttendanceEngine
 import dev.hamstercage.domain.AttendanceResult
@@ -22,11 +23,11 @@ data class DashboardPresence(val label: String, val needsReview: Boolean, val se
 fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, trackingReady: Boolean): DashboardPresence {
     val eligibleIds = input.offices.filter { it.enabled && it.countsTowardAttendance }.map { it.id }.toSet()
     val open = result.sessions.filter { it.isOpen && it.officeId in eligibleIds }
-    val review = result.reviews.any { it.reason !in setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT) } || open.size > 1
+    val review = result.reviews.any { it.reason != ReviewReason.OPEN_SESSION && it.reason !in ADVISORY_REVIEW_REASONS } || open.size > 1
     // An old interval closed for review by a fresh presence observation does not
     // make the newly observed current office ambiguous. Keep its review notice.
     val liveReview = result.reviews.any { it.reason !in setOf(ReviewReason.OPEN_SESSION,
-        ReviewReason.DUPLICATE_EVENT, ReviewReason.UNCONFIRMED_GAP) } || open.size > 1
+        ReviewReason.UNCONFIRMED_GAP) + ADVISORY_REVIEW_REASONS } || open.size > 1
     val safeLiveProjection = open.size == 1 && AttendanceEngine.departure(input, result,
         TargetWindow.TODAY).status in setOf(DepartureStatus.ESTIMATED, DepartureStatus.TARGET_SATISFIED)
     val today = input.now.atZone(input.policy.zoneId).toLocalDate()

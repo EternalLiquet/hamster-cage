@@ -27,6 +27,7 @@ internal fun timelineReviewCue(reason: ReviewReason): String = when (reason) {
     ReviewReason.ZERO_LENGTH_SESSION -> "The recorded bounds leave no positive visit time."
     ReviewReason.INVALID_MANUAL_SESSION -> "A manually entered visit has invalid bounds and cannot be credited."
     ReviewReason.CONFLICTING_MANUAL_SESSION_ID -> "Two manual visits share a record identifier and need review."
+    ReviewReason.REPEATED_EXIT -> "Another office-area exit followed soon after this departure. Credit ends at the first exit. If you came back and stayed until the later exit, correct this visit."
 }
 
 internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<DayTimelineRow> {

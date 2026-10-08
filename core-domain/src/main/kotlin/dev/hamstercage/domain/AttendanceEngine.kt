@@ -15,6 +15,9 @@ object AttendanceEngine {
     private val boundaryBounceWindow = Duration.ofSeconds(60)
     /** A short, accurate inside fix can explain an isolated false EXIT; longer gaps remain unknown. */
     private val adaptiveConfirmationWindow = Duration.ofMinutes(3)
+    /** Beyond the confirmation horizon after a departure, a repeated EXIT is no longer
+     * treated as part of that boundary event; a possibly missed return stays reviewable. */
+    private val repeatedExitHorizon = boundaryBounceWindow.plus(adaptiveConfirmationWindow)
 
     fun derive(input: AttendanceInput): AttendanceResult {
         require(input.now.isStorageTime()) { "Current time must fit the persisted epoch-millisecond representation" }
@@ -39,29 +42,66 @@ object AttendanceEngine {
             }.sortedWith(compareBy<Observation> { it.event.at }.thenBy { it.event.transition }.thenBy { it.event.id })
             var open: Observation? = null
             var pendingExit: Observation? = null
+            // An EXIT after a completed visit is another outside observation, not
+            // evidence of a new visit. An initial orphan EXIT cannot establish this.
+            var exitedVisit = false
+            var geofenceExitNeedsConfirmation = false
+            var lastExitAt: Instant? = null
+            // A repeated same-office EXIT is redundant only while an unobserved return
+            // before it could not change credit. The anchor is the closed visit's own
+            // outside observation or a later decisive ABSENCE; repeated EXITs never move
+            // it, because they may themselves be the signals of a missed return.
+            // Bounds compare observation times, never delivery times:
+            // - after the closing EXIT, a return within the bounce window would merge
+            //   into the same visit, and a later one is a separate visit that earns
+            //   nothing unless it lasts longer than both arrival grace and the
+            //   transient window, so the bound is that window plus that floor;
+            // - after a decisive ABSENCE no merge is possible, so the bound is the floor.
+            // Both are capped by the repeated-EXIT horizon so a large arrival grace can
+            // never turn a much later EXIT into an advisory: a shorter bound only keeps
+            // more repeats reviewable.
+            // A receipt-timed anchor has an unknown earlier observation time and
+            // cannot bound the gap at all.
+            val separateVisitFloor = maxOf(Duration.ofMinutes(offices.getValue(officeId).entryGraceMinutes.toLong()),
+                boundaryBounceWindow)
+            var outsideAnchor: Instant? = null
+            var anchorBound: Duration = Duration.ZERO
+            var anchorReceiptTimed = false
+            // Repeated EXITs absorbed into the same departure are retained as
+            // diagnostics, never as correction targets for this visit.
+            val redundant = linkedSetOf<String>()
             val ids = linkedSetOf<String>()
             val flags = linkedSetOf<ReviewReason>()
+            fun receiptTimed(observation: Observation) = observation.ids.any { it in input.receiptTimedEventIds }
             fun addSession(exit: Observation?) {
                 val enter = open
                 val sourceIds = ids.toSet()
                 val sessionId = "session:${enter?.event?.id ?: exit!!.event.id}"
                 val reasons = flags.toSet() +
-                    (if (exit?.ids?.any { it in input.unconfirmedExitIds } == true &&
+                    (if (exit != null && (exit.ids + redundant).any { it in input.unconfirmedExitIds } &&
                         ReviewReason.TRANSIENT_BOUNDARY !in flags)
                         setOf(ReviewReason.UNCONFIRMED_BOUNDARY) else emptySet()) +
                     (if (enter != null && exit != null && enter.event.at == exit.event.at)
                         setOf(ReviewReason.ZERO_LENGTH_SESSION) else emptySet())
                 sessions += Session(sessionId, officeId, enter?.event?.at, exit?.event?.at, sourceIds,
                     when {
-                        reasons.any { it != ReviewReason.DUPLICATE_EVENT && it != ReviewReason.OPEN_SESSION } -> Confidence.LOW
-                        ReviewReason.DUPLICATE_EVENT in reasons -> Confidence.MEDIUM
+                        reasons.any { it !in ADVISORY_REVIEW_REASONS && it != ReviewReason.OPEN_SESSION } -> Confidence.LOW
+                        reasons.any { it in ADVISORY_REVIEW_REASONS } -> Confidence.MEDIUM
                         enter != null && exit == null -> Confidence.MEDIUM
                         else -> Confidence.HIGH
-                    }, reasons)
+                    }, reasons, redundantEventIds = redundant.toSet())
                 reasons.forEach { reviews += ReviewItem(it, sourceIds, sessionId) }
+                exitedVisit = enter != null && exit != null
+                geofenceExitNeedsConfirmation = exitedVisit && exit?.event?.transition == Transition.EXIT
+                lastExitAt = if (exitedVisit) exit?.event?.at else null
+                outsideAnchor = if (exitedVisit) exit?.event?.at else null
+                anchorBound = minOf(repeatedExitHorizon, if (exit?.event?.transition == Transition.EXIT)
+                    boundaryBounceWindow.plus(separateVisitFloor) else separateVisitFloor)
+                anchorReceiptTimed = exit != null && receiptTimed(exit)
                 open = null
                 ids.clear()
                 flags.clear()
+                redundant.clear()
             }
             observations.groupBy { it.event.at }.values.forEach { simultaneous ->
                 // Close a preceding visit before starting another at a simultaneous boundary.
@@ -73,6 +113,20 @@ object AttendanceEngine {
                 }.thenBy { it.event.id })
                 ordered.forEach { observation ->
                     val pending = pendingExit
+                    if (pending != null && observation.event.transition == Transition.EXIT &&
+                        !receiptTimed(pending) && Duration.between(pending.event.at, observation.event.at) <= boundaryBounceWindow &&
+                        usable.none { it.officeId != officeId && it.at >= pending.event.at && it.at <= observation.event.at }) {
+                        // A repeated EXIT within the bounce window of an unresolved departure
+                        // is the same departure: any return between them would merge into
+                        // this visit. Keep waiting for a bounce ENTER from the first EXIT.
+                        // If no return follows, credit still ends at the first EXIT; the at
+                        // most 60 s difference is the same jitter tolerance as the bounce rule.
+                        // Another office's evidence in between is not jitter and is handled
+                        // after the departure closes, with an advisory note.
+                        redundant += observation.ids
+                        if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
+                        return@forEach
+                    }
                     if (pending != null) {
                         val elapsed = Duration.between(pending.event.at, observation.event.at)
                         val otherOfficeBetween = usable.any { it.officeId != officeId &&
@@ -99,11 +153,50 @@ object AttendanceEngine {
                             flags += ReviewReason.UNCONFIRMED_GAP
                         addSession(pending)
                     }
+                    val anchor = outsideAnchor
+                    if (observation.event.transition == Transition.EXIT && open == null && exitedVisit &&
+                        anchor != null && !anchorReceiptTimed &&
+                        Duration.between(anchor, observation.event.at) <= anchorBound) {
+                        // Retain the raw fact as a diagnostic of the preceding visit without
+                        // adding an orphan boundary or a correction alias. A missed return in
+                        // this window could not earn its own credit, but it would block
+                        // short-gap reconciliation, so the advisory REPEATED_EXIT also does.
+                        // The repository may mark only the latest EXIT unconfirmed, so
+                        // transfer that uncertainty to the real closed visit.
+                        val previous = sessions.lastIndex
+                        val session = sessions[previous]
+                        val decisiveOtherOffice = lastExitAt?.let { exitAt ->
+                            usable.any { other -> other.officeId != officeId &&
+                                other.transition == Transition.PRESENCE &&
+                                other.id in input.adaptivePresenceIds + input.recoveryPresenceIds &&
+                                other.at > exitAt && other.at <= observation.event.at }
+                        } == true
+                        val unconfirmed = geofenceExitNeedsConfirmation &&
+                            !decisiveOtherOffice &&
+                            observation.ids.any { it in input.unconfirmedExitIds } &&
+                            ReviewReason.TRANSIENT_BOUNDARY !in session.reviewReasons
+                        val reasons = session.reviewReasons + ReviewReason.REPEATED_EXIT + if (unconfirmed)
+                            setOf(ReviewReason.UNCONFIRMED_BOUNDARY) else emptySet()
+                        val evidence = session.sourceEventIds + observation.ids
+                        sessions[previous] = session.copy(redundantEventIds = session.redundantEventIds + observation.ids,
+                            confidence = when {
+                                unconfirmed -> Confidence.LOW
+                                session.confidence == Confidence.HIGH -> Confidence.MEDIUM
+                                else -> session.confidence
+                            },
+                            reviewReasons = reasons)
+                        reviews.removeAll { it.sessionId == session.id && it.reason == ReviewReason.REPEATED_EXIT }
+                        reviews += ReviewItem(ReviewReason.REPEATED_EXIT,
+                            evidence + session.redundantEventIds, session.id)
+                        if (unconfirmed && ReviewReason.UNCONFIRMED_BOUNDARY !in session.reviewReasons)
+                            reviews += ReviewItem(ReviewReason.UNCONFIRMED_BOUNDARY, evidence, session.id)
+                        return@forEach
+                    }
                     ids += observation.ids
                     if (observation.duplicate) flags += ReviewReason.DUPLICATE_EVENT
                     when (observation.event.transition) {
                         Transition.ENTER -> when {
-                            open == null -> open = observation
+                            open == null -> { open = observation; exitedVisit = false; outsideAnchor = null }
                             // Same-office arrival observations corroborate an already open
                             // visit. The first opening timestamp remains the grace anchor.
                             else -> Unit
@@ -124,7 +217,17 @@ object AttendanceEngine {
                             if (open != null) {
                                 flags += ReviewReason.UNCONFIRMED_GAP
                                 addSession(observation)
-                            } else ids.clear()
+                            } else {
+                                // A fresh outside fix settles an earlier geofence
+                                // departure even if more redundant EXITs arrive.
+                                geofenceExitNeedsConfirmation = false
+                                if (exitedVisit) {
+                                    outsideAnchor = observation.event.at
+                                    anchorBound = minOf(repeatedExitHorizon, separateVisitFloor)
+                                    anchorReceiptTimed = receiptTimed(observation)
+                                }
+                                ids.clear()
+                            }
                         }
                         Transition.PRESENCE -> {
                             if (open != null) {
@@ -141,6 +244,8 @@ object AttendanceEngine {
                                 // opening without restarting arrival grace.
                             } else {
                                 open = observation
+                                exitedVisit = false
+                                outsideAnchor = null
                             }
                         }
                     }
@@ -249,7 +354,10 @@ object AttendanceEngine {
                     val previousCredit = creditBySession[before.id]
                     val nextCredit = creditBySession[after.id]
                     val nextEntry = after.start
-                    val contradictoryGap = nextEntry != null && before.end != null &&
+                    // A repeated EXIT after this visit leaves room for an unobserved
+                    // zero-credit return, which would block reconciliation of this gap.
+                    val contradictoryGap = ReviewReason.REPEATED_EXIT in before.reviewReasons ||
+                        nextEntry != null && before.end != null &&
                         (usable.any { it.officeId != before.officeId && it.at >= before.end && it.at <= nextEntry } ||
                             after.sourceEventIds.any { it in input.recoveryPresenceIds ||
                                 it in input.adaptivePresenceIds })
@@ -311,7 +419,7 @@ object AttendanceEngine {
         require(span in 0..36600 && endDate < LocalDate.MAX) { "Invalid or oversized calendar period" }
         val today = input.now.atZone(input.policy.zoneId).toLocalDate()
         val eligible = input.offices.filter { it.enabled && it.countsTowardAttendance }.map { it.id }.toSet()
-        val benign = setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT)
+        val benign = setOf(ReviewReason.OPEN_SESSION) + ADVISORY_REVIEW_REASONS
         val reliable = result.sessions.filter { it.officeId in eligible && it.start != null &&
             it.reviewReasons.all(benign::contains) && (it.end == null || it.end > it.start) }
         val sessionStart = reliable.minOfOrNull { it.start!!.atZone(input.policy.zoneId).toLocalDate() }
@@ -407,7 +515,7 @@ object AttendanceEngine {
                 (session.start == null || session.start < windowEnd)
         }
         val current = relevant.filter { it.isOpen }
-        val benign = setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT)
+        val benign = setOf(ReviewReason.OPEN_SESSION) + ADVISORY_REVIEW_REASONS
         // A bare EXIT before any credible visit is an auditable platform signal,
         // not evidence of presence or ambiguity in the later active visit.
         val firstStart = relevant.mapNotNull { it.start }.minOrNull()

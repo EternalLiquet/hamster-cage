@@ -6,6 +6,7 @@ import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.StorageState
+import dev.hamstercage.domain.ADVISORY_REVIEW_REASONS
 import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.RawEvent
 import dev.hamstercage.domain.ReviewReason
@@ -74,7 +75,7 @@ internal fun canOpenFromObservation(snapshot: AppSnapshot, officeId: String, cov
     val otherOfficeSinceOpening = snapshot.events.any { event ->
         event.officeId != officeId && session.start?.let { event.at >= it } == true && event.at <= observedAt
     }
-    val blockingReview = session.reviewReasons.any { it !in setOf(ReviewReason.OPEN_SESSION, ReviewReason.DUPLICATE_EVENT) }
+    val blockingReview = session.reviewReasons.any { it != ReviewReason.OPEN_SESSION && it !in ADVISORY_REVIEW_REASONS }
     if (currentOpeningFact && !otherOfficeSinceOpening && !blockingReview &&
         coverage.presenceConfirmed(now, snapshot.policy.zoneId))
         return ReconcileOutcome.ALREADY_PRESENT
