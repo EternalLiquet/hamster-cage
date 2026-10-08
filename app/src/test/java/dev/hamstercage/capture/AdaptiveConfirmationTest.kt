@@ -276,4 +276,36 @@ class AdaptiveConfirmationTest {
         val derived = afterFirst.copy(eventEvidence = afterFirst.eventEvidence + second).derive(at.plusSeconds(600))
         assertEquals(first.single().event.at, derived.sessions.last().start)
     }
+
+    @Test fun visitObservedEntirelyBeforeAnOutageKeepsItsCredit() {
+        // Issue #113's example: ENTER, inside check, EXIT, then an inconclusive restart and an
+        // inside fix. The EXIT was delivered while capture was healthy, so the outage begins at
+        // it and the whole visit was observed under healthy monitoring.
+        val zone = java.time.ZoneId.of("America/New_York")
+        val office = Office("a", "A", 0.0, 0.0)
+        val enter = event("enter", "a", Transition.ENTER, -7200)
+        val check = event("check", "a", Transition.PRESENCE, -3600, PRESENCE_CORROBORATION)
+        val exit = event("exit", "a", Transition.EXIT)
+        val snapshot = AppSnapshot(listOf(office), listOf(enter, check, exit), emptyList(), emptyList(),
+            Policy(zoneId = zone))
+        val ledger = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+            .observed(check.event.at).observed(exit.event.at)
+            .processStarted(at.plusSeconds(300), zone, ProcessContinuity.UNKNOWN)
+            .registrationSucceeded(at.plusSeconds(301), zone, true)
+        assertFalse(requiresAdaptiveRecoverySplit(snapshot, ledger, "exit", "a", at.plusSeconds(600)))
+        val fix = adaptiveFacts("a", "a", at.plusSeconds(600), at.plusSeconds(601), 12f,
+            recoveryPresence = false) { "fix" }.single()
+        val result = snapshot.copy(eventEvidence = snapshot.eventEvidence + fix).derive(at.plusSeconds(1200))
+        val old = result.intervals.single { "session:enter" in it.sessionIds }
+        assertEquals(enter.event.at.plusSeconds(300), old.start)
+        assertEquals(exit.event.at, old.end)
+        // The time after the EXIT is still not bridged into the new fix-time visit.
+        assertTrue(result.intervals.none { it.start < fix.event.at && it.end > exit.event.at })
+        // If the EXIT came after the last healthy observation, the visit still splits.
+        val laterExit = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+            .observed(check.event.at)
+            .processStarted(at.plusSeconds(300), zone, ProcessContinuity.UNKNOWN)
+            .registrationSucceeded(at.plusSeconds(301), zone, true)
+        assertTrue(requiresAdaptiveRecoverySplit(snapshot, laterExit, "exit", "a", at.plusSeconds(600)))
+    }
 }

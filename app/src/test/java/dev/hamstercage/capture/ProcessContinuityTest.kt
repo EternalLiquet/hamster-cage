@@ -62,4 +62,16 @@ class ProcessContinuityTest {
         // A foreground launch with no exit record (Android 8–10) cannot rule out a force-stop.
         assertEquals(ProcessContinuity.UNKNOWN, decide())
     }
+
+    @Test fun recoveryRemembersWhereTheOutageBegan() {
+        val start = Instant.parse("2025-03-10T13:00:00Z")
+        val lastHealthy = start.plusSeconds(7200)
+        val healthy = CoverageLedger().registrationSucceeded(start, zone, true).observed(lastHealthy)
+        val recovered = healthy.processStarted(start.plusSeconds(7500), zone, ProcessContinuity.UNKNOWN)
+            .registrationSucceeded(start.plusSeconds(7501), zone, true)
+        assertEquals(lastHealthy, recovered.lastOutageStartedAt)
+        assertEquals(start.plusSeconds(7501), recovered.recoveryBoundaryAt)
+        // An ordinary re-registration without an outage keeps the earlier record.
+        assertEquals(lastHealthy, recovered.registrationSucceeded(start.plusSeconds(9000), zone, true).lastOutageStartedAt)
+    }
 }
