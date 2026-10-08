@@ -399,15 +399,27 @@ object AttendanceEngine {
         val credited = bounded.mapNotNull { session ->
             val office = offices.getValue(session.officeId)
             val start = session.start
+            // A visit closed by an outside check has an unknown departure time. Its credit may
+            // run only to the latest same-office inside observation within it; the span from
+            // there to the check stays uncredited and under UNCONFIRMED_GAP review. Visits
+            // split by an outage recovery, or closed by an EXIT after one, earn nothing.
+            val lastInsideBeforeOutsideCheck = if (session.correctionId == null && session.end != null &&
+                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons &&
+                usable.any { it.id in session.sourceEventIds && it.transition == Transition.ABSENCE && it.at == session.end })
+                usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId &&
+                    it.transition in setOf(Transition.ENTER, Transition.PRESENCE) && it.at < session.end }
+                    .maxOfOrNull { it.at } ?: start
+            else null
             if (start == null || !office.enabled || !office.countsTowardAttendance ||
                 ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons ||
-                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons || ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons) null
+                (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons && lastInsideBeforeOutsideCheck == null) ||
+                ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons) null
             else {
                 val candidateAt = if (session.correctionId == null) usable.filter {
                     it.id in session.sourceEventIds && it.id in input.candidateExitIds
                 }.minOfOrNull { it.at } else null
                 val end = minOf(session.end ?: input.now, input.now, candidateAt ?: input.now,
-                    crossOfficeStops[session.id]?.at ?: input.now)
+                    crossOfficeStops[session.id]?.at ?: input.now, lastInsideBeforeOutsideCheck ?: input.now)
                 val creditStart = start.plusSeconds(office.entryGraceMinutes * 60L)
                 if (end <= creditStart) null else CreditedInterval(creditStart, end, setOf(session.id))
             }

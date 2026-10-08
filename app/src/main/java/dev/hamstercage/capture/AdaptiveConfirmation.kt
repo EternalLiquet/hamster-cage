@@ -14,6 +14,9 @@ import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.EXIT_VERIFY_INSIDE
 import dev.hamstercage.data.EXIT_VERIFY_OUTSIDE
+import dev.hamstercage.data.EXIT_VERIFICATION_WINDOW
+import dev.hamstercage.data.newlyRejectedExitIds
+import dev.hamstercage.data.exitVerificationState
 import dev.hamstercage.domain.RawEvent
 import dev.hamstercage.domain.Transition
 import dev.hamstercage.location.LocationPermissions
@@ -40,7 +43,7 @@ internal object AdaptiveConfirmation {
     private const val OFFICES = "batch-offices"
     private const val ATTEMPT = "attempt"
     internal const val MAX_EXIT_ATTEMPTS = 5
-    internal const val EXIT_WINDOW_SECONDS = 300L
+    internal val EXIT_WINDOW_SECONDS = EXIT_VERIFICATION_WINDOW.seconds
 
     internal fun delaySeconds(transition: Transition, attempt: Int): Long =
         if (transition == Transition.EXIT) 30L + (attempt - 1) * 60L else 45L
@@ -136,6 +139,21 @@ internal fun eligibleAdaptiveBatch(snapshot: AppSnapshot, candidate: AdaptiveCon
     return batch
 }
 
+/**
+ * Facts for one EXIT verification fix. Delivery latency alone never makes an inside fix a
+ * recovery split: the EXIT was observed, so the visit it closes keeps its observed credit and
+ * only the unobserved interval after it is uncertain. Only a genuine capture outage or other
+ * office evidence since the visit opened marks the fix as an unsafe recovery.
+ */
+internal fun exitVerificationFactsFor(snapshot: AppSnapshot, coverage: CoverageLedger,
+    batch: List<RecordedEvent>, candidateId: String, insideOfficeId: String?, observedAt: Instant,
+    now: Instant, accuracyMeters: Float, newId: () -> String = HamsterRepository::newId): List<RecordedEvent> {
+    val recovery = insideOfficeId != null &&
+        requiresAdaptiveRecoverySplit(snapshot, coverage, candidateId, insideOfficeId, now)
+    return exitVerificationFacts(batch.map { it.event.officeId }, insideOfficeId, observedAt, now,
+        accuracyMeters, recoveryPresence = recovery, newId = newId)
+}
+
 internal fun exitVerificationFacts(candidateOfficeIds: List<String>, confirmedOfficeId: String?,
     observedAt: Instant, receivedAt: Instant, accuracyMeters: Float,
     recoveryPresence: Boolean = false,
@@ -227,6 +245,7 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             MonitoringStore.record(context, "Boundary check unavailable; retry from the app")
             return Result.success()
         }
+        var resyncOffices = emptyList<String>()
         try { withTimeout(8_000) { CaptureWriteGate.mutex.withLock {
             val now = Instant.now()
             val currentReset = PrivacyResetStore.read(context)
@@ -262,15 +281,8 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
                     accuracyMeters = accuracy)
                 return@withLock
             }
-            val facts = if (isExit) {
-                val delayed = batch.any {
-                    Duration.between(it.event.at, it.receivedAt).seconds > 120
-                }
-                val recovery = office != null && (delayed || requiresAdaptiveRecoverySplit(snapshot,
-                    coverage, id, office.id, now))
-                exitVerificationFacts(batch.map { it.event.officeId }, office?.id, observedAt,
-                    now, fix.accuracy, recoveryPresence = recovery)
-            }
+            val facts = if (isExit) exitVerificationFactsFor(snapshot, coverage, batch, id, office?.id,
+                observedAt, now, fix.accuracy)
             else {
                 val recovery = office != null && requiresAdaptiveRecoverySplit(snapshot,
                     coverage, id, office.id, now)
@@ -281,11 +293,20 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             CoverageStore.change(context) { it.observed(observedAt) }
             MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", observedAt,
                 fix.accuracy)
+            val updated = snapshot.copy(eventEvidence = snapshot.eventEvidence + facts)
+            if (isExit) {
+                val rejected = newlyRejectedExitIds(exitVerificationState(snapshot.eventEvidence, now),
+                    exitVerificationState(updated.eventEvidence, now))
+                resyncOffices = batch.filter { it.event.id in rejected }.map { it.event.officeId }.distinct()
+            }
             // Confirmation can also run in a process with no activity observer.
-            updateReconciliationAfterObservation(context,
-                snapshot.copy(eventEvidence = snapshot.eventEvidence + facts), now)
+            updateReconciliationAfterObservation(context, updated, now)
         } } } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Boundary check unavailable; retry from the app") }
+        // Outside the capture gate: re-registration takes the same gate.
+        if (resyncOffices.isNotEmpty()) try { CaptureController.get(context).resyncAfterRejectedExit(resyncOffices) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { MonitoringStore.record(context, "Office boundary refresh unavailable; later checks may recover") }
         return Result.success()
     }
 }

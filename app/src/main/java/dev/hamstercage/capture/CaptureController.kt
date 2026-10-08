@@ -1,6 +1,9 @@
 package dev.hamstercage.capture
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.Context
+import android.os.Build
 import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.offices.registrationIntents
@@ -78,7 +81,10 @@ class CaptureController private constructor(context: Context) {
         val now = Instant.now()
         val zone = (state as? StorageState.Ready)?.snapshot?.policy?.zoneId ?: ZoneId.systemDefault()
         if (!processStarted) {
-            CoverageStore.change(application) { it.processStarted(now, zone) }
+            // Checked before synchronize() recreates the token for this process.
+            val continuity = processContinuity(registrar.registrationTokenPresent(reset.generation),
+                lastExitStoppedByUserOrUpdate())
+            CoverageStore.change(application) { it.processStarted(now, zone, continuity) }
             processStarted = true
         }
         val status = when (state) {
@@ -106,6 +112,27 @@ class CaptureController private constructor(context: Context) {
             WeekdayReconciliation.cancel(application)
             AdaptiveConfirmation.cancelAll(application)
         }
+    }
+
+    /** Re-arms the platform's inside state for offices whose phantom EXIT was just rejected. */
+    suspend fun resyncAfterRejectedExit(officeIds: List<String>) = CaptureWriteGate.mutex.withLock {
+        val reset = PrivacyResetStore.read(application)
+        if (reset !is PrivacyResetState.Idle || !MonitoringStore.read(application).enabled ||
+            !LocationPermissions.read(application).prerequisitesReady) return@withLock
+        val state = repository.state.first() as? StorageState.Ready ?: return@withLock
+        val intents = state.snapshot.registrationIntents().filter { it.officeId in officeIds }
+        registrar.resyncInside(intents, reset.generation)
+    }
+
+    /** Android 11+ records why the previous process ended; a user stop or update removes geofences. */
+    private fun lastExitStoppedByUserOrUpdate(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        return try {
+            val manager = application.getSystemService(ActivityManager::class.java) ?: return false
+            manager.getHistoricalProcessExitReasons(application.packageName, 0, 1).firstOrNull()?.reason in setOf(
+                ApplicationExitInfo.REASON_USER_REQUESTED, ApplicationExitInfo.REASON_USER_STOPPED,
+                ApplicationExitInfo.REASON_PACKAGE_UPDATED, ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE)
+        } catch (_: RuntimeException) { false }
     }
 
     /** Call after each foreground return so platform-cleared fences are restored. */

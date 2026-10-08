@@ -138,14 +138,7 @@ class HamsterRepository internal constructor(
         events.forEach { evidence ->
             val event = evidence.event
             validId(event.id); validId(event.officeId)
-            require(when (evidence.source) {
-                "PLAY_SERVICES_GEOFENCE" -> event.transition in setOf(Transition.ENTER, Transition.EXIT)
-                "FOREGROUND_LOCATION_RECONCILIATION" -> event.transition == Transition.PRESENCE
-                "BACKGROUND_LOCATION_RECONCILIATION" -> event.transition in setOf(Transition.PRESENCE, Transition.ABSENCE)
-                "ADAPTIVE_LOCATION_CONFIRMATION" -> event.transition in setOf(Transition.PRESENCE, Transition.ABSENCE)
-                "ADAPTIVE_RECOVERY_CONFIRMATION" -> event.transition == Transition.PRESENCE
-                else -> false
-            }) { "Observation source and type disagree." }
+            require(observationSourceAccepts(evidence.source, event.transition)) { "Observation source and type disagree." }
             require(evidence.accuracyMeters == null || evidence.accuracyMeters.isFinite() &&
                 evidence.accuracyMeters in 0f..10000f) { "Invalid fix accuracy." }
             val record = EventRecord(event.id, event.officeId, event.transition.name, event.at.persistedMillis(),

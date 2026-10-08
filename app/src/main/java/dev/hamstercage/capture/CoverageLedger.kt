@@ -17,9 +17,17 @@ data class CoverageLedger(
     val registration: RegistrationStatus = RegistrationStatus.UNKNOWN,
     val policyZoneId: ZoneId? = null,
 ) {
-    /** A new process cannot assume an old OS registration survived a force-stop. */
-    fun processStarted(now: Instant, zone: ZoneId): CoverageLedger =
-        if (lastHealthyAt == null && outageStartedAt == null) this else outage(now, zone)
+    /**
+     * A new process cannot assume an old OS registration survived a force-stop, reboot or data
+     * clear. Ordinary reclamation of the process leaves the registration in place, so only a
+     * lost or uninspectable registration opens an outage.
+     */
+    fun processStarted(now: Instant, zone: ZoneId,
+        continuity: ProcessContinuity = ProcessContinuity.UNKNOWN): CoverageLedger = when {
+        lastHealthyAt == null && outageStartedAt == null -> this
+        continuity == ProcessContinuity.SURVIVED -> this
+        else -> outage(now, zone)
+    }
 
     fun outage(now: Instant, zone: ZoneId): CoverageLedger {
         val current = inZone(now, zone)

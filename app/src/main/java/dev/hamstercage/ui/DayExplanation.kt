@@ -60,7 +60,7 @@ fun reviewExplanation(reason: ReviewReason): String = when (reason) {
     ReviewReason.MISSING_ENTER -> "An EXIT has no observed ENTER or corroborated presence. This unconfirmed platform signal does not establish a visit; no start or attendance was invented."
     ReviewReason.OPEN_SESSION -> "No EXIT has been observed. Eligible live credit stops at the evaluation time."
     ReviewReason.STALE_OPEN_SESSION -> "The open session exceeded the configured review limit and is excluded from credit until resolved."
-    ReviewReason.UNCONFIRMED_GAP -> "A later current-location check established the current state without an observed EXIT. The exit time is unknown; the earlier segment is uncredited until its uncertain bounds are reviewed."
+    ReviewReason.UNCONFIRMED_GAP -> "A later current-location check established the current state without an observed EXIT. The exit time is unknown. When a later outside check ended the visit, credit runs only to the last same-office observation that confirmed presence inside; after an outage recovery the earlier segment earns nothing. The uncertain span is uncredited until its bounds are reviewed."
     ReviewReason.UNCONFIRMED_BOUNDARY -> "A geofence EXIT has not been corroborated by a current-location check. This office-area boundary remains uncertain."
     ReviewReason.INVALID_CORRECTION -> "An invalid or conflicting correction was ignored; the latest valid correction or original bounds remain."
     ReviewReason.ORPHAN_CORRECTION -> "This retained correction cannot currently be linked to a session."
