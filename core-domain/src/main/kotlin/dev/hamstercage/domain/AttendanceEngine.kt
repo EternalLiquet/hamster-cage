@@ -414,27 +414,28 @@ object AttendanceEngine {
         val credited = bounded.mapNotNull { session ->
             val office = offices.getValue(session.officeId)
             val start = session.start
-            // A visit closed by an outside check has an unknown departure time. Its credit may
-            // run only to the latest same-office inside observation within it; the span from
-            // there to the check stays uncredited and under UNCONFIRMED_GAP review. Visits
-            // split by an outage recovery, or closed by an EXIT after one, earn nothing.
-            val lastInsideBeforeOutsideCheck = if (session.correctionId == null && session.end != null &&
-                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons &&
-                usable.any { it.id in session.sourceEventIds && it.transition == Transition.ABSENCE && it.at == session.end })
+            // An unconfirmed gap can end at an outside check, a recovery fix, or an EXIT
+            // delivered after capture became uncertain. None establishes presence through
+            // that boundary. Keep only the prefix ending at the last earlier inside fact;
+            // ENTER alone establishes an arrival, not a positive-duration visit.
+            val lastInsideBeforeGap = if (session.correctionId == null && session.end != null &&
+                ReviewReason.UNCONFIRMED_GAP in session.reviewReasons)
                 usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId &&
-                    it.transition in setOf(Transition.ENTER, Transition.PRESENCE) && it.at < session.end }
+                    it.transition in setOf(Transition.ENTER, Transition.PRESENCE) &&
+                    it.id !in input.provisionalPresenceIds &&
+                    start != null && it.at > start && it.at < session.end }
                     .maxOfOrNull { it.at } ?: start
             else null
             if (start == null || !office.enabled || !office.countsTowardAttendance ||
                 ReviewReason.STALE_OPEN_SESSION in session.reviewReasons || ReviewReason.ZERO_LENGTH_SESSION in session.reviewReasons ||
-                (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons && lastInsideBeforeOutsideCheck == null) ||
+                (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons && lastInsideBeforeGap == null) ||
                 ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons) null
             else {
                 val candidateAt = if (session.correctionId == null) usable.filter {
                     it.id in session.sourceEventIds && it.id in input.candidateExitIds
                 }.minOfOrNull { it.at } else null
                 val end = minOf(session.end ?: input.now, input.now, candidateAt ?: input.now,
-                    crossOfficeCaps[session.id] ?: input.now, lastInsideBeforeOutsideCheck ?: input.now)
+                    crossOfficeCaps[session.id] ?: input.now, lastInsideBeforeGap ?: input.now)
                 val creditStart = start.plusSeconds(office.entryGraceMinutes * 60L)
                 if (end <= creditStart) null else CreditedInterval(creditStart, end, setOf(session.id))
             }

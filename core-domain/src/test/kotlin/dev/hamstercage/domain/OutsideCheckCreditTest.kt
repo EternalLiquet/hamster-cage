@@ -34,24 +34,53 @@ class OutsideCheckCreditTest {
         assertTrue(result.intervals.isEmpty())
     }
 
-    @Test fun recoverySplitSegmentStillEarnsNothing() {
-        // A recovery presence splits a pre-outage visit; the old segment stays uncredited even
-        // though it contained an inside observation, because coverage lapsed during it.
+    @Test fun recoverySplitPreservesObservedPrefixOfOpenVisit() {
         val result = derive(listOf(event("in", Transition.ENTER, "09:00"),
             event("check", Transition.PRESENCE, "10:00"), event("recovered", Transition.PRESENCE, "11:00")),
             "11:30", recovery = setOf("recovered"))
         val old = result.sessions.first()
         assertTrue(ReviewReason.UNCONFIRMED_GAP in old.reviewReasons)
-        assertTrue(result.intervals.none { it.sessionIds.contains(old.id) })
+        val oldCredit = result.intervals.single { old.id in it.sessionIds }
+        assertEquals(at("09:05"), oldCredit.start)
+        assertEquals(at("10:00"), oldCredit.end)
+        assertEquals(at("11:05"), result.intervals.last().start)
+        assertTrue(result.intervals.none { it.start < at("11:00") && it.end > at("10:00") })
     }
 
-    @Test fun unsafeRecoveryAfterExitStillEarnsNothingForTheOldVisit() {
+    @Test fun unsafeRecoveryAfterExitPreservesObservedPrefixOfOldVisit() {
         val result = derive(listOf(event("in", Transition.ENTER, "09:00"),
             event("check", Transition.PRESENCE, "10:00"), event("out", Transition.EXIT, "11:00"),
             event("recovered", Transition.PRESENCE, "11:10")), "11:30",
             recovery = setOf("recovered"), unsafe = setOf("recovered"))
         val old = result.sessions.first()
         assertTrue(ReviewReason.UNCONFIRMED_GAP in old.reviewReasons)
-        assertTrue(result.intervals.none { it.sessionIds.contains(old.id) })
+        val oldCredit = result.intervals.single { old.id in it.sessionIds }
+        assertEquals(at("09:05"), oldCredit.start)
+        assertEquals(at("10:00"), oldCredit.end)
+        assertEquals(at("11:15"), result.intervals.last().start)
+        assertTrue(result.intervals.none { it.start < at("11:10") && it.end > at("10:00") })
+    }
+
+    @Test fun recoveryBeforeArrivalGraceStillEarnsNothing() {
+        val result = derive(listOf(event("in", Transition.ENTER, "09:00"),
+            event("check", Transition.PRESENCE, "09:03"),
+            event("recovered", Transition.PRESENCE, "09:20")), "09:30",
+            recovery = setOf("recovered"))
+        assertTrue(result.intervals.none { "session:in" in it.sessionIds })
+        assertEquals(at("09:25"), result.intervals.single().start)
+    }
+
+    @Test fun delayedExitCannotBackfillGapOrEraseEarlierCredit() {
+        val facts = listOf(event("in", Transition.ENTER, "09:00"),
+            event("check", Transition.PRESENCE, "10:00"), event("out", Transition.EXIT, "11:00"),
+            event("recovered", Transition.PRESENCE, "11:10"))
+        val data = AttendanceInput(listOf(office), facts, policy = Policy(zoneId = zone,
+            shortGapMinutes = 20), now = at("11:30"), historyStartDate = day,
+            recoveryPresenceIds = setOf("recovered"), unsafeRecoveryPresenceIds = setOf("recovered"),
+            delayedExitIds = setOf("out"))
+        val result = AttendanceEngine.derive(data)
+        assertEquals(at("10:00"), result.intervals.single { "session:in" in it.sessionIds }.end)
+        assertTrue(result.intervals.none { it.reconciledGap })
+        assertEquals(result, AttendanceEngine.derive(data.copy(events = facts.reversed())))
     }
 }

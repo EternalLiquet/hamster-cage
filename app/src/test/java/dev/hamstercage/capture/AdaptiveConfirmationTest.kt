@@ -2,6 +2,7 @@ package dev.hamstercage.capture
 
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
+import dev.hamstercage.data.PRESENCE_CORROBORATION
 import dev.hamstercage.data.EXIT_VERIFY_INSIDE
 import dev.hamstercage.data.EXIT_VERIFY_OUTSIDE
 import dev.hamstercage.domain.Office
@@ -222,6 +223,36 @@ class AdaptiveConfirmationTest {
         val recovered = exitVerificationFactsFor(snapshot, outage, listOf(exit), "exit", "a",
             at.plusSeconds(240), at.plusSeconds(245), 12f) { "fix-${++next}" }
         assertEquals(listOf("ADAPTIVE_RECOVERY_CONFIRMATION"), recovered.map { it.source })
+    }
+
+    @Test fun continuityControlsRecoveryMarkingWithoutDiscardingEarlierInsideCredit() {
+        val zone = java.time.ZoneId.of("America/New_York")
+        val office = Office("a", "A", 0.0, 0.0)
+        val enter = event("enter", "a", Transition.ENTER, -7200)
+        val check = event("check", "a", Transition.PRESENCE, -3600,
+            PRESENCE_CORROBORATION)
+        val exit = event("exit", "a", Transition.EXIT)
+        val original = listOf(enter, check, exit)
+        val snapshot = AppSnapshot(listOf(office), original, emptyList(), emptyList(), Policy(zoneId = zone))
+        val healthy = CoverageLedger().registrationSucceeded(at.minusSeconds(8000), zone, true)
+            .observed(check.event.at)
+        for (continuity in ProcessContinuity.entries) {
+            val started = healthy.processStarted(at.plusSeconds(300), zone, continuity)
+            val registered = started.registrationSucceeded(at.plusSeconds(301), zone, true)
+            val recovery = requiresAdaptiveRecoverySplit(snapshot, registered, "exit", "a", at.plusSeconds(600))
+            assertEquals(continuity != ProcessContinuity.SURVIVED, recovery)
+            val fix = adaptiveFacts("a", "a", at.plusSeconds(600), at.plusSeconds(601), 12f,
+                recoveryPresence = recovery) { "fix-${continuity.name}" }.single()
+            val result = snapshot.copy(eventEvidence = original + fix).derive(at.plusSeconds(1200))
+            val oldCredit = result.intervals.single { "session:enter" in it.sessionIds }
+            assertEquals(enter.event.at.plusSeconds(300), oldCredit.start)
+            assertEquals(if (recovery) check.event.at else exit.event.at, oldCredit.end)
+            if (recovery) {
+                assertTrue(dev.hamstercage.domain.ReviewReason.UNCONFIRMED_GAP in
+                    result.sessions.single { it.id == "session:enter" }.reviewReasons)
+                assertTrue(result.intervals.none { it.start < fix.event.at && it.end > check.event.at })
+            }
+        }
     }
 
     @Test fun onlyTheFirstUnsafeRecoverySampleSplitsTheOldVisit() {
