@@ -78,6 +78,26 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         detail.manualSessions.flatMap { listOfNotNull(it.start, it.end, it.createdAt) }.map(::localDay) +
         detail.corrections.flatMap { listOfNotNull(it.start, it.end, it.createdAt) }.map(::localDay) +
         detail.sessions.flatMap { listOfNotNull(it.start, it.end) }.map(::localDay) + date
+    val firstIncludedDay = includedDays.min()
+    val lastIncludedDay = includedDays.max()
+    // Capture status describes the device now, not the selected day. A time outside the span
+    // shown in the preview is reduced to its side of that span so the file discloses no
+    // undisclosed attendance timing (for example, this morning's in-office check).
+    val spanStart = firstIncludedDay.atStartOfDay(zone).toInstant()
+    val spanEnd = lastIncludedDay.plusDays(1).atStartOfDay(zone).toInstant()
+    fun withinSpan(at: Instant?): Any? = when {
+        at == null -> null
+        at < spanStart -> "beforeSpan"
+        at >= spanEnd -> "afterSpan"
+        else -> at.toString()
+    }
+    fun withinSpan(day: LocalDate?): Any? = when {
+        day == null -> null
+        day < firstIncludedDay -> "beforeSpan"
+        day > lastIncludedDay -> "afterSpan"
+        else -> day.toString()
+    }
+    val checkInSpan = capture.lastVerifiedAt?.let { it >= spanStart && it < spanEnd } == true
     val policy = input.policy
     val payload = linkedMapOf<String, Any?>(
         "schemaVersion" to 1,
@@ -87,7 +107,7 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "policyZone" to zone.id,
         "windowStartInclusive" to start.toString(),
         "windowEndExclusive" to end.toString(),
-        "contextRule" to "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day; for a late EXIT, the earliest same-office return and earliest cross-office presence within two hours after local midnight",
+        "contextRule" to "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day; for the latest EXIT in the final two hours, the earliest same-office return and earliest cross-office presence within two hours after local midnight. Capture times outside the evidence date span are written as beforeSpan or afterSpan.",
         "evaluatedAt" to now.toString(),
         "offices" to officeIds.map { id -> snapshot.offices.find { it.id == id }?.let { office ->
             linkedMapOf<String, Any?>("alias" to officeAlias[id], "radiusMeters" to office.radiusMeters,
@@ -101,16 +121,17 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
             "wfh" to (date in policy.wfhDates)),
         "capture" to linkedMapOf("registration" to capture.registration.name,
             "monitoringEnabled" to capture.monitoringEnabled, "deliveryFailure" to capture.deliveryFailure,
-            "lastVerifiedAt" to capture.lastVerifiedAt?.toString(), "lastCheckResult" to capture.lastCheckResult,
-            "historyStartDate" to coverage?.historyStartDate?.toString(),
+            "lastVerifiedAt" to withinSpan(capture.lastVerifiedAt),
+            "lastCheckResult" to capture.lastCheckResult?.takeIf { checkInSpan },
+            "historyStartDate" to withinSpan(coverage?.historyStartDate),
             "selectedDayUnknown" to (date in coverage?.unreviewedUnknownDates.orEmpty()),
-            "lastHealthyAt" to coverage?.lastHealthyAt?.toString(),
-            "outageStartedAt" to coverage?.outageStartedAt?.toString(),
-            "recoveryBoundaryAt" to coverage?.recoveryBoundaryAt?.toString(),
-            "lastOutageStartedAt" to coverage?.lastOutageStartedAt?.toString(),
-            "lastOutageHealthySince" to coverage?.lastOutageHealthySince?.toString(),
-            "openOutageHealthySince" to coverage?.outageHealthySince?.toString(),
-            "lastObservationAt" to coverage?.lastObservationAt?.toString()),
+            "lastHealthyAt" to withinSpan(coverage?.lastHealthyAt),
+            "outageStartedAt" to withinSpan(coverage?.outageStartedAt),
+            "recoveryBoundaryAt" to withinSpan(coverage?.recoveryBoundaryAt),
+            "lastOutageStartedAt" to withinSpan(coverage?.lastOutageStartedAt),
+            "lastOutageHealthySince" to withinSpan(coverage?.lastOutageHealthySince),
+            "openOutageHealthySince" to withinSpan(coverage?.outageHealthySince),
+            "lastObservationAt" to withinSpan(coverage?.lastObservationAt)),
         "observations" to evidence.map { item -> linkedMapOf<String, Any?>(
             "fact" to factAlias[item.event.id], "office" to officeAlias[item.event.officeId],
             "transition" to item.event.transition.name, "eventAt" to item.event.at.toString(),
@@ -131,6 +152,7 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
             "redactedNoteVariant" to (correctionNoteVariants[item.id]!!.indexOf(item.note) + 1)) },
         "sessions" to detail.sessions.map { item -> linkedMapOf<String, Any?>(
             "session" to sessionAlias[item.id], "office" to officeAlias[item.officeId],
+            "manual" to item.manualSessionId?.let { manualAlias[it] },
             "start" to item.start?.toString(), "end" to item.end?.toString(),
             "correctionTargets" to item.correctionTargetIds.mapNotNull { targetAlias[it] }.sorted(),
             "facts" to item.sourceEventIds.mapNotNull { factAlias[it] }.sorted(),
@@ -141,7 +163,7 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "historyComplete" to detail.summary.hasCompleteHistory,
     )
     return DayDiagnostics(jsonValue(payload), evidence.count { it.event.at >= start && it.event.at < end },
-        evidence.count { it.event.at < start || it.event.at >= end }, includedDays.min(), includedDays.max())
+        evidence.count { it.event.at < start || it.event.at >= end }, firstIncludedDay, lastIncludedDay)
 }
 
 private fun jsonValue(value: Any?): String = when (value) {
