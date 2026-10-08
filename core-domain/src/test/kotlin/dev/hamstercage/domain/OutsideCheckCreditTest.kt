@@ -96,4 +96,45 @@ class OutsideCheckCreditTest {
         assertTrue(result.intervals.none { it.reconciledGap })
         assertTrue(ReviewReason.UNCONFIRMED_GAP in result.sessions.first().reviewReasons)
     }
+
+    @Test fun laterSameOfficeEnterEndsThePrefixInsteadOfExtendingIt() {
+        // A re-entry proves the user had been outside: credit cannot run through it.
+        val result = derive(listOf(event("in", Transition.ENTER, "09:00"),
+            event("check", Transition.PRESENCE, "10:00"), event("back", Transition.ENTER, "10:30"),
+            event("late", Transition.PRESENCE, "10:45"), event("recovered", Transition.PRESENCE, "11:00")),
+            "11:30", recovery = setOf("recovered"))
+        assertEquals(at("10:00"), result.intervals.single { "session:in" in it.sessionIds }.end)
+        val enterOnly = derive(listOf(event("in", Transition.ENTER, "09:00"),
+            event("back", Transition.ENTER, "10:30"), event("recovered", Transition.PRESENCE, "11:00")),
+            "11:30", recovery = setOf("recovered"))
+        assertTrue(enterOnly.intervals.none { "session:in" in it.sessionIds })
+    }
+
+    @Test fun otherOfficeEvidenceEndsThePrefix() {
+        val b = office.copy(id = "b", name = "Synthetic second office", latitude = 1.0)
+        val facts = listOf(event("in", Transition.ENTER, "14:00"), event("check", Transition.PRESENCE, "14:20"),
+            RawEvent("b-in", "b", Transition.ENTER, at("14:30")), RawEvent("b-out", "b", Transition.EXIT, at("14:40")),
+            event("back", Transition.ENTER, "14:55"), event("recovered", Transition.PRESENCE, "14:56"),
+            event("after-b", Transition.PRESENCE, "14:50"))
+        val result = AttendanceEngine.derive(AttendanceInput(listOf(office, b), facts,
+            policy = Policy(zoneId = zone, shortGapMinutes = 0), now = at("15:30"), historyStartDate = day,
+            recoveryPresenceIds = setOf("recovered")))
+        val old = result.intervals.single { "session:in" in it.sessionIds }
+        assertEquals(at("14:05"), old.start)
+        assertEquals(at("14:20"), old.end)
+    }
+
+    @Test fun gapOnTheLaterVisitDoesNotBlockAnObservedBridge() {
+        // EXIT 10:00 → ENTER 10:10 is an ordinary observed short gap; the later visit's own
+        // uncertain end does not make it uncertain.
+        val result = AttendanceEngine.derive(AttendanceInput(listOf(office), listOf(
+            event("in", Transition.ENTER, "09:00"), event("out", Transition.EXIT, "10:00"),
+            event("back", Transition.ENTER, "10:10"), event("check", Transition.PRESENCE, "11:00"),
+            event("outside", Transition.ABSENCE, "12:00")),
+            policy = Policy(zoneId = zone, shortGapMinutes = 20), now = at("12:30"), historyStartDate = day))
+        assertTrue(result.intervals.any { it.reconciledGap })
+        // 09:05–10:00 credit, 10:00–10:10 bridge, then 10:15–11:00 up to the last inside check.
+        assertEquals(listOf(at("09:05") to at("10:10"), at("10:15") to at("11:00")),
+            result.intervals.map { it.start to it.end })
+    }
 }

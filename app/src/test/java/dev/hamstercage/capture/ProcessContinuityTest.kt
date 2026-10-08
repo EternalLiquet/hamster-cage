@@ -74,4 +74,18 @@ class ProcessContinuityTest {
         // An ordinary re-registration without an outage keeps the earlier record.
         assertEquals(lastHealthy, recovered.registrationSucceeded(start.plusSeconds(9000), zone, true).lastOutageStartedAt)
     }
+
+    @Test fun healthyWindowStartsAtThePreviousRecovery() {
+        val start = Instant.parse("2025-03-10T13:00:00Z")
+        val firstRecovery = CoverageLedger().registrationSucceeded(start, zone, true).observed(start.plusSeconds(1200))
+            .processStarted(start.plusSeconds(2700), zone, ProcessContinuity.LOST)
+            .registrationSucceeded(start.plusSeconds(2760), zone, true)
+        val boundary = firstRecovery.recoveryBoundaryAt
+        val second = firstRecovery.observed(start.plusSeconds(3600))
+            .processStarted(start.plusSeconds(3640), zone, ProcessContinuity.UNKNOWN)
+            .registrationSucceeded(start.plusSeconds(3645), zone, true)
+        assertEquals(start.plusSeconds(3600), second.lastOutageStartedAt)
+        assertEquals(boundary, second.lastOutageHealthySince)
+        assertEquals(null, second.outageHealthySince)
+    }
 }
