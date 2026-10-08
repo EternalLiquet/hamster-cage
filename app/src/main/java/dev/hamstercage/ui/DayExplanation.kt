@@ -29,11 +29,13 @@ fun explainDay(input: AttendanceInput, result: AttendanceResult, date: LocalDate
     val manualOnDay = input.manualSessions.filter { touches(it.start, it.end) || onDay(it.createdAt) }.map { it.id }.toSet()
     val correctionsOnDay = input.corrections.filter { touches(it.start, it.end) || onDay(it.createdAt) }
     val related = (result.sessions + originals).filter { session ->
-        session.id in contributingSessions || touches(session.start, session.end) || session.sourceEventIds.any { it in eventsOnDay } ||
+        session.id in contributingSessions || touches(session.start, session.end) ||
+            (session.sourceEventIds + session.redundantEventIds).any { it in eventsOnDay } ||
             session.manualSessionId in manualOnDay || correctionsOnDay.any { it.sessionId in session.correctionTargetIds }
     }.flatMap { it.correctionTargetIds }.toSet()
     val sessions = result.sessions.filter { it.correctionTargetIds.any { id -> id in related } }
-    val raw = input.events.filter { onDay(it.at) || sessions.any { session -> it.id in session.sourceEventIds } }
+    val raw = input.events.filter { onDay(it.at) || sessions.any { session ->
+        it.id in session.sourceEventIds || it.id in session.redundantEventIds } }
         .sortedWith(compareBy<RawEvent> { it.at }.thenBy { it.id }) // Keep every conflicting/duplicate copy.
     val manual = input.manualSessions.filter { it.id in manualOnDay || sessions.any { session -> session.manualSessionId == it.id } }
     val corrections = input.corrections.filter { it in correctionsOnDay || it.sessionId in related }
@@ -69,6 +71,7 @@ fun reviewExplanation(reason: ReviewReason): String = when (reason) {
     ReviewReason.ZERO_LENGTH_SESSION -> "The observed boundaries form no positive interval; no minutes were invented."
     ReviewReason.INVALID_MANUAL_SESSION -> "The manual interval is invalid and is excluded from reconstruction."
     ReviewReason.CONFLICTING_MANUAL_SESSION_ID -> "Conflicting manual entries share one ID and are excluded from reconstruction."
+    ReviewReason.REPEATED_EXIT -> "A repeated same-office EXIT was observed soon after this visit ended. It is retained as evidence and adds no departure or arrival. A separate unrecorded return that short could not earn credit, but an immediate return that lasted until the later EXIT cannot be ruled out, so credit conservatively ends at the first EXIT and the following short gap is not reconciled. Correct the visit if you returned."
 }
 
 /** Display-only sanitation; stored notes and names are unchanged. No markup is interpreted. */

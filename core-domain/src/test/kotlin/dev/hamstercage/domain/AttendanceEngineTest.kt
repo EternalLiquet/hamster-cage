@@ -247,8 +247,11 @@ class AttendanceEngineTest {
         val result = AttendanceEngine.derive(data)
         assertEquals(1, result.sessions.size)
         assertEquals(at("15:00"), result.sessions.single().end)
-        assertEquals(setOf("1", "2", "3"), result.sessions.single().sourceEventIds)
-        assertTrue(result.reviews.isEmpty())
+        assertEquals(setOf("1", "2"), result.sessions.single().sourceEventIds)
+        assertEquals(setOf("3"), result.sessions.single().redundantEventIds)
+        // Five minutes after the departure an unrecorded return cannot earn credit, but it
+        // remains possible, so the visit carries only the advisory repeated-exit note.
+        assertEquals(setOf(ReviewReason.REPEATED_EXIT), result.reviews.map { it.reason }.toSet())
     }
     @Test fun exitWithoutEnterOrInstallInsideOfficeIsUnknownNotInventedHistory() {
         val data = input(listOf(exit("1", "15:00")))

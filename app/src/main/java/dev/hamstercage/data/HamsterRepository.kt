@@ -62,7 +62,11 @@ data class AppSnapshot(
             latest.event.id.takeUnless { outsideCorroboration }
         }.toSet(),
         unsafeRecoveryPresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
-            it.source == "ADAPTIVE_RECOVERY_CONFIRMATION" }.map { it.event.id }.toSet())
+            it.source == "ADAPTIVE_RECOVERY_CONFIRMATION" }.map { it.event.id }.toSet(),
+        // Without a platform fix time the stored time is the delivery receipt, which
+        // may be later than the observation by an unknown delay.
+        receiptTimedEventIds = eventEvidence.filter { it.source == "PLAY_SERVICES_GEOFENCE" &&
+            it.observedLocationAt == null }.map { it.event.id }.toSet())
     fun derive(now: Instant) = AttendanceEngine.derive(input(now))
 }
 

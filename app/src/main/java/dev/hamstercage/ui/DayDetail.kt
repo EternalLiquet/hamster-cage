@@ -68,7 +68,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                 Text(row.detail)
                 val session = detail.sessions.find { it.id == row.sessionId }
                 val reviewReasons = session?.reviewReasons?.filter {
-                    it != ReviewReason.OPEN_SESSION && it != ReviewReason.DUPLICATE_EVENT
+                    it != ReviewReason.OPEN_SESSION && it !in ADVISORY_REVIEW_REASONS
                 }.orEmpty()
                 if (session != null && reviewReasons.isNotEmpty() && shownReview.add(session.id))
                     Text("${if (session.start == null && ReviewReason.MISSING_ENTER in reviewReasons) "Review this signal." else "This session needs review."} ${reviewReasons.joinToString(" ") { timelineReviewCue(it) }}")

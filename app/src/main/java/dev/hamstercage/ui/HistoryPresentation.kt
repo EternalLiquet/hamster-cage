@@ -46,7 +46,7 @@ fun historyDays(input: AttendanceInput, result: AttendanceResult, offsetDays: In
             input.manualSessions.any { "manual:${it.id}" == sessionId && (onDay(it.start) || onDay(it.end) || onDay(it.createdAt)) } ||
                 input.corrections.any { it.sessionId == sessionId && (onDay(it.start) || onDay(it.end) || onDay(it.createdAt)) })
         val review = result.reviews.any { item ->
-            item.reason != ReviewReason.DUPLICATE_EVENT && (
+            item.reason !in ADVISORY_REVIEW_REASONS && (
                 sessions.any { item.sessionId in it.correctionTargetIds } ||
                     item.sourceEventIds.any { id -> eventsById[id].orEmpty().any { onDay(it.at) } } || retainedSourceOnDay(item.sessionId))
         }
