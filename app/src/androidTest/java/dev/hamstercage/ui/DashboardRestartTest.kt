@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
@@ -68,7 +70,10 @@ class DashboardRestartTest {
                 } }
             } }
             compose.onNodeWithTag("today_leave").assertTextEquals("You can leave at 3:00 PM")
-            compose.onNodeWithTag("ROLLING_30_balance").assertTextContains("Unknown")
+            // Longer-period detail is collapsed by default (#119); a restored expanded state is left open.
+            val periods = compose.onNodeWithTag("periods_toggle").performScrollTo()
+            if (periods.fetchSemanticsNode().config[SemanticsProperties.StateDescription] == "Collapsed") periods.performClick()
+            compose.onNodeWithTag("ROLLING_30_balance").performScrollTo().assertTextContains("Unknown")
             compose.onNodeWithTag("ROLLING_30_days").performScrollTo().assertTextContains("3")
             compose.onNodeWithTag("ROLLING_30_required").performScrollTo().assertTextContains("18h 0m")
             compose.onNodeWithTag("ROLLING_30_pretracking").performScrollTo()

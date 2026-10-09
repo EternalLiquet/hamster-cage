@@ -34,6 +34,8 @@ class DashboardSecurityUiTest {
         compose.onNodeWithTag("today_leave").performScrollTo()
             .assertTextEquals("Estimated leave time: about 5:30 PM. Check today's timeline.")
         compose.onNodeWithTag("today_credit_note").assertTextEquals("Estimate · part of today wasn't tracked")
+        // Departure targets are collapsed by default (#119); open them so their semantics are checked too.
+        compose.onNodeWithTag("departure_targets_toggle").performScrollTo().performClick()
         compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("About 5:30 PM")
         listOf("0.125", "-0.25", "OFFICE_ID_SENTINEL_24", "RAW_ID_SENTINEL_24", "PRIVATE_NOTE_SENTINEL_24", "\u202e").forEach {
             compose.onNodeWithText(it, substring = true, useUnmergedTree = true).assertDoesNotExist()

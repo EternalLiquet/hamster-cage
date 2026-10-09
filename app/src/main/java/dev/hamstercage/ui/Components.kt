@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -64,12 +65,19 @@ fun MetricRow(label: String, value: String, emphasis: Boolean = false) {
     }
 }
 
+/**
+ * [primaryAction] defaults to the existing filled button. A screen showing more than one notice can pass false
+ * so only one action reads as primary; the secondary action stays visible, labelled and 48dp tappable.
+ */
 @Composable
-fun Notice(title: String, body: String, actionLabel: String? = null, onAction: () -> Unit = {}) {
+fun Notice(title: String, body: String, actionLabel: String? = null, onAction: () -> Unit = {}, primaryAction: Boolean = true) {
     Panel {
         Text(title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium, color = CageStyle.Amber)
         Text(body, style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-        if (actionLabel != null) CageButton(actionLabel, onAction)
+        if (actionLabel != null) {
+            if (primaryAction) CageButton(actionLabel, onAction)
+            else OutlinedButton(onAction, Modifier.defaultMinSize(minWidth = CageStyle.TouchTarget, minHeight = CageStyle.TouchTarget)) { Text(actionLabel) }
+        }
     }
 }
 
