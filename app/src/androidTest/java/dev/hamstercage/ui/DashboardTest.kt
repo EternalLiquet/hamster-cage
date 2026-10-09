@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextLayoutResult
@@ -48,6 +49,10 @@ class DashboardTest {
         } }
     }
 
+    /** Secondary detail is collapsed by default (#119); these open it without changing any asserted value. */
+    private fun expandTargets() = compose.onNodeWithTag("departure_targets_toggle").performScrollTo().performClick()
+    private fun expandPeriods() = compose.onNodeWithTag("periods_toggle").performScrollTo().performClick()
+
     @Test fun emptyUnknownStateLinksToOfficeSetupWithoutClaimingAZeroBalance() {
         var opened = false
         show(data().copy(offices = emptyList(), historyStartDate = null), ready = false, openOffices = { opened = true })
@@ -80,8 +85,12 @@ class DashboardTest {
         compose.onNodeWithTag("today_observed").assertDoesNotExist()
         compose.onNodeWithTag("today_details_toggle").performScrollTo().performClick()
         compose.onNodeWithTag("today_observed").performScrollTo().assertTextContains("3h 0m")
+        compose.onNodeWithTag("WEEK_TO_DATE_required").assertDoesNotExist()
+        expandPeriods()
         compose.onNodeWithTag("WEEK_TO_DATE_required").performScrollTo().assertTextContains("18h 0m")
         compose.onNodeWithTag("full_week_required").performScrollTo().assertTextContains("30h 0m")
+        compose.onNodeWithTag("TODAY_departure").assertDoesNotExist()
+        expandTargets()
         compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("About 3:00 PM")
     }
 
@@ -99,12 +108,17 @@ class DashboardTest {
         compose.onNodeWithTag("today_credit_note").assertTextEquals("Estimate · part of today wasn't tracked")
         compose.onNodeWithTag("today_balance").assertTextContains("Unknown")
         compose.onNodeWithTag("today_untracked").assertTextContains("can't tell whether you were at the office", substring = true)
+        expandPeriods()
         compose.onNodeWithTag("ROLLING_30_balance").performScrollTo().assertTextContains("Unknown")
         compose.onNodeWithTag("ROLLING_90_balance").performScrollTo().assertTextContains("Unknown")
+        // Expanded unknown longer-term history leaves the valid Today estimate in place.
+        compose.onNodeWithTag("today_leave").performScrollTo()
+            .assertTextEquals("Estimated leave time: about 3:00 PM. Check today's timeline.")
     }
 
     @Test fun noHistoryRollingCardsExplainUnavailableDaysWithoutARequiredTotalAtLargeText() {
         show(data().copy(historyStartDate = null), scale = 2f)
+        expandPeriods()
         listOf("ROLLING_30", "ROLLING_90").forEach { target ->
             compose.onNodeWithTag("${target}_coverage").performScrollTo()
                 .assertTextContains("Earlier days predate reliable tracking", substring = true)
@@ -116,6 +130,7 @@ class DashboardTest {
 
     @Test fun firstTrackedDayRollingRequirementExcludesPriorDays() {
         show(data(listOf(enter())).copy(historyStartDate = null))
+        expandPeriods()
         listOf("ROLLING_30", "ROLLING_90").forEach { target ->
             compose.onNodeWithTag("${target}_days").performScrollTo().assertTextContains("1")
             compose.onNodeWithTag("${target}_required").performScrollTo().assertTextContains("6h 0m")
@@ -132,6 +147,7 @@ class DashboardTest {
         val invalid = Correction("bad", "session:first", prior.plusSeconds(3600), prior,
             prior.plusSeconds(7 * 3600))
         show(data(events).copy(historyStartDate = null, corrections = listOf(invalid)))
+        expandPeriods()
         compose.onNodeWithTag("ROLLING_30_credit").performScrollTo().assertTextContains("2h 55m")
         compose.onNodeWithTag("ROLLING_30_required").performScrollTo().assertTextContains("6h 0m")
         compose.onNodeWithTag("ROLLING_30_provisional_credit").performScrollTo()
@@ -148,6 +164,7 @@ class DashboardTest {
             RawEvent("wed-in", "a", Transition.ENTER, at(today, 9)),
             RawEvent("wed-out", "a", Transition.EXIT, at(today, 11)))
         show(data(events).copy(historyStartDate = null))
+        expandPeriods()
         compose.onNodeWithTag("ROLLING_30_days").performScrollTo().assertTextContains("2")
         compose.onNodeWithTag("ROLLING_30_required").performScrollTo().assertTextContains("12h 0m")
         compose.onNodeWithTag("ROLLING_30_unknown").performScrollTo()
@@ -168,6 +185,7 @@ class DashboardTest {
         val correction = Correction("adjust-mon", "session:mon-in", at(monday, 9, 30),
             at(monday, 11), now)
         show(data(events).copy(historyStartDate = null, corrections = listOf(correction)))
+        expandPeriods()
         compose.onNodeWithTag("ROLLING_30_days").performScrollTo().assertTextContains("2")
         compose.onNodeWithTag("ROLLING_30_required").performScrollTo().assertTextContains("12h 0m")
         compose.onNodeWithTag("ROLLING_30_unknown").performScrollTo()
@@ -192,6 +210,7 @@ class DashboardTest {
         compose.onNodeWithTag("today_leave").assertTextEquals("No leave time yet: your location isn't confirmed. Check office setup.")
         compose.onNodeWithTag("today_credit_note").assertTextEquals("Estimate · we can't confirm you're still there")
         compose.onNodeWithTag("today_balance").assertTextContains("About 3h 5m")
+        expandTargets()
         compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("Detection unconfirmed")
     }
 
@@ -208,6 +227,7 @@ class DashboardTest {
         compose.onNodeWithTag("office_state").assertTextEquals("Needs review")
         update(data().copy(policy = Policy(excludedDates = listOf(ExcludedDate(today, ExclusionReason.BANK_HOLIDAY)))))
         compose.onNodeWithTag("today_target").assertTextContains("0m")
+        expandTargets()
         compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("Already satisfied")
         update(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600 + 5 * 60)), RawEvent("out", "a", Transition.EXIT, now.minusSeconds(3600)))))
         compose.onNodeWithTag("TODAY_departure").assertTextContains("Already satisfied")
@@ -219,6 +239,7 @@ class DashboardTest {
         compose.onNodeWithTag("today_credit").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertTrue(layouts.isNotEmpty())
         assertTrue(layouts.joinToString { "size=${it.size}, width=${it.didOverflowWidth}, height=${it.didOverflowHeight}, lines=${it.lineCount}" }, layouts.none { it.hasVisualOverflow })
+        expandPeriods()
         compose.onNodeWithTag("ROLLING_90_average").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("ROLLING_90_days").performScrollTo().assertTextContains("Expected workdays", substring = true)
     }
@@ -262,5 +283,98 @@ class DashboardTest {
         show(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600)))), ready = true)
         compose.onNodeWithTag("today_balance").assertTextContains("None, goal met", substring = true)
         compose.onNodeWithTag("today_leave").assertTextEquals("Goal met. You can leave now.")
+    }
+
+    @Test fun secondarySectionsStartCollapsedAndKeepTheirValuesAcrossToggles() {
+        show(data(listOf(enter())))
+        val collapsed = SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Collapsed")
+        val expanded = SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Expanded")
+        for ((toggle, content) in listOf("departure_targets_toggle" to "departure_targets", "periods_toggle" to "periods")) {
+            compose.onNodeWithTag(toggle).performScrollTo().assert(collapsed).assertHeightIsAtLeast(48.dp)
+            compose.onNodeWithTag(content).assertDoesNotExist()
+        }
+        repeat(2) {
+            expandTargets()
+            compose.onNodeWithTag("departure_targets_toggle").assert(expanded)
+            compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("About 3:00 PM")
+            compose.onNodeWithTag("ROLLING_90_departure").performScrollTo().assertExists()
+            expandTargets()
+            compose.onNodeWithTag("departure_targets_toggle").assert(collapsed)
+            compose.onNodeWithTag("TODAY_departure").assertDoesNotExist()
+        }
+        repeat(2) {
+            expandPeriods()
+            compose.onNodeWithTag("periods_toggle").assert(expanded)
+            compose.onNodeWithTag("WEEK_TO_DATE_required").performScrollTo().assertTextContains("18h 0m")
+            compose.onNodeWithTag("full_week_required").performScrollTo().assertTextContains("30h 0m")
+            compose.onNodeWithTag("ROLLING_90_balance").performScrollTo().assertExists()
+            expandPeriods()
+            compose.onNodeWithTag("periods_toggle").assert(collapsed)
+            compose.onNodeWithTag("WEEK_TO_DATE_required").assertDoesNotExist()
+        }
+        // Today's primary group is unchanged by toggling secondary detail.
+        compose.onNodeWithTag("today_credit").assertTextEquals("2h 55m")
+        compose.onNodeWithTag("today_leave").assertTextEquals("You can leave at 3:00 PM")
+    }
+
+    @Test fun todayLeadsAt360dpAndAccessibilityOrderMatchesVisualOrder() {
+        val input = data(listOf(enter()))
+        compose.activity.runOnUiThread { compose.activity.setContent {
+            HamsterTheme { Column(Modifier.requiredWidth(360.dp).verticalScroll(rememberScrollState())) {
+                DashboardScreen(input, AttendanceEngine.derive(input), trackingReady = true)
+            } }
+        } }
+        val expected = listOf("today_credit", "today_credit_note", "today_balance", "today_target", "today_leave",
+            "office_state", "arrival_credit_start", "open_today_timeline", "today_details_toggle",
+            "departure_targets_toggle", "periods_toggle")
+        val nodes = compose.onAllNodes(SemanticsMatcher("dashboard order tags") {
+            it.config.getOrNull(SemanticsProperties.TestTag) in expected
+        }).fetchSemanticsNodes()
+        val tags = nodes.map { it.config[SemanticsProperties.TestTag] }
+        // Semantics traversal order is what TalkBack reads; it must equal the intended visual order.
+        assertEquals(expected, tags)
+        val tops = nodes.map { it.boundsInRoot.top }
+        assertEquals("Visual order should follow reading order: $tops", tops.sorted(), tops)
+        // One action in the Today group when no setup/review notice applies.
+        compose.onNodeWithText("View today's timeline").assertExists()
+        compose.onNodeWithText("Open office setup").assertDoesNotExist()
+        compose.onNodeWithText("Review history").assertDoesNotExist()
+    }
+
+    @Test fun expandedSectionsWrapWithoutClippingControlsAt360dpAndTwoHundredPercentText() {
+        val input = data(listOf(enter())).copy(historyStartDate = null)
+        val density = compose.activity.resources.displayMetrics.density
+        compose.activity.runOnUiThread { compose.activity.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density, 2f)) {
+                HamsterTheme { Column(Modifier.requiredWidth(360.dp).verticalScroll(rememberScrollState())) {
+                    DashboardScreen(input, AttendanceEngine.derive(input), trackingReady = true)
+                } }
+            }
+        } }
+        fun assertNoOverflow(label: String) {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(label, useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertTrue("$label has no text layout", layouts.isNotEmpty())
+            assertTrue("$label " + layouts.joinToString { "size=${it.size}, width=${it.didOverflowWidth}, height=${it.didOverflowHeight}, lines=${it.lineCount}" },
+                layouts.none { it.hasVisualOverflow })
+        }
+        compose.onNodeWithTag("open_today_timeline").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        assertNoOverflow("View today's timeline")
+        assertNoOverflow("Show all departure targets")
+        assertNoOverflow("Show week, 30-day and 90-day details")
+        expandTargets()
+        expandPeriods()
+        for (toggle in listOf("departure_targets_toggle", "periods_toggle"))
+            compose.onNodeWithTag(toggle).performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        assertNoOverflow("Hide all departure targets")
+        assertNoOverflow("Hide week, 30-day and 90-day details")
+        compose.onNodeWithTag("TODAY_departure").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("ROLLING_90_departure").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("ROLLING_90_pretracking").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("ROLLING_90_balance").performScrollTo().assertIsDisplayed().assertTextContains("Unknown")
+        // Unknown longer-term history still leaves a Today estimate.
+        compose.onNodeWithTag("today_leave").performScrollTo()
+            .assertTextEquals("Estimated leave time: about 3:00 PM. Check today's timeline.")
     }
 }
