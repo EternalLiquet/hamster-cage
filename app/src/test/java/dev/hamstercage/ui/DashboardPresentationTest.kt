@@ -164,6 +164,47 @@ class DashboardPresentationTest {
         }
     }
 
+    @Test fun departureTargetRowKeepsTheEstimateCondition() {
+        val base = DepartureEstimate(TargetWindow.TODAY, DepartureStatus.ESTIMATED, 30.0,
+            now.plusSeconds(1800), now.plusSeconds(1500))
+        assertEquals("About 4:25 PM", departureTargetText(base, true, now, zone))
+        assertEquals("About 4:25 PM if you're still here", departureTargetText(base.copy(assumptions =
+            setOf(EstimateAssumption.STILL_PRESENT_WHILE_EXIT_CHECKED)), true, now, zone))
+        assertEquals("About 4:25 PM, maybe sooner", departureTargetText(base.copy(assumptions =
+            setOf(EstimateAssumption.EARLIER_EXIT_UNCONFIRMED)), true, now, zone))
+        assertEquals("About 4:25 PM if you're still here, maybe sooner", departureTargetText(base.copy(assumptions =
+            EstimateAssumption.entries.toSet()), true, now, zone))
+        assertEquals("Detection unconfirmed", departureTargetText(base.copy(assumptions =
+            EstimateAssumption.entries.toSet()), false, now, zone))
+    }
+
+    @Test fun closedQualifiedVisitReadsAsProbablyOutsideNotNeedsReview() {
+        val input = data(listOf(enter().copy(at = now.minusSeconds(5 * 3600)),
+            RawEvent("home", "a", Transition.EXIT, now.minusSeconds(3600))))
+            .copy(unconfirmedExitIds = setOf("home"), delayedExitIds = setOf("home"))
+        val result = AttendanceEngine.derive(input)
+        assertTrue(result.reviews.any { it.reason == ReviewReason.UNCONFIRMED_BOUNDARY })
+        val presence = dashboardPresence(input, result, true)
+        assertEquals("Probably outside office", presence.label)
+        assertFalse(presence.needsReview)
+        assertNull(presence.sessionStarted)
+        // A confirmed departure still reads plainly.
+        assertEquals("Outside office", dashboardPresence(input.copy(unconfirmedExitIds = emptySet(), delayedExitIds = emptySet()),
+            AttendanceEngine.derive(input.copy(unconfirmedExitIds = emptySet(), delayedExitIds = emptySet())), true).label)
+    }
+
+    @Test fun earlierDayReviewStaysReachableWithoutQuestioningToday() {
+        val input = data(listOf(RawEvent("old", "a", Transition.EXIT, now.minusSeconds(26 * 3600)), enter()))
+        val result = AttendanceEngine.derive(input)
+        val presence = dashboardPresence(input, result, true)
+        assertFalse(presence.needsReview)
+        assertTrue(presence.otherReview)
+        assertEquals("In Synthetic office", presence.label)
+        assertEquals("You can leave at 9:00 PM", leave(input))
+        // The longer targets that include that day still say so.
+        assertEquals(DepartureStatus.NEEDS_REVIEW, AttendanceEngine.departure(input, result, TargetWindow.ROLLING_30).status)
+    }
+
     @Test fun genuineCurrentDayDoubtStillLeadsToReview() {
         val receiptTimed = data(listOf(enter().copy(at = now.minusSeconds(5 * 3600)),
             RawEvent("lunch", "a", Transition.EXIT, now.minusSeconds(3 * 3600)),

@@ -184,4 +184,52 @@ class QualifiedEstimateTest {
         assertEquals(credit(input), credit(confirmed), 0.0)
         assertEquals(today(input).estimatedExitAt, today(confirmed).estimatedExitAt)
     }
+
+    @Test fun revertingAnUnchangedCorrectionRestoresTheQualifiedEstimate() {
+        val input = lunch()
+        val original = today(input)
+        assertEquals(DepartureStatus.ESTIMATED, original.status)
+        assertEquals(setOf(EstimateAssumption.EARLIER_EXIT_UNCONFIRMED), original.assumptions)
+        val saved = Correction("noop", "session:in", at("09:00"), at("12:00"), at("14:00"), appendSequence = 1)
+        val corrected = input.copy(corrections = listOf(saved))
+        // A genuine active correction stays MANUAL and needs no qualifier.
+        assertEquals(Confidence.MANUAL, derive(corrected).sessions.single { it.id == "session:in" }.confidence)
+        assertTrue(today(corrected).assumptions.isEmpty())
+        val reverted = input.copy(corrections = listOf(saved, Correction("undo", "session:in", at("09:00"), at("12:00"),
+            at("14:30"), revertToOriginal = true, appendSequence = 2)))
+        val restored = derive(reverted).sessions.single { it.id == "session:in" }
+        // The audit marker stays; reconstruction, credit and projection match the original.
+        assertEquals("undo", restored.correctionId)
+        assertTrue(restored.correctionReverted)
+        assertEquals(credit(input), credit(reverted), 0.0)
+        assertEquals(original, today(reverted))
+    }
+
+    @Test fun revertedVisitWithAPendingCandidateIsNotQualified() {
+        // The candidate credit cap skips sessions carrying a correction ID, so qualifying a
+        // restored visit with a pending candidate would project from uncapped credit.
+        val pending = lunch("14:53", listOf(exit("maybe", "14:50"))).copy(candidateExitIds = setOf("maybe"))
+        assertEquals(DepartureStatus.ESTIMATED, today(pending).status)
+        val reverted = pending.copy(corrections = listOf(
+            Correction("edit", "session:back", at("13:00"), null, at("14:00"), appendSequence = 1),
+            Correction("undo", "session:back", at("13:00"), null, at("14:10"), revertToOriginal = true, appendSequence = 2)))
+        val estimate = today(reverted)
+        assertEquals(DepartureStatus.NEEDS_REVIEW, estimate.status)
+        assertNull(estimate.estimatedExitAt)
+    }
+
+    @Test fun reviewDateScopeSeparatesEarlierDaysFromToday() {
+        val yesterday = day.minusDays(1)
+        val input = lunch().copy(events = lunch().events + exit("old", "12:00", date = yesterday))
+        val result = derive(input)
+        val old = result.reviews.single { it.sessionId == "session:old" && it.reason == ReviewReason.MISSING_ENTER }
+        val lunchReview = result.reviews.single { it.sessionId == "session:in" }
+        assertFalse(AttendanceEngine.reviewAffectsDate(input, result, old, day))
+        assertTrue(AttendanceEngine.reviewAffectsDate(input, result, old, yesterday))
+        assertTrue(AttendanceEngine.reviewAffectsDate(input, result, lunchReview, day))
+        // Undatable reviews count everywhere rather than being dropped.
+        assertTrue(AttendanceEngine.reviewAffectsDate(input, result, ReviewItem(ReviewReason.INVALID_EVENT, setOf("missing")), day))
+        // Week-to-date still sees the earlier day's review.
+        assertEquals(DepartureStatus.NEEDS_REVIEW, AttendanceEngine.departure(input, result, TargetWindow.WEEK_TO_DATE).status)
+    }
 }

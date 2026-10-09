@@ -654,7 +654,11 @@ object AttendanceEngine {
         // Credit already stops at an observed unconfirmed EXIT, so if the user had in fact
         // stayed, the true leave time is earlier, never later. Receipt-timed EXITs may be
         // later than the departure and stay blocking, as do corrected or manual bounds.
-        fun uncorrected(session: Session) = session.correctionId == null && session.manualSessionId == null
+        // A revert restores reconstruction from facts and keeps its marker for audit. The
+        // candidate and rejected-EXIT credit caps still skip any session with a correction
+        // ID, so a restored visit qualifies only when neither cap would have applied.
+        fun uncorrected(session: Session) = session.manualSessionId == null && (session.correctionId == null ||
+            session.correctionReverted && session.sourceEventIds.none { it in input.candidateExitIds || it in input.rejectedExitIds })
         val unconfirmedEarlierIds = if (target == TargetWindow.TODAY) relevant.filter { session ->
             session.start != null && session.end != null && uncorrected(session) &&
                 ReviewReason.UNCONFIRMED_BOUNDARY in session.reviewReasons &&
@@ -735,6 +739,16 @@ object AttendanceEngine {
             return outcome(DepartureStatus.UNREACHABLE_IN_WINDOW)
         return DepartureEstimate(target, DepartureStatus.ESTIMATED, remaining, targetAt, exitAt,
             assumptions = assumptions, nonBlockingSessionIds = nonBlockingIds)
+    }
+
+    /** Whether a review concerns eligible attendance on this policy-local date; an undatable one does. */
+    fun reviewAffectsDate(input: AttendanceInput, result: AttendanceResult, review: ReviewItem, date: LocalDate): Boolean {
+        val start = date.atStartOfDay(input.policy.zoneId).toInstant()
+        val end = date.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()
+        val eligible = input.offices.filter { it.enabled && it.countsTowardAttendance }.map { it.id }.toSet()
+        val relevantIds = result.sessions.filter { it.officeId in eligible &&
+            (it.end == null || it.end >= start) && (it.start == null || it.start < end) }.map { it.id }.toSet()
+        return reviewAffectsDay(input, review, result.sessions.map { it.id }.toSet(), relevantIds, start, end)
     }
 
     /** A past orphan or malformed fact cannot make an otherwise bounded Today session ambiguous. */

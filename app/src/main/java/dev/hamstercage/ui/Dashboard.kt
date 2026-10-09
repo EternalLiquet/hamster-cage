@@ -122,6 +122,10 @@ fun DashboardScreen(
         if (presence.needsReview)
             Notice("A session needs review", "Original observations are retained. Review uncertain boundaries before relying on these estimates.",
                 "Review history", openHistory, primaryAction = !(noEligibleOffice || !trackingReady))
+        // Other days' reviews stay reachable but never lead or question today's numbers.
+        else if (presence.otherReview)
+            Notice("Other records to check", "Today's numbers don't depend on them, but week and 30- or 90-day totals may.",
+                "Review history", openHistory, primaryAction = false)
         if (input.events.isEmpty() && input.manualSessions.isEmpty())
             Text("No attendance recorded yet.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         Panel {
@@ -133,18 +137,8 @@ fun DashboardScreen(
                 Text("Departure estimates may use office exit grace; it never adds recorded attendance.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
                 TargetWindow.entries.forEach { target ->
                     val estimate = AttendanceEngine.departure(input, result, target)
-                    val value = when (estimate.status) {
-                        DepartureStatus.TARGET_SATISFIED -> "Already satisfied"
-                        DepartureStatus.ESTIMATED -> if (!trackingReady) "Detection unconfirmed" else
-                            "About ${departureTimeText(estimate.estimatedExitAt!!, input.now, input.policy.zoneId)}"
-                        DepartureStatus.NOT_IN_OFFICE -> if (!trackingReady) "Office state unknown" else "No active session"
-                        DepartureStatus.NEEDS_REVIEW -> "Needs review"
-                        DepartureStatus.INCOMPLETE_HISTORY -> "History incomplete"
-                        DepartureStatus.OUTSIDE_WINDOW -> "Outside target window"
-                        DepartureStatus.UNREACHABLE_IN_WINDOW -> "Beyond this window"
-                        DepartureStatus.OVERLAPPING_SESSIONS -> "Overlapping active sessions"
-                    }
-                    DashboardMetric(estimate.targetName, value, "${target.name}_departure")
+                    DashboardMetric(estimate.targetName, departureTargetText(estimate, trackingReady, input.now,
+                        input.policy.zoneId), "${target.name}_departure")
                 }
             }
         }

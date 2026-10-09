@@ -420,6 +420,38 @@ class DashboardTest {
             near(it and 0xFF, amber.blue) }.toFloat() / pixels.size
     }
 
+    @Test fun qualifiedEstimateKeepsItsConditionAndEarlierReviewsDoNotLead() {
+        // Synthetic #133 shape: yesterday's orphan EXIT, an unconfirmed lunch EXIT, and a possible exit being checked.
+        val input = data(listOf(RawEvent("old", "a", Transition.EXIT, now.minusSeconds(26 * 3600)),
+            RawEvent("in", "a", Transition.ENTER, now.minusSeconds(5 * 3600)),
+            RawEvent("lunch", "a", Transition.EXIT, now.minusSeconds(3 * 3600)),
+            RawEvent("back", "a", Transition.ENTER, now.minusSeconds(2 * 3600)),
+            RawEvent("maybe", "a", Transition.EXIT, now.minusSeconds(60))))
+            .copy(unconfirmedExitIds = setOf("lunch", "maybe"), delayedExitIds = setOf("lunch"), candidateExitIds = setOf("maybe"))
+        var historyOpened = false
+        compose.activity.runOnUiThread { compose.activity.setContent {
+            HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+                DashboardScreen(input, AttendanceEngine.derive(input), true, openHistory = { historyOpened = true })
+            } }
+        } }
+        compose.onNodeWithTag("today_leave").assertTextContains("If you're still here, leave at about", substring = true)
+        compose.onNodeWithTag("office_state").assertTextEquals("Checking whether you've left")
+        // Earlier-day records stay reachable, but neither question today nor take the primary action.
+        compose.onNodeWithText("A session needs review").assertDoesNotExist()
+        compose.onNodeWithText("Other records to check").performScrollTo().assertIsDisplayed()
+        val timeline = amberShare(compose.onNode(hasText("View today's timeline") and hasClickAction()).performScrollTo())
+        val history = amberShare(compose.onNode(hasText("Review history") and hasClickAction()).performScrollTo())
+        assertTrue("timeline should be primary ($timeline)", timeline > 0.5f)
+        assertTrue("history should be secondary ($history)", history < 0.3f)
+        compose.onNode(hasText("Review history") and hasClickAction()).performClick()
+        compose.runOnIdle { assertTrue(historyOpened) }
+        // The expanded targets keep the estimate's condition.
+        expandTargets()
+        compose.onNodeWithTag("TODAY_departure").performScrollTo()
+            .assertTextContains("if you're still here, maybe sooner", substring = true)
+        compose.onNodeWithTag("WEEK_TO_DATE_departure").performScrollTo().assertTextContains("Needs review", substring = true)
+    }
+
     @Test fun overlappingSetupAndReviewNoticesKeepExactlyOnePrimaryAction() {
         // Synthetic fixtures: an unmatched EXIT needs review; trackingReady=false needs setup.
         val review = data(listOf(RawEvent("missing", "a", Transition.EXIT, now)))

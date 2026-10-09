@@ -107,6 +107,9 @@ class ReviewProjectionFixtureTest {
         assertEquals(fixture.exportedCreditedMinutes,
             AttendanceEngine.daily(expired, expiredResult, fixture.selectedDay).creditedMinutes, 1e-9)
         assertEquals(DepartureStatus.NOT_IN_OFFICE, AttendanceEngine.departure(expired, expiredResult, TargetWindow.TODAY).status)
+        // Consistent status: the unconfirmed departure is likely, neither "Needs review" nor "In office".
+        assertEquals("Probably outside office", dashboardPresence(expired, expiredResult, true).label)
+        assertFalse(dashboardPresence(expired, expiredResult, true).needsReview)
         // A genuine return later: new arrival grace applies once more and the estimate resumes.
         val returnAt = java.time.Instant.parse("2025-10-10T20:40:00Z")
         val returned = snapshot.copy(eventEvidence = snapshot.eventEvidence + RecordedEvent(
@@ -128,10 +131,13 @@ class ReviewProjectionFixtureTest {
         val estimate = AttendanceEngine.departure(input, result, TargetWindow.TODAY)
         assertEquals("If you're still here, leave at about 5:32 PM, or sooner if you didn't really leave earlier.",
             todayLeaveText(estimate, true, input.now, fixture.zone, todayLeaveConfident(input, result, true)))
-        // Prior-day orphan EXITs remain a History review; without them nothing asks for review.
-        assertTrue(presence.needsReview)
+        // Prior-day orphan EXITs stay reachable as other records, not a review of today.
+        assertFalse(presence.needsReview)
+        assertTrue(presence.otherReview)
         val todayOnly = snapshot.copy(eventEvidence = snapshot.eventEvidence.filterNot { it.event.id in setOf("fact-26", "fact-29") })
         val todayInput = fixture.input(todayOnly)
-        assertFalse(dashboardPresence(todayInput, AttendanceEngine.derive(todayInput), true).needsReview)
+        assertFalse(dashboardPresence(todayInput, AttendanceEngine.derive(todayInput), true).otherReview)
+        // The week through today is not offered as reliable (unknown coverage is reported before its reviews).
+        assertEquals(DepartureStatus.INCOMPLETE_HISTORY, AttendanceEngine.departure(input, result, TargetWindow.WEEK_TO_DATE).status)
     }
 }

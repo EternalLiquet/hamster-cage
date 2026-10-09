@@ -19,7 +19,9 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
-data class DashboardPresence(val label: String, val needsReview: Boolean, val sessionStarted: Instant?, val manual: Boolean)
+/** [needsReview] concerns today; [otherReview] is a review elsewhere that today's numbers don't depend on. */
+data class DashboardPresence(val label: String, val needsReview: Boolean, val sessionStarted: Instant?, val manual: Boolean,
+    val otherReview: Boolean = false)
 
 /** Registration alone never establishes outside state; a current trustworthy observation is needed. */
 fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, trackingReady: Boolean): DashboardPresence {
@@ -27,19 +29,21 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
     val open = result.sessions.filter { it.isOpen && it.officeId in eligibleIds }
     val candidateOpen = open.size == 1 && open.single().sourceEventIds.any { it in input.candidateExitIds }
     val todayEstimate = AttendanceEngine.departure(input, result, TargetWindow.TODAY)
+    val today = input.now.atZone(input.policy.zoneId).toLocalDate()
     // Doubt that can only make today's estimate later stays visible in History, but it
     // is not a reason to send the user there before they can rely on a leave time.
-    val review = result.reviews.any { it.reason != ReviewReason.OPEN_SESSION && it.reason !in ADVISORY_REVIEW_REASONS &&
-        it.sessionId !in todayEstimate.nonBlockingSessionIds } || open.size > 1
+    val actionable = result.reviews.filter { it.reason != ReviewReason.OPEN_SESSION &&
+        it.reason !in ADVISORY_REVIEW_REASONS && it.sessionId !in todayEstimate.nonBlockingSessionIds }
+    // Reviews about other days stay in History and may affect longer targets, not today.
+    val (todayReviews, otherReviews) = actionable.partition { AttendanceEngine.reviewAffectsDate(input, result, it, today) }
+    val review = todayReviews.isNotEmpty() || open.size > 1
     // An old interval closed for review by a fresh presence observation does not
     // make the newly observed current office ambiguous. Keep its review notice.
-    val liveReview = result.reviews.any { it.reason !in setOf(ReviewReason.OPEN_SESSION,
-        ReviewReason.UNCONFIRMED_GAP) + ADVISORY_REVIEW_REASONS &&
+    val liveReview = todayReviews.any { it.reason != ReviewReason.UNCONFIRMED_GAP &&
         !(candidateOpen && it.sessionId == open.single().id &&
             it.reason == ReviewReason.UNCONFIRMED_BOUNDARY) } || open.size > 1
     val safeLiveProjection = open.size == 1 &&
         todayEstimate.status in setOf(DepartureStatus.ESTIMATED, DepartureStatus.TARGET_SATISFIED)
-    val today = input.now.atZone(input.policy.zoneId).toLocalDate()
     val latest = input.events.filter { it.officeId in eligibleIds && it.at <= input.now }.maxByOrNull { it.at }
     val label = when {
         !trackingReady -> "Office state unknown"
@@ -48,10 +52,13 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
         open.size == 1 -> if (open.single().manualSessionId != null) "Using times you entered" else
             "In ${dashboardOfficeName(input.offices.single { it.id == open.single().officeId }.name)}"
         latest?.transition in setOf(Transition.EXIT, Transition.ABSENCE) &&
-            latest?.at?.atZone(input.policy.zoneId)?.toLocalDate() == today -> "Outside office"
+            latest?.at?.atZone(input.policy.zoneId)?.toLocalDate() == today ->
+            // A departure that was never confirmed is likely, not certain.
+            if (latest?.id in input.unconfirmedExitIds) "Probably outside office" else "Outside office"
         else -> "Office state unknown"
     }
-    return DashboardPresence(label, review, open.mapNotNull { it.start }.minOrNull(), open.any { it.manualSessionId != null || it.correctionId != null })
+    return DashboardPresence(label, review, open.mapNotNull { it.start }.minOrNull(),
+        open.any { it.manualSessionId != null || it.correctionId != null }, otherReviews.isNotEmpty())
 }
 
 /** User-controlled labels cannot inject directional/control characters into presence text. */
@@ -124,6 +131,24 @@ fun todayLeaveText(estimate: DepartureEstimate, trackingReady: Boolean, now: Ins
         "Your phone's time doesn't match today's goal. Check the clock and time zone in Settings."
     DepartureStatus.INCOMPLETE_HISTORY -> "Part of today wasn't tracked. Check today's timeline."
 }
+
+/** One row of the expanded departure targets. A qualified estimate keeps its condition here too. */
+fun departureTargetText(estimate: DepartureEstimate, trackingReady: Boolean, now: Instant, zone: ZoneId): String =
+    when (estimate.status) {
+        DepartureStatus.TARGET_SATISFIED -> "Already satisfied"
+        DepartureStatus.ESTIMATED -> if (!trackingReady) "Detection unconfirmed" else {
+            val still = EstimateAssumption.STILL_PRESENT_WHILE_EXIT_CHECKED in estimate.assumptions
+            val sooner = EstimateAssumption.EARLIER_EXIT_UNCONFIRMED in estimate.assumptions
+            "About ${departureTimeText(estimate.estimatedExitAt!!, now, zone)}" +
+                (if (still) " if you're still here" else "") + (if (sooner) ", maybe sooner" else "")
+        }
+        DepartureStatus.NOT_IN_OFFICE -> if (!trackingReady) "Office state unknown" else "No active session"
+        DepartureStatus.NEEDS_REVIEW -> "Needs review"
+        DepartureStatus.INCOMPLETE_HISTORY -> "History incomplete"
+        DepartureStatus.OUTSIDE_WINDOW -> "Outside target window"
+        DepartureStatus.UNREACHABLE_IN_WINDOW -> "Beyond this window"
+        DepartureStatus.OVERLAPPING_SESSIONS -> "Overlapping active sessions"
+    }
 
 /**
  * A leave time is stated plainly only when detection is confirmed, today is fully tracked and the current
