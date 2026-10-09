@@ -2,7 +2,7 @@ package dev.hamstercage.ui
 
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.CompositionLocalProvider
@@ -229,7 +229,7 @@ class DashboardTest {
         val density = compose.activity.resources.displayMetrics.density
         compose.activity.runOnUiThread { compose.activity.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density, 2f)) {
-                HamsterTheme { Column(Modifier.width(360.dp).verticalScroll(rememberScrollState())) {
+                HamsterTheme { Column(Modifier.requiredWidth(360.dp).verticalScroll(rememberScrollState())) {
                     DashboardScreen(input, AttendanceEngine.derive(input), trackingReady = false)
                 } }
             }
@@ -238,7 +238,9 @@ class DashboardTest {
             val layouts = mutableListOf<TextLayoutResult>()
             compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertTrue(tag, layouts.isNotEmpty() && layouts.none { it.hasVisualOverflow })
+            assertTrue("$tag has no text layout", layouts.isNotEmpty())
+            assertTrue("$tag " + layouts.joinToString { "size=${it.size}, width=${it.didOverflowWidth}, height=${it.didOverflowHeight}, lines=${it.lineCount}" },
+                layouts.none { it.hasVisualOverflow })
         }
         compose.onNodeWithTag("today_balance").performScrollTo().assertIsDisplayed().assertTextContains("Unknown")
         compose.onNodeWithTag("today_details_toggle").performScrollTo().assertHeightIsAtLeast(48.dp)
