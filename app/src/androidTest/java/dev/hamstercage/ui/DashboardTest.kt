@@ -8,6 +8,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -332,10 +334,18 @@ class DashboardTest {
             it.config.getOrNull(SemanticsProperties.TestTag) in expected
         }).fetchSemanticsNodes()
         val tags = nodes.map { it.config[SemanticsProperties.TestTag] }
-        // Semantics traversal order is what TalkBack reads; it must equal the intended visual order.
+        // Accessibility: semantics traversal order (what TalkBack reads) must equal the intended order.
         assertEquals(expected, tags)
-        val tops = nodes.map { it.boundsInRoot.top }
-        assertEquals("Visual order should follow reading order: $tops", tops.sorted(), tops)
+        // Visual: layout positions must increase down the screen in the same order. boundsInRoot is clipped to the
+        // scroll viewport (offscreen sections report 0), so this uses each node's unclipped position in root.
+        val tops = nodes.map { it.positionInRoot.y }
+        assertTrue("Visual order should follow reading order: ${expected.zip(tops)}", tops.zipWithNext().all { (a, b) -> a < b })
+        // The collapsed sections start below the fold; scroll each into view and recheck its place on screen.
+        fun top(tag: String) = compose.onNodeWithTag(tag).fetchSemanticsNode().positionInRoot.y
+        for ((above, below) in listOf("today_details_toggle" to "departure_targets_toggle", "departure_targets_toggle" to "periods_toggle")) {
+            compose.onNodeWithTag(below).performScrollTo().assertIsDisplayed()
+            assertTrue("$above should sit above $below once scrolled into view", top(above) < top(below))
+        }
         // One action in the Today group when no setup/review notice applies.
         compose.onNodeWithText("View today's timeline").assertExists()
         compose.onNodeWithText("Open office setup").assertDoesNotExist()
@@ -353,12 +363,32 @@ class DashboardTest {
             }
         } }
         fun assertNoOverflow(label: String) {
+            val text = compose.onNodeWithText(label, useUnmergedTree = true).performScrollTo().assertIsDisplayed()
             val layouts = mutableListOf<TextLayoutResult>()
-            compose.onNodeWithText(label, useUnmergedTree = true).performScrollTo().assertIsDisplayed()
-                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             assertTrue("$label has no text layout", layouts.isNotEmpty())
-            assertTrue("$label " + layouts.joinToString { "size=${it.size}, width=${it.didOverflowWidth}, height=${it.didOverflowHeight}, lines=${it.lineCount}" },
-                layouts.none { it.hasVisualOverflow })
+            for (layout in layouts) {
+                val detail = "size=${layout.size}, width=${layout.didOverflowWidth}, height=${layout.didOverflowHeight}, " +
+                    "lines=${layout.lineCount}, maxIntrinsic=${layout.multiParagraph.maxIntrinsicWidth}"
+                assertFalse("$label is clipped vertically: $detail", layout.didOverflowHeight)
+                // A button label is measured with loose width constraints. When it fits, Compose lays it out at its
+                // max intrinsic width (finalMaxWidth), but GetTextLayoutResult rebuilds the paragraph at the full max
+                // width (slowCreateTextLayoutResultOrNull: prevConstraints.copyMaxDimensions()), so didOverflowWidth
+                // is reported for a label that fits. Real horizontal clipping means the content needs more width
+                // than the label was given; a word longer than the button still fails here.
+                assertTrue("$label is clipped horizontally: $detail",
+                    !layout.didOverflowWidth || layout.multiParagraph.maxIntrinsicWidth <= layout.size.width)
+            }
+            // The label's whole unclipped box must also sit inside its control.
+            val labelNode = text.fetchSemanticsNode()
+            val control = compose.onNode(hasText(label) and hasClickAction()).fetchSemanticsNode()
+            val inner = Rect(labelNode.positionInRoot,
+                Size(labelNode.size.width.toFloat(), labelNode.size.height.toFloat()))
+            val outer = Rect(control.positionInRoot,
+                Size(control.size.width.toFloat(), control.size.height.toFloat()))
+            assertTrue("$label $inner should fit inside its control $outer",
+                inner.left >= outer.left - 0.5f && inner.right <= outer.right + 0.5f &&
+                inner.top >= outer.top - 0.5f && inner.bottom <= outer.bottom + 0.5f)
         }
         compose.onNodeWithTag("open_today_timeline").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
         assertNoOverflow("View today's timeline")
