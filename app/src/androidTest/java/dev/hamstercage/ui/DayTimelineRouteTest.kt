@@ -48,7 +48,7 @@ class DayTimelineRouteTest {
         compose.onNodeWithText("Returned to office area · Westerville Office", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Ongoing at Westerville Office", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("detail_leave").performScrollTo()
-            .assertTextContains("Conflicting attendance evidence blocks today's estimate", substring = true)
+            .assertTextContains("Today's records disagree", substring = true)
         compose.onNodeWithTag("timeline_edit_3").performScrollTo().performClick()
         compose.onNodeWithText("Correct session").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Cancel correction").performScrollTo().performClick()
@@ -160,7 +160,7 @@ class DayTimelineRouteTest {
         compose.setContent { HamsterApp(TimeSource { evaluation },
             storageState = StorageState.Ready(snapshot), trackingReady = true) }
         compose.onNodeWithTag("today_leave").performScrollTo()
-            .assertTextEquals("You can leave at 3:36 PM")
+            .assertTextEquals("Estimated leave time: about 3:36 PM. Check today's timeline.")
         compose.onNodeWithTag("open_today_timeline").performScrollTo().performClick()
         compose.onNodeWithText("Unconfirmed exit signal · Westerville Office", substring = true)
             .performScrollTo().assertIsDisplayed()
@@ -168,7 +168,7 @@ class DayTimelineRouteTest {
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Arrival time unknown", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("detail_leave").performScrollTo()
-            .assertTextEquals("You can leave at 3:36 PM")
+            .assertTextEquals("Estimated leave time: about 3:36 PM. Check today's timeline.")
         compose.onNodeWithText("Raw observations (3)").performScrollTo().assertIsDisplayed()
     }
 }

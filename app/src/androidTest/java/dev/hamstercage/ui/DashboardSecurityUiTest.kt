@@ -31,8 +31,9 @@ class DashboardSecurityUiTest {
         } } }
         compose.onNodeWithTag("office_state").assertTextEquals("In Synthetic office")
         compose.onNodeWithTag("today_balance").assertTextContains("Unknown")
-        compose.onNodeWithTag("today_leave").performScrollTo().assertTextEquals("You can leave at 5:30 PM")
-        compose.onNodeWithTag("today_leave_context").assertTextContains("provisional", substring = true)
+        compose.onNodeWithTag("today_leave").performScrollTo()
+            .assertTextEquals("Estimated leave time: about 5:30 PM. Check today's timeline.")
+        compose.onNodeWithTag("today_credit_note").assertTextEquals("Estimate · part of today wasn't tracked")
         compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("About 5:30 PM")
         listOf("0.125", "-0.25", "OFFICE_ID_SENTINEL_24", "RAW_ID_SENTINEL_24", "PRIVATE_NOTE_SENTINEL_24", "\u202e").forEach {
             compose.onNodeWithText(it, substring = true, useUnmergedTree = true).assertDoesNotExist()

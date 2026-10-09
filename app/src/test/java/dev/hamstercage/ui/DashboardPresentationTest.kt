@@ -44,7 +44,7 @@ class DashboardPresentationTest {
     }
     @Test fun manualBoundsAreExplicitAndDisabledOfficeDoesNotClaimPresence() {
         val manual = data().copy(manualSessions = listOf(ManualSession("m", "a", now.minusSeconds(60), null, now)))
-        assertEquals("Manual session active", state(manual).label)
+        assertEquals("Using times you entered", state(manual).label)
         assertTrue(state(manual).manual)
         val disabled = data(listOf(enter())).copy(offices = listOf(office.copy(enabled = false)))
         assertEquals("Office state unknown", state(disabled).label)
@@ -60,23 +60,62 @@ class DashboardPresentationTest {
         assertEquals("4:01 PM", departureTimeText(now.plusSeconds(30), now, zone))
         assertTrue(departureTimeText(now.plusSeconds(24 * 3600), now, zone).contains("Sep 24"))
     }
-    @Test fun dailyLeaveMessageNamesSafeActionForEachCommonState() {
-        val zone = ZoneId.of("UTC")
-        fun message(input: AttendanceInput, ready: Boolean = true): String =
-            todayLeaveText(AttendanceEngine.departure(input, AttendanceEngine.derive(input), TargetWindow.TODAY), ready, input.now, zone)
-        assertEquals("You can leave at 9:00 PM", message(data(listOf(enter())).copy(historyStartDate = null)))
-        assertEquals("Confirm office detection to see a leave time", message(data(listOf(enter())), false))
-        assertEquals("Start an eligible office session to see a leave time", message(data()))
-        assertEquals("You can leave now", message(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600))))))
+    private val zone = ZoneId.of("UTC")
+    private fun leave(input: AttendanceInput, ready: Boolean = true, confident: Boolean = ready && AttendanceEngine.daily(
+        input, AttendanceEngine.derive(input), input.now.atZone(zone).toLocalDate()).hasCompleteHistory): String =
+        todayLeaveText(AttendanceEngine.departure(input, AttendanceEngine.derive(input), TargetWindow.TODAY), ready,
+            input.now, zone, confident)
+    private val jargon = Regex("(?i)\\b(enter|exit|geofence|bounds?|engine|eligible|observation|coverage|provisional|session)\\b")
+
+    @Test fun dailyLeaveMessageNamesSafeActionForEachCommonStateInEverydayWords() {
+        val messages = mutableListOf<String>()
+        fun check(expected: String, actual: String) { assertEquals(expected, actual); messages += actual }
+        fun checkContains(expected: String, actual: String) { assertTrue(actual, actual.contains(expected)); messages += actual }
+        check("You can leave at 9:00 PM", leave(data(listOf(enter()))))
+        check("No leave time yet: your location isn't confirmed. Check office setup.", leave(data(listOf(enter())), false))
+        check("A leave time appears once you're at the office.", leave(data()))
+        check("Goal met. You can leave now.", leave(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600))))))
         val overlapping = data(listOf(enter(), enter("bin", "b"))).copy(offices = listOf(office, office.copy(id = "b")))
-        assertEquals("Review overlapping active sessions in History", message(overlapping))
+        check("Two office visits overlap. Fix them in History to see a leave time.", leave(overlapping))
         val future = data(listOf(enter(), RawEvent("future", "a", Transition.EXIT, now.plusSeconds(60))))
-        assertTrue(message(future).contains("Check the device clock"))
+        checkContains("Check your phone's clock", leave(future))
         val stale = data(listOf(enter())).copy(now = now.plusSeconds(24 * 3600))
-        assertTrue(message(stale).contains("safe length"))
+        checkContains("unusually long", leave(stale))
         val unreachable = data(listOf(RawEvent("late", "a", Transition.ENTER, Instant.parse("2026-09-24T03:58:00Z"))))
             .copy(now = Instant.parse("2026-09-24T03:59:00Z"))
-        assertTrue(message(unreachable).contains("Review the target in Settings"))
+        checkContains("Check your goal in Settings", leave(unreachable))
+        for (message in messages) assertFalse(message, jargon.containsMatchIn(message))
+    }
+
+    @Test fun uncertainTimeNeverBecomesAConfidentLeaveInstruction() {
+        // Missing history: the projection stays useful but is visibly an estimate.
+        val unknownHistory = data(listOf(enter())).copy(historyStartDate = null)
+        assertEquals("Estimated leave time: about 9:00 PM. Check today's timeline.", leave(unknownHistory))
+        val metUnknown = data(listOf(enter().copy(at = now.minusSeconds(7 * 3600)))).copy(historyStartDate = null)
+        assertEquals("Goal may be met. Check today's timeline before you leave.", leave(metUnknown))
+        // Detection not confirmed: no time at all, and a met goal is not confirmed either.
+        assertFalse(leave(data(listOf(enter())), ready = false).contains("leave at"))
+        assertEquals("Goal may be met. Check today's timeline before you leave.",
+            leave(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600)))), ready = false))
+        for (text in listOf(leave(unknownHistory), leave(metUnknown))) assertFalse(text, text.startsWith("You can leave"))
+    }
+
+    @Test fun creditAndRemainingLabelsQualifyUncertainNumbersWithoutChangingThem() {
+        val input = data(listOf(enter().copy(at = now.minusSeconds(2 * 3600))))
+        val daily = AttendanceEngine.daily(input, AttendanceEngine.derive(input), input.now.atZone(zone).toLocalDate())
+        // The numbers are the engine's, unchanged; only their labels change.
+        assertEquals("1h 55m", minutesText(daily.creditedMinutes))
+        assertEquals("Counted toward today's goal", todayCreditNote(historyComplete = true, liveUnconfirmed = false))
+        assertEquals("Estimate · part of today wasn't tracked", todayCreditNote(historyComplete = false, liveUnconfirmed = false))
+        assertEquals("Estimate · we can't confirm you're still there", todayCreditNote(historyComplete = true, liveUnconfirmed = true))
+        assertEquals("4h 5m", todayRemainingText(daily, liveUnconfirmed = false))
+        assertEquals("About 4h 5m", todayRemainingText(daily, liveUnconfirmed = true))
+        assertEquals("Unknown", todayRemainingText(daily.copy(unknownCalendarDays = 1), liveUnconfirmed = false))
+        assertEquals("None, goal met", todayRemainingText(daily.copy(balanceMinutes = 0.0), liveUnconfirmed = false))
+        assertEquals("None, goal met (+30m)", todayRemainingText(daily.copy(balanceMinutes = 30.4), liveUnconfirmed = false))
+        assertEquals("1m", todayRemainingText(daily.copy(balanceMinutes = -0.2), liveUnconfirmed = false))
+        for (text in listOf(todayCreditNote(true, false), todayCreditNote(false, false), todayCreditNote(true, true)))
+            assertFalse(text, jargon.containsMatchIn(text))
     }
 
     @Test fun earlierOrphanExitKeepsAuditReviewWithoutHidingCurrentOfficeOrLeaveTime() {
@@ -84,8 +123,20 @@ class DashboardPresentationTest {
             enter()))
         val result = AttendanceEngine.derive(input)
         assertTrue(dashboardPresence(input, result, true).needsReview)
+        assertTrue(todayLeaveConfident(input, result, true))
         assertEquals("In Synthetic office", dashboardPresence(input, result, true).label)
         assertEquals("You can leave at 9:00 PM", todayLeaveText(
-            AttendanceEngine.departure(input, result, TargetWindow.TODAY), true, now, ZoneId.of("UTC")))
+            AttendanceEngine.departure(input, result, TargetWindow.TODAY), true, now, ZoneId.of("UTC"),
+            todayLeaveConfident(input, result, true)))
+    }
+
+    @Test fun aDepartureAwaitingConfirmationKeepsTheLeaveTimeAnEstimate() {
+        val input = data(listOf(enter(), RawEvent("maybe-out", "a", Transition.EXIT, now.minusSeconds(60))))
+            .copy(candidateExitIds = setOf("maybe-out"))
+        val result = AttendanceEngine.derive(input)
+        assertEquals("Checking whether you've left", dashboardPresence(input, result, true).label)
+        assertFalse(todayLeaveConfident(input, result, true))
+        assertFalse(todayLeaveText(AttendanceEngine.departure(input, result, TargetWindow.TODAY), true, now,
+            ZoneId.of("UTC"), todayLeaveConfident(input, result, true)).startsWith("You can leave"))
     }
 }

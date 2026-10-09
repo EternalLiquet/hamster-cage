@@ -7,6 +7,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -34,42 +40,56 @@ fun DashboardScreen(
     }?.let { session -> input.offices.single { it.id == session.officeId } }
     Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }, verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Panel(warm = true) {
+            // Default view answers three questions: how much counts, how much is left, and what to do next.
+            // Technical detail stays one tap away. Uncertain numbers are always labelled as estimates.
+            val liveUnconfirmed = !trackingReady && presence.sessionStarted != null
+            val confident = todayLeaveConfident(input, result, trackingReady)
             Text("TODAY", style = MaterialTheme.typography.labelMedium, color = CageStyle.Amber)
             OutlinedButton(onClick = openToday, modifier = Modifier.testTag("open_today_timeline")) { Text("View today's timeline") }
             Text(presence.label, Modifier.testTag("office_state"), style = MaterialTheme.typography.titleMedium)
             Text(minutesText(daily.creditedMinutes), Modifier.fillMaxWidth().testTag("today_credit"), style = MaterialTheme.typography.displaySmall)
-            Text(if (daily.hasCompleteHistory) "Credited office time" else "Provisional credit · coverage incomplete",
+            Text(todayCreditNote(daily.hasCompleteHistory, liveUnconfirmed), Modifier.testTag("today_credit_note"),
                 style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-            DashboardMetric("Target today", minutesText(daily.requiredMinutes.toDouble()), "today_target")
-            Text(todayLeaveText(todayDeparture, trackingReady, input.now, input.policy.zoneId),
+            DashboardMetric("Today's goal", minutesText(daily.requiredMinutes.toDouble()), "today_target")
+            DashboardMetric("Still needed", todayRemainingText(daily, liveUnconfirmed), "today_balance", true)
+            Text(todayLeaveText(todayDeparture, trackingReady, input.now, input.policy.zoneId, confident),
                 Modifier.fillMaxWidth().testTag("today_leave"), style = MaterialTheme.typography.titleLarge)
-            Text("Today's ${minutesText(daily.requiredMinutes.toDouble())} target · provisional until today's coverage is reviewed.",
-                Modifier.testTag("today_leave_context"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-            if (todayDeparture.status == DepartureStatus.ESTIMATED && trackingReady && currentOffice != null) {
-                Text("Leave the office geofence at this time. Building exit and detected geofence EXIT may differ; " +
-                    "${currentOffice.exitGraceMinutes}m exit grace is projection only.",
-                    Modifier.testTag("today_leave_boundary"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-            }
-            DashboardMetric("Balance", if (daily.hasCompleteHistory) balanceText(daily.balanceMinutes) else "Unknown", "today_balance", true)
-            DashboardMetric("Device-observed time", minutesText(AttendanceEngine.observedDailyMinutes(input, today)), "today_observed")
-            presence.sessionStarted?.let { DashboardMetric("Session started", instantText(it, input.policy.zoneId), "session_start") }
             val open = result.sessions.filter { it.isOpen && input.offices.any { office -> office.id == it.officeId && office.enabled && office.countsTowardAttendance } }
-            if (open.size == 1) {
-                val session = open.single()
-                val grace = input.offices.single { it.id == session.officeId }.entryGraceMinutes
-                val creditStart = session.start!!.plusSeconds(grace * 60L)
-                Text("Arrival walking grace: ${grace}m uncredited. Credit starts at ${instantText(creditStart, input.policy.zoneId)}.",
+            val grace = open.singleOrNull()?.let { session -> input.offices.single { it.id == session.officeId }.entryGraceMinutes }
+            val creditStart = open.singleOrNull()?.let { it.start!!.plusSeconds((grace ?: 0) * 60L) }
+            if (creditStart != null) {
+                val counting = input.now >= creditStart
+                Text(if (counting) "Counting since ${instantText(creditStart, input.policy.zoneId)}."
+                    else "Time starts counting at ${instantText(creditStart, input.policy.zoneId)}.",
                     Modifier.testTag("arrival_credit_start"), style = MaterialTheme.typography.bodyMedium)
-                if (input.now < creditStart) {
+                if (!counting) {
                     val minutesLeft = (Duration.between(input.now, creditStart).seconds + 59) / 60
-                    Text("${minutesLeft}m until credit starts (if the observed visit continues).", Modifier.testTag("arrival_countdown"))
+                    Text("${minutesLeft}m until time starts counting, if you stay.", Modifier.testTag("arrival_countdown"))
                 }
             }
-            if (presence.manual) Tag("MANUAL BOUNDS")
-            if (!trackingReady && presence.sessionStarted != null)
-                Text("Live office state is unconfirmed. Open-session totals are estimates until reviewed.", style = MaterialTheme.typography.bodyMedium)
+            if (presence.manual) Tag("INCLUDES TIMES YOU ENTERED")
             if (!daily.hasCompleteHistory)
-                Text("Missing coverage is unknown, never a confirmed absence. Review the timeline before relying on the balance.", style = MaterialTheme.typography.bodyMedium)
+                Text("Part of today wasn't tracked, so we can't tell whether you were at the office then. Check today's timeline before relying on these numbers.",
+                    Modifier.testTag("today_untracked"), style = MaterialTheme.typography.bodyMedium)
+            var details by rememberSaveable { mutableStateOf(false) }
+            TextButton(onClick = { details = !details }, modifier = Modifier.testTag("today_details_toggle")
+                .defaultMinSize(minHeight = CageStyle.TouchTarget)) {
+                Text(if (details) "Hide details" else "How is this worked out?")
+            }
+            if (details) Column(Modifier.testTag("today_details"), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
+                DashboardMetric("Time your phone saw you at the office", minutesText(AttendanceEngine.observedDailyMinutes(input, today)), "today_observed")
+                presence.sessionStarted?.let { DashboardMetric("Arrival noticed at", instantText(it, input.policy.zoneId), "session_start") }
+                if (grace != null)
+                    Text("The first ${grace}m after arriving don't count, to allow for walking in.",
+                        style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+                if (todayDeparture.status == DepartureStatus.ESTIMATED && trackingReady && currentOffice != null)
+                    Text("The leave time is when to be outside the office area. It's up to ${currentOffice.exitGraceMinutes}m " +
+                        "before your counted time reaches the goal, to give you time to walk out. Those minutes don't count as office time.",
+                        Modifier.testTag("today_leave_boundary"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+                Text("Times come from when your phone notices you arriving at or leaving the office area. Phones can be a few minutes " +
+                    "late to notice, so treat these times as close estimates. Today's numbers may change as your records are checked.",
+                    style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
+            }
         }
         if (input.offices.none { it.enabled && it.countsTowardAttendance })
             Notice("Set up an eligible office", "Add or enable an office to begin automatic attendance setup. No location is preloaded.", "Open office setup", openOffices)
