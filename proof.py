@@ -11,7 +11,7 @@ blob = ''.join(parts[i] for i in range(total)) if total and len(parts) == total 
 size = 4000
 pieces = [blob[i:i + size] for i in range(0, len(blob), size)]
 print(f'{name}: {len(blob)} chars, {len(pieces)} pieces')
-if len(pieces) > 16:
+if len(pieces) > 24:
     print(f'::error title=TODAYPROOF {name}::too large ({len(pieces)} pieces)')
 for k in range(part * 8, min(len(pieces), part * 8 + 8)):
     print(f'::notice title=TODAYPROOF {name} {k}/{len(pieces)}::{pieces[k]}')

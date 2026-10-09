@@ -39,10 +39,9 @@ class TodayProofScreenshotTest {
         } }
         compose.waitForIdle()
         val full = compose.onRoot().captureToImage().asAndroidBitmap()
-        val height = minOf(full.height, if (fontScale > 1f) 2100 else 1250)
-        val cropped = Bitmap.createBitmap(full, 0, 0, minOf(full.width, 540), height)
+        val cropped = Bitmap.createBitmap(full, 0, 0, minOf(full.width, 540), full.height)
         val out = ByteArrayOutputStream()
-        cropped.compress(Bitmap.CompressFormat.JPEG, 60, out)
+        cropped.compress(Bitmap.CompressFormat.JPEG, 55, out)
         val text = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
         val chunks = text.chunked(3000)
         chunks.forEachIndexed { i, chunk -> Log.i("TODAYPROOF", "$name|$i|${chunks.size}|$chunk") }
