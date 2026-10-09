@@ -234,7 +234,8 @@ class DashboardTest {
                 } }
             }
         } }
-        for (tag in listOf("office_state", "today_credit", "today_credit_note", "today_leave", "today_untracked")) {
+        // Checks the copy this screen owns; the presence label is unchanged by #118.
+        for (tag in listOf("today_credit", "today_credit_note", "today_leave", "today_untracked")) {
             val layouts = mutableListOf<TextLayoutResult>()
             compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
