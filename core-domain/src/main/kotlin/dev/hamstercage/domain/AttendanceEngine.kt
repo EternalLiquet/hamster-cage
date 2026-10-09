@@ -628,8 +628,13 @@ object AttendanceEngine {
     fun departure(input: AttendanceInput, result: AttendanceResult, target: TargetWindow): DepartureEstimate {
         val summary = summary(input, result, target)
         val remaining = max(0.0, summary.requiredMinutes - summary.creditedMinutes)
+        // Assigned below once review classification is known; review outcomes carry neither.
+        var assumptions = emptySet<EstimateAssumption>()
+        var nonBlockingIds = emptySet<String>()
         fun outcome(status: DepartureStatus, reasons: Set<ReviewReason> = emptySet()) =
-            DepartureEstimate(target, status, remaining, reviewReasons = reasons)
+            DepartureEstimate(target, status, remaining, reviewReasons = reasons,
+                assumptions = if (status == DepartureStatus.NEEDS_REVIEW) emptySet() else assumptions,
+                nonBlockingSessionIds = if (status == DepartureStatus.NEEDS_REVIEW) emptySet() else nonBlockingIds)
         // Today's projection is anchored to observed credit through now and the active
         // session. Unknown coverage makes it provisional, but prior history cannot
         // contribute a deficit to a single-day target.
@@ -645,11 +650,35 @@ object AttendanceEngine {
         }
         val current = relevant.filter { it.isOpen }
         val benign = setOf(ReviewReason.OPEN_SESSION) + ADVISORY_REVIEW_REASONS
+        // Today can be projected through boundary doubt that can only understate credit.
+        // Credit already stops at an observed unconfirmed EXIT, so if the user had in fact
+        // stayed, the true leave time is earlier, never later. Receipt-timed EXITs may be
+        // later than the departure and stay blocking, as do corrected or manual bounds.
+        fun uncorrected(session: Session) = session.correctionId == null && session.manualSessionId == null
+        val unconfirmedEarlierIds = if (target == TargetWindow.TODAY) relevant.filter { session ->
+            session.start != null && session.end != null && uncorrected(session) &&
+                ReviewReason.UNCONFIRMED_BOUNDARY in session.reviewReasons &&
+                session.reviewReasons.all { it == ReviewReason.UNCONFIRMED_BOUNDARY || it in ADVISORY_REVIEW_REASONS } &&
+                input.events.any { it.id in session.sourceEventIds && it.officeId == session.officeId &&
+                    it.transition == Transition.EXIT && it.at == session.end && it.id !in input.receiptTimedEventIds }
+        }.map { it.id }.toSet() else emptySet()
+        // A candidate EXIT still being checked caps credit at its own time, so assuming
+        // continued presence projects from less credit than a rejected candidate would
+        // restore. Another office's arrival is a contradiction, not a pending check.
+        val pendingExitId = current.singleOrNull()?.takeIf { session ->
+            target == TargetWindow.TODAY && uncorrected(session) &&
+                session.reviewReasons.all { it in benign || it == ReviewReason.UNCONFIRMED_BOUNDARY } &&
+                input.events.any { it.id in session.sourceEventIds && it.id in input.candidateExitIds } &&
+                input.events.none { it.officeId != session.officeId && it.at > session.start!! && it.at <= input.now &&
+                    it.transition in setOf(Transition.ENTER, Transition.PRESENCE) }
+        }?.id
+        val qualified = unconfirmedEarlierIds + listOfNotNull(pendingExitId)
         // A bare EXIT before any credible visit is an auditable platform signal,
-        // not evidence of presence or ambiguity in the later active visit.
+        // not evidence of presence or ambiguity in a later visit, open or closed.
         val firstStart = relevant.mapNotNull { it.start }.minOrNull()
-        val harmlessOrphanIds = if (target == TargetWindow.TODAY && current.size == 1 &&
-            current.single().reviewReasons.all { it in benign } && firstStart != null) {
+        val harmlessOrphanIds = if (target == TargetWindow.TODAY && current.size <= 1 &&
+            current.all { session -> session.id == pendingExitId || session.reviewReasons.all { it in benign } } &&
+            firstStart != null) {
             relevant.filter { session ->
                 session.start == null && session.end != null && session.end < firstStart &&
                     ReviewReason.MISSING_ENTER in session.reviewReasons &&
@@ -672,7 +701,8 @@ object AttendanceEngine {
                 ReviewReason.UNCONFIRMED_GAP in it.reviewReasons }.map { it.id }.toSet()
         } else emptySet()
         fun blocks(reason: ReviewReason, sessionId: String?) = reason !in benign &&
-            !(reason == ReviewReason.UNCONFIRMED_GAP && sessionId in repairedGapIds)
+            !(reason == ReviewReason.UNCONFIRMED_GAP && sessionId in repairedGapIds) &&
+            !(reason == ReviewReason.UNCONFIRMED_BOUNDARY && sessionId in qualified)
         val relevantIds = relevant.map { it.id }.toSet()
         val allSessionIds = result.sessions.map { it.id }.toSet()
         // Ambiguity wins even when the provisional credit exceeds the target. A bad clock,
@@ -687,6 +717,10 @@ object AttendanceEngine {
                 else review.sessionId !in allSessionIds || review.sessionId in relevantIds)
             }.map { it.reason }
         if (blockingReasons.isNotEmpty()) return outcome(DepartureStatus.NEEDS_REVIEW, blockingReasons)
+        nonBlockingIds = qualified + harmlessOrphanIds
+        assumptions = setOfNotNull(
+            EstimateAssumption.STILL_PRESENT_WHILE_EXIT_CHECKED.takeIf { pendingExitId != null },
+            EstimateAssumption.EARLIER_EXIT_UNCONFIRMED.takeIf { unconfirmedEarlierIds.isNotEmpty() })
         if (remaining == 0.0) return outcome(DepartureStatus.TARGET_SATISFIED)
         if (current.isEmpty()) return outcome(DepartureStatus.NOT_IN_OFFICE)
         if (input.now < windowStart || input.now >= windowEnd) return outcome(DepartureStatus.OUTSIDE_WINDOW)
@@ -699,7 +733,8 @@ object AttendanceEngine {
         // Do not roll today's/rolling window forward to make an otherwise unreachable target fit.
         if (targetAt > windowEnd || exitAt > session.start.plusSeconds(input.policy.maxOpenSessionHours * 3600L))
             return outcome(DepartureStatus.UNREACHABLE_IN_WINDOW)
-        return DepartureEstimate(target, DepartureStatus.ESTIMATED, remaining, targetAt, exitAt)
+        return DepartureEstimate(target, DepartureStatus.ESTIMATED, remaining, targetAt, exitAt,
+            assumptions = assumptions, nonBlockingSessionIds = nonBlockingIds)
     }
 
     /** A past orphan or malformed fact cannot make an otherwise bounded Today session ambiguous. */

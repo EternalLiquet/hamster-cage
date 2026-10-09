@@ -1,0 +1,608 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Obfuscated diagnostic reproduction fixture; dates and clock times shifted; not actual attendance on these dates; not a backup",
+  "appVersion": "0.1.0-preview-debug",
+  "selectedLocalDay": "2025-10-10",
+  "policyZone": "America/New_York",
+  "windowStartInclusive": "2025-10-10T04:00:00Z",
+  "windowEndExclusive": "2025-10-11T04:00:00Z",
+  "contextRule": "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day; for the latest EXIT in the final two hours, the earliest same-office return and earliest cross-office presence within two hours after local midnight. Capture times outside the evidence date span are written as beforeSpan or afterSpan.",
+  "evaluatedAt": "2025-10-10T20:16:57.073489Z",
+  "offices": [
+    {
+      "alias": "office-1",
+      "radiusMeters": 350,
+      "enabled": true,
+      "countsTowardAttendance": true,
+      "entryGraceMinutes": 25,
+      "exitGraceMinutes": 15
+    },
+    {
+      "alias": "office-2",
+      "radiusMeters": 150,
+      "enabled": true,
+      "countsTowardAttendance": true,
+      "entryGraceMinutes": 5,
+      "exitGraceMinutes": 5
+    }
+  ],
+  "policy": {
+    "targetMinutesPerDay": 360,
+    "expectedWeekdays": [
+      "FRIDAY",
+      "MONDAY",
+      "THURSDAY",
+      "TUESDAY",
+      "WEDNESDAY"
+    ],
+    "shortGapMinutes": 10,
+    "maxOpenSessionHours": 16,
+    "exclusion": [],
+    "wfh": false
+  },
+  "capture": {
+    "registration": "ACTIVE",
+    "monitoringEnabled": true,
+    "deliveryFailure": false,
+    "lastVerifiedAt": "beforeSpan",
+    "lastCheckResult": null,
+    "historyStartDate": "beforeSpan",
+    "selectedDayUnknown": true,
+    "lastHealthyAt": "2025-10-10T20:16:56.866Z",
+    "outageStartedAt": null,
+    "recoveryBoundaryAt": "2025-10-10T06:13:13.456Z",
+    "lastOutageStartedAt": "2025-10-09T21:43:13.928Z",
+    "lastOutageHealthySince": "2025-10-09T08:18:29.343Z",
+    "openOutageHealthySince": null,
+    "lastObservationAt": "2025-10-10T20:13:42.376Z"
+  },
+  "observations": [
+    {
+      "fact": "fact-5",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-29T13:53:14.944Z",
+      "receivedAt": "2025-09-29T13:53:15.248Z",
+      "observedLocationAt": "2025-09-29T13:53:14.944Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 3.814,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-11",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-29T13:54:19.954Z",
+      "receivedAt": "2025-09-29T13:54:20.017Z",
+      "observedLocationAt": "2025-09-29T13:54:19.954Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 3.79,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-21",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-29T14:09:49.570Z",
+      "receivedAt": "2025-09-29T14:09:49.762Z",
+      "observedLocationAt": "2025-09-29T14:09:49.570Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 22.696,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-19",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-29T15:50:53.192Z",
+      "receivedAt": "2025-09-29T15:50:58.049Z",
+      "observedLocationAt": "2025-09-29T15:50:53.192Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 12.051,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-17",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-09-29T17:18:54.535Z",
+      "receivedAt": "2025-09-29T17:18:57.787Z",
+      "observedLocationAt": "2025-09-29T17:18:54.535Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 400,
+      "context": true,
+      "engineRoles": [
+        "rejectedExit"
+      ]
+    },
+    {
+      "fact": "fact-3",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-29T17:19:09.019Z",
+      "receivedAt": "2025-09-29T17:19:09.056Z",
+      "observedLocationAt": "2025-09-29T17:19:09.019Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 28.287,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-13",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-09-29T17:27:42.115Z",
+      "receivedAt": "2025-09-29T17:27:47.211Z",
+      "observedLocationAt": "2025-09-29T17:27:42.115Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 400,
+      "context": true,
+      "engineRoles": [
+        "rejectedExit"
+      ]
+    },
+    {
+      "fact": "fact-10",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-29T17:27:57.128Z",
+      "receivedAt": "2025-09-29T17:27:57.264Z",
+      "observedLocationAt": "2025-09-29T17:27:57.128Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 21.237,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-20",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-29T18:10:36.906Z",
+      "receivedAt": "2025-09-29T18:10:43.998Z",
+      "observedLocationAt": "2025-09-29T18:10:36.906Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 12.904,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-23",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-09-29T19:02:43.445Z",
+      "receivedAt": "2025-09-29T19:02:43.600Z",
+      "observedLocationAt": "2025-09-29T19:02:43.445Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 400,
+      "context": true,
+      "engineRoles": [
+        "rejectedExit"
+      ]
+    },
+    {
+      "fact": "fact-4",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-29T19:02:48.593Z",
+      "receivedAt": "2025-09-29T19:02:53.494Z",
+      "observedLocationAt": "2025-09-29T19:02:48.593Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 15.232,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-22",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-09-29T21:40:41.898Z",
+      "receivedAt": "2025-09-29T21:40:41.980Z",
+      "observedLocationAt": "2025-09-29T21:40:41.898Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 3.79,
+      "context": true,
+      "engineRoles": [
+        "delayedExit",
+        "unconfirmedExit"
+      ]
+    },
+    {
+      "fact": "fact-2",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-30T15:54:04.605Z",
+      "receivedAt": "2025-09-30T15:54:04.718Z",
+      "observedLocationAt": "2025-09-30T15:54:04.605Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 21.214,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-28",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-30T16:24:45.292Z",
+      "receivedAt": "2025-09-30T16:24:45.355Z",
+      "observedLocationAt": "2025-09-30T16:24:45.292Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 21.542,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-18",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-09-30T19:09:28.497Z",
+      "receivedAt": "2025-09-30T19:09:28.853Z",
+      "observedLocationAt": "2025-09-30T19:09:28.497Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 19.722,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-24",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-09-30T19:24:01.946Z",
+      "receivedAt": "2025-09-30T19:24:02.011Z",
+      "observedLocationAt": "2025-09-30T19:24:01.946Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 3.79,
+      "context": true,
+      "engineRoles": [
+        "delayedExit",
+        "unconfirmedExit"
+      ]
+    },
+    {
+      "fact": "fact-26",
+      "office": "office-1",
+      "transition": "EXIT",
+      "eventAt": "2025-10-09T09:35:13.457Z",
+      "receivedAt": "2025-10-09T09:35:18.640Z",
+      "observedLocationAt": "2025-10-09T09:35:13.457Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 11.34,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-29",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-10-09T09:35:13.457Z",
+      "receivedAt": "2025-10-09T09:35:18.640Z",
+      "observedLocationAt": "2025-10-09T09:35:13.457Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 11.34,
+      "context": true,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-7",
+      "office": "office-1",
+      "transition": "EXIT",
+      "eventAt": "2025-10-10T06:28:54.924Z",
+      "receivedAt": "2025-10-10T06:30:36.050Z",
+      "observedLocationAt": "2025-10-10T06:28:54.924Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 24.939,
+      "context": false,
+      "engineRoles": [
+        "unconfirmedExit"
+      ]
+    },
+    {
+      "fact": "fact-25",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-10-10T06:28:54.924Z",
+      "receivedAt": "2025-10-10T06:30:36.050Z",
+      "observedLocationAt": "2025-10-10T06:28:54.924Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 24.939,
+      "context": false,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-15",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-10-10T14:20:56.962Z",
+      "receivedAt": "2025-10-10T14:20:57.032Z",
+      "observedLocationAt": "2025-10-10T14:20:56.962Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 3.794,
+      "context": false,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-12",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-10-10T15:32:44.953Z",
+      "receivedAt": "2025-10-10T15:32:49.157Z",
+      "observedLocationAt": "2025-10-10T15:32:44.953Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 15.112,
+      "context": false,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-27",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-10-10T15:55:16.185Z",
+      "receivedAt": "2025-10-10T15:55:16.436Z",
+      "observedLocationAt": "2025-10-10T15:55:16.185Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 100,
+      "context": false,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-6",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-10-10T16:18:54.032Z",
+      "receivedAt": "2025-10-10T16:18:54.722Z",
+      "observedLocationAt": "2025-10-10T16:18:54.032Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 17.434,
+      "context": false,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-9",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-10-10T16:19:33.963Z",
+      "receivedAt": "2025-10-10T16:19:34.036Z",
+      "observedLocationAt": "2025-10-10T16:19:33.963Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 3.79,
+      "context": false,
+      "engineRoles": [
+        "delayedExit",
+        "unconfirmedExit"
+      ]
+    },
+    {
+      "fact": "fact-8",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-10-10T17:21:51.928Z",
+      "receivedAt": "2025-10-10T17:21:52.021Z",
+      "observedLocationAt": "2025-10-10T17:21:51.928Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 3.808,
+      "context": false,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-1",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-10-10T17:47:07.662Z",
+      "receivedAt": "2025-10-10T17:47:12.782Z",
+      "observedLocationAt": "2025-10-10T17:47:07.662Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 500,
+      "context": false,
+      "engineRoles": [
+        "rejectedExit"
+      ]
+    },
+    {
+      "fact": "fact-14",
+      "office": "office-2",
+      "transition": "ENTER",
+      "eventAt": "2025-10-10T17:47:14.159Z",
+      "receivedAt": "2025-10-10T17:47:14.173Z",
+      "observedLocationAt": "2025-10-10T17:47:14.159Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 27.953,
+      "context": false,
+      "engineRoles": []
+    },
+    {
+      "fact": "fact-16",
+      "office": "office-2",
+      "transition": "EXIT",
+      "eventAt": "2025-10-10T20:13:42.376Z",
+      "receivedAt": "2025-10-10T20:13:45.713Z",
+      "observedLocationAt": "2025-10-10T20:13:42.376Z",
+      "source": "PLAY_SERVICES_GEOFENCE",
+      "accuracyMeters": 400,
+      "context": false,
+      "engineRoles": [
+        "candidateExit",
+        "unconfirmedExit"
+      ]
+    }
+  ],
+  "manualSessions": [],
+  "corrections": [
+    {
+      "edit": "edit-3",
+      "target": "target-2",
+      "start": "2025-09-29T13:53:00Z",
+      "end": null,
+      "createdAt": "2025-09-29T17:24:10.461Z",
+      "revertToOriginal": false,
+      "appendSequence": 1,
+      "redactedNoteVariant": 1
+    },
+    {
+      "edit": "edit-5",
+      "target": "target-2",
+      "start": "2025-09-29T13:53:00Z",
+      "end": null,
+      "createdAt": "2025-09-29T17:25:08.508Z",
+      "revertToOriginal": false,
+      "appendSequence": 2,
+      "redactedNoteVariant": 1
+    },
+    {
+      "edit": "edit-1",
+      "target": "target-2",
+      "start": "2025-09-29T13:53:00Z",
+      "end": "2025-09-29T21:32:00Z",
+      "createdAt": "2025-09-30T06:25:41.530Z",
+      "revertToOriginal": false,
+      "appendSequence": 3,
+      "redactedNoteVariant": 1
+    },
+    {
+      "edit": "edit-4",
+      "target": "target-1",
+      "start": "2025-09-30T15:54:00Z",
+      "end": null,
+      "createdAt": "2025-09-30T18:03:57.493Z",
+      "revertToOriginal": false,
+      "appendSequence": 4,
+      "redactedNoteVariant": 1
+    },
+    {
+      "edit": "edit-2",
+      "target": "target-1",
+      "start": "2025-09-30T15:54:00Z",
+      "end": "2025-09-30T19:17:00Z",
+      "createdAt": "2025-10-01T13:40:27.135Z",
+      "revertToOriginal": false,
+      "appendSequence": 5,
+      "redactedNoteVariant": 1
+    }
+  ],
+  "sessions": [
+    {
+      "session": "session-2",
+      "office": "office-2",
+      "manual": null,
+      "start": "2025-09-29T13:53:00Z",
+      "end": "2025-09-29T21:32:00Z",
+      "correctionTargets": [
+        "target-2"
+      ],
+      "facts": [
+        "fact-10",
+        "fact-11",
+        "fact-13",
+        "fact-17",
+        "fact-19",
+        "fact-20",
+        "fact-21",
+        "fact-22",
+        "fact-23",
+        "fact-3",
+        "fact-4",
+        "fact-5"
+      ],
+      "redundantFacts": [],
+      "confidence": "MANUAL",
+      "reviewReasons": []
+    },
+    {
+      "session": "session-1",
+      "office": "office-2",
+      "manual": null,
+      "start": "2025-09-30T15:54:00Z",
+      "end": "2025-09-30T19:17:00Z",
+      "correctionTargets": [
+        "target-1"
+      ],
+      "facts": [
+        "fact-18",
+        "fact-2",
+        "fact-24",
+        "fact-28"
+      ],
+      "redundantFacts": [],
+      "confidence": "MANUAL",
+      "reviewReasons": []
+    },
+    {
+      "session": "session-3",
+      "office": "office-1",
+      "manual": null,
+      "start": null,
+      "end": "2025-10-10T06:28:54.924Z",
+      "correctionTargets": [],
+      "facts": [
+        "fact-7"
+      ],
+      "redundantFacts": [],
+      "confidence": "LOW",
+      "reviewReasons": [
+        "MISSING_ENTER",
+        "UNCONFIRMED_BOUNDARY"
+      ]
+    },
+    {
+      "session": "session-6",
+      "office": "office-2",
+      "manual": null,
+      "start": null,
+      "end": "2025-10-10T06:28:54.924Z",
+      "correctionTargets": [],
+      "facts": [
+        "fact-25"
+      ],
+      "redundantFacts": [],
+      "confidence": "LOW",
+      "reviewReasons": [
+        "MISSING_ENTER"
+      ]
+    },
+    {
+      "session": "session-5",
+      "office": "office-2",
+      "manual": null,
+      "start": "2025-10-10T14:20:56.962Z",
+      "end": "2025-10-10T16:19:33.963Z",
+      "correctionTargets": [],
+      "facts": [
+        "fact-12",
+        "fact-15",
+        "fact-27",
+        "fact-6",
+        "fact-9"
+      ],
+      "redundantFacts": [],
+      "confidence": "LOW",
+      "reviewReasons": [
+        "UNCONFIRMED_BOUNDARY"
+      ]
+    },
+    {
+      "session": "session-4",
+      "office": "office-2",
+      "manual": null,
+      "start": "2025-10-10T17:21:51.928Z",
+      "end": null,
+      "correctionTargets": [],
+      "facts": [
+        "fact-1",
+        "fact-14",
+        "fact-16",
+        "fact-8"
+      ],
+      "redundantFacts": [],
+      "confidence": "LOW",
+      "reviewReasons": [
+        "OPEN_SESSION",
+        "UNCONFIRMED_BOUNDARY"
+      ]
+    }
+  ],
+  "creditedMinutes": 280.45748333333336,
+  "requiredMinutes": 360,
+  "historyComplete": false
+}

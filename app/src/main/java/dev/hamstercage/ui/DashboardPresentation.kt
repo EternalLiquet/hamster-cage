@@ -6,6 +6,7 @@ import dev.hamstercage.domain.AttendanceEngine
 import dev.hamstercage.domain.AttendanceResult
 import dev.hamstercage.domain.DepartureEstimate
 import dev.hamstercage.domain.DepartureStatus
+import dev.hamstercage.domain.EstimateAssumption
 import dev.hamstercage.domain.PeriodSummary
 import dev.hamstercage.domain.ReviewReason
 import dev.hamstercage.domain.TargetWindow
@@ -25,15 +26,19 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
     val eligibleIds = input.offices.filter { it.enabled && it.countsTowardAttendance }.map { it.id }.toSet()
     val open = result.sessions.filter { it.isOpen && it.officeId in eligibleIds }
     val candidateOpen = open.size == 1 && open.single().sourceEventIds.any { it in input.candidateExitIds }
-    val review = result.reviews.any { it.reason != ReviewReason.OPEN_SESSION && it.reason !in ADVISORY_REVIEW_REASONS } || open.size > 1
+    val todayEstimate = AttendanceEngine.departure(input, result, TargetWindow.TODAY)
+    // Doubt that can only make today's estimate later stays visible in History, but it
+    // is not a reason to send the user there before they can rely on a leave time.
+    val review = result.reviews.any { it.reason != ReviewReason.OPEN_SESSION && it.reason !in ADVISORY_REVIEW_REASONS &&
+        it.sessionId !in todayEstimate.nonBlockingSessionIds } || open.size > 1
     // An old interval closed for review by a fresh presence observation does not
     // make the newly observed current office ambiguous. Keep its review notice.
     val liveReview = result.reviews.any { it.reason !in setOf(ReviewReason.OPEN_SESSION,
         ReviewReason.UNCONFIRMED_GAP) + ADVISORY_REVIEW_REASONS &&
         !(candidateOpen && it.sessionId == open.single().id &&
             it.reason == ReviewReason.UNCONFIRMED_BOUNDARY) } || open.size > 1
-    val safeLiveProjection = open.size == 1 && AttendanceEngine.departure(input, result,
-        TargetWindow.TODAY).status in setOf(DepartureStatus.ESTIMATED, DepartureStatus.TARGET_SATISFIED)
+    val safeLiveProjection = open.size == 1 &&
+        todayEstimate.status in setOf(DepartureStatus.ESTIMATED, DepartureStatus.TARGET_SATISFIED)
     val today = input.now.atZone(input.policy.zoneId).toLocalDate()
     val latest = input.events.filter { it.officeId in eligibleIds && it.at <= input.now }.maxByOrNull { it.at }
     val label = when {
@@ -76,7 +81,8 @@ fun departureTimeText(value: Instant, now: Instant, zone: ZoneId): String {
  * Today's one-line answer to "can I go?", in everyday words with one next step.
  * A projection stays useful with unknown coverage, but unless [confident] (detection confirmed, today
  * fully tracked, nothing to review) it is shown as an estimate, never as a plain "you can leave".
- * An unsafe or unconfirmed bound has no time at all.
+ * An unsafe or unconfirmed bound has no time at all. A qualified estimate names its assumption; each
+ * assumption can only make the time later than needed, so it is never stated as a plain instruction.
  */
 fun todayLeaveText(estimate: DepartureEstimate, trackingReady: Boolean, now: Instant, zone: ZoneId,
     confident: Boolean): String = when (estimate.status) {
@@ -84,6 +90,13 @@ fun todayLeaveText(estimate: DepartureEstimate, trackingReady: Boolean, now: Ins
         else "Goal may be met. Check today's timeline before you leave."
     DepartureStatus.ESTIMATED -> when {
         !trackingReady -> "No leave time yet: your location isn't confirmed. Check office setup."
+        estimate.assumptions.isNotEmpty() -> {
+            val time = departureTimeText(estimate.estimatedExitAt!!, now, zone)
+            val sooner = EstimateAssumption.EARLIER_EXIT_UNCONFIRMED in estimate.assumptions
+            if (EstimateAssumption.STILL_PRESENT_WHILE_EXIT_CHECKED in estimate.assumptions)
+                "If you're still here, leave at about $time${if (sooner) ", or sooner if you didn't really leave earlier." else "."}"
+            else "Estimated leave time: about $time. It may be sooner if you didn't really leave earlier."
+        }
         confident -> "You can leave at ${departureTimeText(estimate.estimatedExitAt!!, now, zone)}"
         else -> "Estimated leave time: about ${departureTimeText(estimate.estimatedExitAt!!, now, zone)}. Check today's timeline."
     }
