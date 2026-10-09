@@ -253,4 +253,14 @@ class DashboardTest {
             }
         }
     }
+
+    @Test fun unconfirmedMetGoalAgreesAcrossRemainingTimeAndLeaveGuidance() {
+        show(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600)))), ready = false)
+        compose.onNodeWithTag("today_balance").assertTextContains("Maybe none (goal may be met)")
+        compose.onNodeWithTag("today_leave").assertTextEquals("Goal may be met. Check today's timeline before you leave.")
+        // Confirmed control: both agree the goal is met.
+        show(data(listOf(enter().copy(at = now.minusSeconds(7 * 3600)))), ready = true)
+        compose.onNodeWithTag("today_balance").assertTextContains("None, goal met", substring = true)
+        compose.onNodeWithTag("today_leave").assertTextEquals("Goal met. You can leave now.")
+    }
 }
