@@ -98,7 +98,7 @@ class DashboardTest {
         compose.onNodeWithTag("today_leave").assertTextEquals("Estimated leave time: about 3:00 PM. Check today's timeline.")
         compose.onNodeWithTag("today_credit_note").assertTextEquals("Estimate · part of today wasn't tracked")
         compose.onNodeWithTag("today_balance").assertTextContains("Unknown")
-        compose.onNodeWithTag("today_untracked").assertTextContains("unknown, not missed", substring = true)
+        compose.onNodeWithTag("today_untracked").assertTextContains("can't tell whether you were at the office", substring = true)
         compose.onNodeWithTag("ROLLING_30_balance").performScrollTo().assertTextContains("Unknown")
         compose.onNodeWithTag("ROLLING_90_balance").performScrollTo().assertTextContains("Unknown")
     }

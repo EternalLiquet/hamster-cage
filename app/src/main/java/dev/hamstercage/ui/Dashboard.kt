@@ -69,7 +69,7 @@ fun DashboardScreen(
             }
             if (presence.manual) Tag("INCLUDES TIMES YOU ENTERED")
             if (!daily.hasCompleteHistory)
-                Text("Part of today wasn't tracked. That time is unknown, not missed. Check today's timeline before relying on these numbers.",
+                Text("Part of today wasn't tracked, so we can't tell whether you were at the office then. Check today's timeline before relying on these numbers.",
                     Modifier.testTag("today_untracked"), style = MaterialTheme.typography.bodyMedium)
             var details by rememberSaveable { mutableStateOf(false) }
             TextButton(onClick = { details = !details }, modifier = Modifier.testTag("today_details_toggle")
@@ -83,11 +83,11 @@ fun DashboardScreen(
                     Text("The first ${grace}m after arriving don't count, to allow for walking in.",
                         style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
                 if (todayDeparture.status == DepartureStatus.ESTIMATED && trackingReady && currentOffice != null)
-                    Text("The leave time is when to be outside the office area. It can be up to ${currentOffice.exitGraceMinutes}m " +
-                        "before your counted time reaches the goal, to allow for walking out; that allowance never counts as office time.",
+                    Text("The leave time is when to be outside the office area. It's up to ${currentOffice.exitGraceMinutes}m " +
+                        "before your counted time reaches the goal, to give you time to walk out. Those minutes don't count as office time.",
                         Modifier.testTag("today_leave_boundary"), style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-                Text("Times come from when your phone notices you arriving or leaving the office area. Phones can notice a little late, " +
-                    "so these aren't exact door times. Today's numbers may change as your records are checked.",
+                Text("Times come from when your phone notices you arriving at or leaving the office area. Phones can be a few minutes " +
+                    "late to notice, so treat these times as close estimates. Today's numbers may change as your records are checked.",
                     style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
             }
         }
