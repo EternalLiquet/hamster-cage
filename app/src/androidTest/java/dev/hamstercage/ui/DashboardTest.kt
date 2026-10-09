@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextLayoutResult
@@ -376,5 +377,70 @@ class DashboardTest {
         // Unknown longer-term history still leaves a Today estimate.
         compose.onNodeWithTag("today_leave").performScrollTo()
             .assertTextEquals("Estimated leave time: about 3:00 PM. Check today's timeline.")
+    }
+
+    /** Share of an action's rendered pixels in the filled-button colour (Amber); a filled primary button is mostly Amber. */
+    private fun amberShare(node: SemanticsNodeInteraction): Float {
+        val bitmap = node.performScrollTo().captureToImage().asAndroidBitmap()
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val amber = CageStyle.Amber
+        fun near(channel: Int, target: Float) = kotlin.math.abs(channel - (target * 255).toInt()) <= 24
+        return pixels.count { near(it shr 16 and 0xFF, amber.red) && near(it shr 8 and 0xFF, amber.green) &&
+            near(it and 0xFF, amber.blue) }.toFloat() / pixels.size
+    }
+
+    @Test fun overlappingSetupAndReviewNoticesKeepExactlyOnePrimaryAction() {
+        // Synthetic fixtures: an unmatched EXIT needs review; trackingReady=false needs setup.
+        val review = data(listOf(RawEvent("missing", "a", Transition.EXIT, now)))
+        val clean = data(listOf(enter()))
+        data class Case(val name: String, val input: AttendanceInput, val ready: Boolean, val setup: Boolean,
+            val needsReview: Boolean, val primary: String)
+        val cases = listOf(
+            Case("overlap", review, ready = false, setup = true, needsReview = true, primary = "Open office setup"),
+            Case("setup only", clean, ready = false, setup = true, needsReview = false, primary = "Open office setup"),
+            Case("review only", review, ready = true, setup = false, needsReview = true, primary = "Review history"),
+            Case("neither", clean, ready = true, setup = false, needsReview = false, primary = "View today's timeline"))
+        for (case in cases) {
+            var setupOpened = false
+            var historyOpened = false
+            compose.activity.runOnUiThread { compose.activity.setContent {
+                HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+                    DashboardScreen(case.input, AttendanceEngine.derive(case.input), case.ready,
+                        openOffices = { setupOpened = true }, openHistory = { historyOpened = true })
+                } }
+            } }
+            // Both warnings are preserved exactly when they apply.
+            if (case.setup) compose.onNodeWithText("Detection is not confirmed").performScrollTo().assertIsDisplayed()
+            else compose.onNodeWithText("Detection is not confirmed").assertDoesNotExist()
+            if (case.needsReview) compose.onNodeWithText("A session needs review").performScrollTo().assertIsDisplayed()
+            else compose.onNodeWithText("A session needs review").assertDoesNotExist()
+
+            val actions = buildList {
+                add("View today's timeline")
+                if (case.setup) add("Open office setup")
+                if (case.needsReview) add("Review history")
+            }
+            val shares = actions.associateWith { label ->
+                val node = compose.onNode(hasText(label) and hasClickAction())
+                node.performScrollTo().assertIsDisplayed().assertHasClickAction().assertHeightIsAtLeast(48.dp)
+                amberShare(node)
+            }
+            // Exactly one action is rendered as the filled primary; the others are visibly secondary.
+            val filled = shares.filterValues { it > 0.5f }.keys
+            assertEquals("${case.name}: filled actions $shares", setOf(case.primary), filled)
+            shares.filterKeys { it != case.primary }.forEach { (label, share) ->
+                assertTrue("${case.name}: $label should be secondary ($share)", share < 0.3f)
+            }
+            // Secondary actions stay actionable.
+            if (case.setup) {
+                compose.onNode(hasText("Open office setup") and hasClickAction()).performScrollTo().performClick()
+                compose.runOnIdle { assertTrue("${case.name}: setup action", setupOpened) }
+            }
+            if (case.needsReview) {
+                compose.onNode(hasText("Review history") and hasClickAction()).performScrollTo().performClick()
+                compose.runOnIdle { assertTrue("${case.name}: review action", historyOpened) }
+            }
+        }
     }
 }

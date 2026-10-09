@@ -118,8 +118,10 @@ fun DashboardScreen(
             Notice("Set up an eligible office", "Add or enable an office to begin automatic attendance setup. No location is preloaded.", "Open office setup", openOffices)
         else if (!trackingReady)
             Notice("Detection is not confirmed", "Review office setup and location permissions. A configured zone alone does not prove you are outside.", "Open office setup", openOffices)
+        // When setup and review notices overlap, fixing tracking setup is the one primary action; review stays secondary.
         if (presence.needsReview)
-            Notice("A session needs review", "Original observations are retained. Review uncertain boundaries before relying on these estimates.", "Review history", openHistory)
+            Notice("A session needs review", "Original observations are retained. Review uncertain boundaries before relying on these estimates.",
+                "Review history", openHistory, primaryAction = !(noEligibleOffice || !trackingReady))
         if (input.events.isEmpty() && input.manualSessions.isEmpty())
             Text("No attendance recorded yet.", style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         Panel {
