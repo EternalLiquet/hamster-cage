@@ -42,6 +42,10 @@ jobs:
         run: python3 proof.py 1-confirmed 1
       - name: Publish 1-confirmed part 2
         run: python3 proof.py 1-confirmed 2
+      - name: Publish 1-confirmed part 3
+        run: python3 proof.py 1-confirmed 3
+      - name: Publish 1-confirmed part 4
+        run: python3 proof.py 1-confirmed 4
   proof-2:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -80,6 +84,10 @@ jobs:
         run: python3 proof.py 2-untracked 1
       - name: Publish 2-untracked part 2
         run: python3 proof.py 2-untracked 2
+      - name: Publish 2-untracked part 3
+        run: python3 proof.py 2-untracked 3
+      - name: Publish 2-untracked part 4
+        run: python3 proof.py 2-untracked 4
   proof-3:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -118,6 +126,10 @@ jobs:
         run: python3 proof.py 3-unconfirmed 1
       - name: Publish 3-unconfirmed part 2
         run: python3 proof.py 3-unconfirmed 2
+      - name: Publish 3-unconfirmed part 3
+        run: python3 proof.py 3-unconfirmed 3
+      - name: Publish 3-unconfirmed part 4
+        run: python3 proof.py 3-unconfirmed 4
   proof-4:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -156,6 +168,10 @@ jobs:
         run: python3 proof.py 4-arriving 1
       - name: Publish 4-arriving part 2
         run: python3 proof.py 4-arriving 2
+      - name: Publish 4-arriving part 3
+        run: python3 proof.py 4-arriving 3
+      - name: Publish 4-arriving part 4
+        run: python3 proof.py 4-arriving 4
   proof-5:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -194,3 +210,7 @@ jobs:
         run: python3 proof.py 5-untracked-200pct 1
       - name: Publish 5-untracked-200pct part 2
         run: python3 proof.py 5-untracked-200pct 2
+      - name: Publish 5-untracked-200pct part 3
+        run: python3 proof.py 5-untracked-200pct 3
+      - name: Publish 5-untracked-200pct part 4
+        run: python3 proof.py 5-untracked-200pct 4

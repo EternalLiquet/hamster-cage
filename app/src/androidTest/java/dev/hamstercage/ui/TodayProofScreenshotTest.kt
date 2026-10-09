@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.hamstercage.domain.*
@@ -39,7 +40,9 @@ class TodayProofScreenshotTest {
         } }
         compose.waitForIdle()
         val full = compose.onRoot().captureToImage().asAndroidBitmap()
-        val cropped = Bitmap.createBitmap(full, 0, 0, minOf(full.width, 540), full.height)
+        // Keep only the Today panel and its notices: stop just above the next card.
+        val nextCard = compose.onNodeWithText("Departure targets").fetchSemanticsNode().boundsInRoot.top.toInt()
+        val cropped = Bitmap.createBitmap(full, 0, 0, minOf(full.width, 540), minOf(full.height, maxOf(200, nextCard - 12)))
         val out = ByteArrayOutputStream()
         cropped.compress(Bitmap.CompressFormat.JPEG, 55, out)
         val text = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
