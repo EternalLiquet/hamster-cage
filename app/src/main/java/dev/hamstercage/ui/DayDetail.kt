@@ -65,7 +65,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         if (date == input.now.atZone(input.policy.zoneId).toLocalDate() && !beforeTracking) {
             val departure = AttendanceEngine.departure(input, result, TargetWindow.TODAY)
             Panel {
-                Text(todayLeaveText(departure, trackingReady, input.now, input.policy.zoneId),
+                Text(todayLeaveText(departure, trackingReady, input.now, input.policy.zoneId, todayLeaveConfident(input, result, trackingReady)),
                     Modifier.testTag("detail_leave"), style = MaterialTheme.typography.titleMedium)
                 Text("Today's ${minutesText(detail.summary.requiredMinutes.toDouble())} target. The estimate can change as observations arrive; office-area exit and building exit may differ.")
             }

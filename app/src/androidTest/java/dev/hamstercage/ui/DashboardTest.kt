@@ -2,6 +2,7 @@ package dev.hamstercage.ui
 
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.CompositionLocalProvider
@@ -13,6 +14,11 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.test.platform.app.InstrumentationRegistry
+import android.graphics.Bitmap
+import java.io.File
 import dev.hamstercage.MainActivity
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.StorageState
@@ -47,7 +53,7 @@ class DashboardTest {
         show(data().copy(offices = emptyList(), historyStartDate = null), ready = false, openOffices = { opened = true })
         compose.onNodeWithTag("office_state").assertTextEquals("Office state unknown")
         compose.onNodeWithTag("today_balance").assertTextContains("Unknown")
-        compose.onNodeWithText("Provisional credit · coverage incomplete").assertIsDisplayed()
+        compose.onNodeWithTag("today_credit_note").assertTextEquals("Estimate · part of today wasn't tracked")
         compose.onNodeWithText("Open office setup").performScrollTo().performClick()
         assertTrue(opened)
     }
@@ -67,18 +73,32 @@ class DashboardTest {
         show(data(listOf(enter())))
         compose.onNodeWithTag("office_state").assertTextEquals("In Synthetic office")
         compose.onNodeWithTag("today_credit").assertTextEquals("2h 55m")
-        compose.onNodeWithTag("today_observed").assertTextContains("3h 0m")
-        compose.onNodeWithTag("arrival_credit_start").assertTextContains("Credit starts at 9:05 AM", substring = true)
+        compose.onNodeWithTag("today_credit_note").assertTextEquals("Counted toward today's goal")
+        compose.onNodeWithTag("today_balance").assertTextContains("3h 5m")
+        compose.onNodeWithTag("arrival_credit_start").assertTextEquals("Counting since 9:05 AM.")
+        // Technical detail is one tap away, not in the default view.
+        compose.onNodeWithTag("today_observed").assertDoesNotExist()
+        compose.onNodeWithTag("today_details_toggle").performScrollTo().performClick()
+        compose.onNodeWithTag("today_observed").performScrollTo().assertTextContains("3h 0m")
         compose.onNodeWithTag("WEEK_TO_DATE_required").performScrollTo().assertTextContains("18h 0m")
         compose.onNodeWithTag("full_week_required").performScrollTo().assertTextContains("30h 0m")
         compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("About 3:00 PM")
     }
 
-    @Test fun freshInstallShowsPrimaryDailyLeaveTimeWhileLongerHistoryIsUnknown() {
-        show(data(listOf(enter())).copy(historyStartDate = null))
+    @Test fun confirmedDayGivesAPlainLeaveTimeWithDetailOnRequest() {
+        show(data(listOf(enter())))
         compose.onNodeWithTag("today_leave").assertTextEquals("You can leave at 3:00 PM")
-        compose.onNodeWithTag("today_leave_context").assertTextContains("6h 0m target · provisional", substring = true)
-        compose.onNodeWithTag("today_leave_boundary").assertTextContains("geofence", substring = true)
+        compose.onNodeWithTag("today_leave_boundary").assertDoesNotExist()
+        compose.onNodeWithTag("today_details_toggle").performScrollTo().performClick()
+        compose.onNodeWithTag("today_leave_boundary").performScrollTo().assertTextContains("office area", substring = true)
+    }
+
+    @Test fun freshInstallShowsTheDailyLeaveTimeOnlyAsAnEstimateWhileHistoryIsUnknown() {
+        show(data(listOf(enter())).copy(historyStartDate = null))
+        compose.onNodeWithTag("today_leave").assertTextEquals("Estimated leave time: about 3:00 PM. Check today's timeline.")
+        compose.onNodeWithTag("today_credit_note").assertTextEquals("Estimate · part of today wasn't tracked")
+        compose.onNodeWithTag("today_balance").assertTextContains("Unknown")
+        compose.onNodeWithTag("today_untracked").assertTextContains("unknown, not missed", substring = true)
         compose.onNodeWithTag("ROLLING_30_balance").performScrollTo().assertTextContains("Unknown")
         compose.onNodeWithTag("ROLLING_90_balance").performScrollTo().assertTextContains("Unknown")
     }
@@ -159,15 +179,19 @@ class DashboardTest {
         val entry = Instant.parse("2026-09-23T13:00:00Z")
         val input = data(listOf(RawEvent("in", "a", Transition.ENTER, entry))).copy(now = entry.plusSeconds(180))
         show(input)
-        compose.onNodeWithTag("today_observed").assertTextContains("3m")
         compose.onNodeWithTag("today_credit").assertTextEquals("0m")
-        compose.onNodeWithTag("arrival_credit_start").assertTextContains("Credit starts at 9:05 AM", substring = true)
-        compose.onNodeWithTag("arrival_countdown").assertTextContains("2m until credit starts", substring = true)
+        compose.onNodeWithTag("arrival_credit_start").assertTextEquals("Time starts counting at 9:05 AM.")
+        compose.onNodeWithTag("arrival_countdown").assertTextEquals("2m until time starts counting, if you stay.")
+        compose.onNodeWithTag("today_details_toggle").performScrollTo().performClick()
+        compose.onNodeWithTag("today_observed").performScrollTo().assertTextContains("3m")
     }
 
     @Test fun trackingLossSuppressesAnOtherwiseAvailableDepartureEstimate() {
         show(data(listOf(enter())), ready = false)
         compose.onNodeWithTag("office_state").assertTextEquals("Office state unknown")
+        compose.onNodeWithTag("today_leave").assertTextEquals("No leave time yet: your location isn't confirmed. Check office setup.")
+        compose.onNodeWithTag("today_credit_note").assertTextEquals("Estimate · we can't confirm you're still there")
+        compose.onNodeWithTag("today_balance").assertTextContains("About 3h 5m")
         compose.onNodeWithTag("TODAY_departure").performScrollTo().assertTextContains("Detection unconfirmed")
     }
 
@@ -179,7 +203,7 @@ class DashboardTest {
         fun update(input: AttendanceInput) { compose.runOnIdle { fixture.value = input } }
         update(data(listOf(enter(), RawEvent("out", "a", Transition.EXIT, now.minusSeconds(60)))))
         compose.onNodeWithTag("office_state").assertTextEquals("Outside office")
-        compose.onNodeWithTag("today_balance").assertTextContains("−3h 6m")
+        compose.onNodeWithTag("today_balance").assertTextContains("3h 6m")
         update(data(listOf(RawEvent("missing", "a", Transition.EXIT, now))))
         compose.onNodeWithTag("office_state").assertTextEquals("Needs review")
         update(data().copy(policy = Policy(excludedDates = listOf(ExcludedDate(today, ExclusionReason.BANK_HOLIDAY)))))
@@ -197,5 +221,33 @@ class DashboardTest {
         assertTrue(layouts.joinToString { "size=${it.size}, width=${it.didOverflowWidth}, height=${it.didOverflowHeight}, lines=${it.lineCount}" }, layouts.none { it.hasVisualOverflow })
         compose.onNodeWithTag("ROLLING_90_average").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("ROLLING_90_days").performScrollTo().assertTextContains("Expected workdays", substring = true)
+    }
+
+    @Test fun todayWordingWrapsAt360dpWithTwoHundredPercentText() {
+        // Synthetic uncertain day: unknown history and unconfirmed detection produce the longest default copy.
+        val input = data(listOf(enter())).copy(historyStartDate = null)
+        val density = compose.activity.resources.displayMetrics.density
+        compose.activity.runOnUiThread { compose.activity.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density, 2f)) {
+                HamsterTheme { Column(Modifier.width(360.dp).verticalScroll(rememberScrollState())) {
+                    DashboardScreen(input, AttendanceEngine.derive(input), trackingReady = false)
+                } }
+            }
+        } }
+        for (tag in listOf("office_state", "today_credit", "today_credit_note", "today_leave", "today_untracked")) {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertTrue(tag, layouts.isNotEmpty() && layouts.none { it.hasVisualOverflow })
+        }
+        compose.onNodeWithTag("today_balance").performScrollTo().assertIsDisplayed().assertTextContains("Unknown")
+        compose.onNodeWithTag("today_details_toggle").performScrollTo().assertHeightIsAtLeast(48.dp)
+        // Opt-in synthetic evidence, as in DashboardSecurityUiTest; no production screenshot feature.
+        if (InstrumentationRegistry.getArguments().getString("todayLargeTextScreenshot") == "true") {
+            compose.onNodeWithTag("office_state").performScrollTo()
+            File(compose.activity.cacheDir, "today-360dp-200pct.png").outputStream().use {
+                compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
     }
 }

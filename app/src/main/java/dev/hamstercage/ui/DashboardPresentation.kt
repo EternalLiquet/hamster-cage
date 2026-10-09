@@ -6,6 +6,7 @@ import dev.hamstercage.domain.AttendanceEngine
 import dev.hamstercage.domain.AttendanceResult
 import dev.hamstercage.domain.DepartureEstimate
 import dev.hamstercage.domain.DepartureStatus
+import dev.hamstercage.domain.PeriodSummary
 import dev.hamstercage.domain.ReviewReason
 import dev.hamstercage.domain.TargetWindow
 import dev.hamstercage.domain.Transition
@@ -38,8 +39,8 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
     val label = when {
         !trackingReady -> "Office state unknown"
         liveReview && !safeLiveProjection -> "Needs review"
-        candidateOpen -> "Office exit awaiting confirmation"
-        open.size == 1 -> if (open.single().manualSessionId != null) "Manual session active" else
+        candidateOpen -> "Checking whether you've left"
+        open.size == 1 -> if (open.single().manualSessionId != null) "Using times you entered" else
             "In ${dashboardOfficeName(input.offices.single { it.id == open.single().officeId }.name)}"
         latest?.transition in setOf(Transition.EXIT, Transition.ABSENCE) &&
             latest?.at?.atZone(input.policy.zoneId)?.toLocalDate() == today -> "Outside office"
@@ -71,32 +72,70 @@ fun departureTimeText(value: Instant, now: Instant, zone: ZoneId): String {
     return DateTimeFormatter.ofPattern(pattern).withZone(zone).format(rounded)
 }
 
-/** A daily projection remains useful with unknown coverage, but an unsafe bound has no time. */
-fun todayLeaveText(estimate: DepartureEstimate, trackingReady: Boolean, now: Instant, zone: ZoneId): String = when (estimate.status) {
-    DepartureStatus.TARGET_SATISFIED -> "You can leave now"
-    DepartureStatus.ESTIMATED -> if (trackingReady) "You can leave at ${departureTimeText(estimate.estimatedExitAt!!, now, zone)}"
-        else "Confirm office detection to see a leave time"
-    DepartureStatus.NOT_IN_OFFICE -> "Start an eligible office session to see a leave time"
-    DepartureStatus.OVERLAPPING_SESSIONS -> "Review overlapping active sessions in History"
+/**
+ * Today's one-line answer to "can I go?", in everyday words with one next step.
+ * A projection stays useful with unknown coverage, but unless [confident] (detection confirmed, today
+ * fully tracked, nothing to review) it is shown as an estimate, never as a plain "you can leave".
+ * An unsafe or unconfirmed bound has no time at all.
+ */
+fun todayLeaveText(estimate: DepartureEstimate, trackingReady: Boolean, now: Instant, zone: ZoneId,
+    confident: Boolean): String = when (estimate.status) {
+    DepartureStatus.TARGET_SATISFIED -> if (confident) "Goal met. You can leave now."
+        else "Goal may be met. Check today's timeline before you leave."
+    DepartureStatus.ESTIMATED -> when {
+        !trackingReady -> "No leave time yet: your location isn't confirmed. Check office setup."
+        confident -> "You can leave at ${departureTimeText(estimate.estimatedExitAt!!, now, zone)}"
+        else -> "Estimated leave time: about ${departureTimeText(estimate.estimatedExitAt!!, now, zone)}. Check today's timeline."
+    }
+    DepartureStatus.NOT_IN_OFFICE -> "A leave time appears once you're at the office."
+    DepartureStatus.OVERLAPPING_SESSIONS -> "Two office visits overlap. Fix them in History to see a leave time."
     DepartureStatus.NEEDS_REVIEW -> when {
         ReviewReason.FUTURE_EVENT in estimate.reviewReasons ->
-            "An office observation is in the future. Check the device clock, then review History"
+            "A visit is dated in the future. Check your phone's clock, then History."
         ReviewReason.STALE_OPEN_SESSION in estimate.reviewReasons ->
-            "The open session exceeds its safe length. Review its bounds in History"
+            "Today's visit has run unusually long. Check it in History."
         estimate.reviewReasons.any { it in setOf(ReviewReason.MISSING_ENTER, ReviewReason.REPEATED_ENTER,
             ReviewReason.TRANSIENT_BOUNDARY, ReviewReason.ZERO_LENGTH_SESSION) } ->
-            "Office entry and exit boundaries conflict. Review the session in History"
+            "Today's arrival and leaving times don't line up. Check them in History."
         estimate.reviewReasons.any { it in setOf(ReviewReason.INVALID_CORRECTION, ReviewReason.ORPHAN_CORRECTION) } ->
-            "An attendance correction is unresolved. Review it in History"
+            "One of your time edits needs a look. Open it in History."
         estimate.reviewReasons.any { it in setOf(ReviewReason.INVALID_MANUAL_SESSION, ReviewReason.CONFLICTING_MANUAL_SESSION_ID) } ->
-            "Manual session bounds conflict. Review them in History"
+            "A visit you entered has a problem. Check it in History."
         ReviewReason.UNKNOWN_OFFICE in estimate.reviewReasons ->
-            "An observation names an unknown office. Review office setup and History"
-        else -> "Conflicting attendance evidence blocks today's estimate. Review History"
+            "A visit belongs to an office that's no longer set up. Check Offices and History."
+        else -> "Today's records disagree, so there's no leave time yet. Check History."
     }
     DepartureStatus.UNREACHABLE_IN_WINDOW ->
-        "Not enough time remains before today's boundary or the session limit. Review the target in Settings or session in History"
+        "There isn't enough time left today to reach the goal. Check your goal in Settings or today's visit in History."
     DepartureStatus.OUTSIDE_WINDOW ->
-        "Device time is outside this target window. Check the clock and policy timezone in Settings"
-    DepartureStatus.INCOMPLETE_HISTORY -> "Review missing coverage in History"
+        "Your phone's time doesn't match today's goal. Check the clock and time zone in Settings."
+    DepartureStatus.INCOMPLETE_HISTORY -> "Part of today wasn't tracked. Check today's timeline."
+}
+
+/**
+ * A leave time is stated plainly only when detection is confirmed, today is fully tracked and the current
+ * visit has no departure awaiting confirmation. Reviews that block today already remove the time (NEEDS_REVIEW);
+ * a review limited to an earlier day does not make today's projection uncertain.
+ */
+fun todayLeaveConfident(input: AttendanceInput, result: AttendanceResult, trackingReady: Boolean): Boolean {
+    val eligible = input.offices.filter { it.enabled && it.countsTowardAttendance }.map { it.id }.toSet()
+    val exitPending = result.sessions.any { it.isOpen && it.officeId in eligible &&
+        it.sourceEventIds.any { id -> id in input.candidateExitIds } }
+    return trackingReady && !exitPending &&
+        AttendanceEngine.daily(input, result, input.now.atZone(input.policy.zoneId).toLocalDate()).hasCompleteHistory
+}
+
+/** The label beside today's credited number; uncertain totals always read as estimates. */
+fun todayCreditNote(historyComplete: Boolean, liveUnconfirmed: Boolean): String = when {
+    !historyComplete -> "Estimate · part of today wasn't tracked"
+    liveUnconfirmed -> "Estimate · we can't confirm you're still there"
+    else -> "Counted toward today's goal"
+}
+
+/** Time still needed today. Unknown stays unknown; a remaining deficit rounds up so it never reads as met early. */
+fun todayRemainingText(daily: PeriodSummary, liveUnconfirmed: Boolean): String = when {
+    !daily.hasCompleteHistory -> "Unknown"
+    daily.balanceMinutes < 0 -> (if (liveUnconfirmed) "About " else "") + minutesText(ceil(-daily.balanceMinutes))
+    daily.balanceMinutes >= 1 -> "None, goal met (+${minutesText(daily.balanceMinutes)})"
+    else -> "None, goal met"
 }

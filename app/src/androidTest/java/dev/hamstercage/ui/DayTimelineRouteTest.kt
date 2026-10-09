@@ -48,7 +48,7 @@ class DayTimelineRouteTest {
         compose.onNodeWithText("Returned to office area · Westerville Office", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Ongoing at Westerville Office", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("detail_leave").performScrollTo()
-            .assertTextContains("Conflicting attendance evidence blocks today's estimate", substring = true)
+            .assertTextContains("Today's records disagree", substring = true)
         compose.onNodeWithTag("timeline_edit_3").performScrollTo().performClick()
         compose.onNodeWithText("Correct session").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Cancel correction").performScrollTo().performClick()

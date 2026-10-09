@@ -123,9 +123,20 @@ class DashboardPresentationTest {
             enter()))
         val result = AttendanceEngine.derive(input)
         assertTrue(dashboardPresence(input, result, true).needsReview)
+        assertTrue(todayLeaveConfident(input, result, true))
         assertEquals("In Synthetic office", dashboardPresence(input, result, true).label)
-        // An unrelated earlier review still shows the time, but only as an estimate.
-        assertEquals("Estimated leave time: about 9:00 PM. Check today's timeline.", todayLeaveText(
-            AttendanceEngine.departure(input, result, TargetWindow.TODAY), true, now, ZoneId.of("UTC"), confident = false))
+        assertEquals("You can leave at 9:00 PM", todayLeaveText(
+            AttendanceEngine.departure(input, result, TargetWindow.TODAY), true, now, ZoneId.of("UTC"),
+            todayLeaveConfident(input, result, true)))
+    }
+
+    @Test fun aDepartureAwaitingConfirmationKeepsTheLeaveTimeAnEstimate() {
+        val input = data(listOf(enter(), RawEvent("maybe-out", "a", Transition.EXIT, now.minusSeconds(60))))
+            .copy(candidateExitIds = setOf("maybe-out"))
+        val result = AttendanceEngine.derive(input)
+        assertEquals("Checking whether you've left", dashboardPresence(input, result, true).label)
+        assertFalse(todayLeaveConfident(input, result, true))
+        assertFalse(todayLeaveText(AttendanceEngine.departure(input, result, TargetWindow.TODAY), true, now,
+            ZoneId.of("UTC"), todayLeaveConfident(input, result, true)).startsWith("You can leave"))
     }
 }
