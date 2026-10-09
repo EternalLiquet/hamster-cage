@@ -136,6 +136,8 @@ fun todayCreditNote(historyComplete: Boolean, liveUnconfirmed: Boolean): String 
 fun todayRemainingText(daily: PeriodSummary, liveUnconfirmed: Boolean): String = when {
     !daily.hasCompleteHistory -> "Unknown"
     daily.balanceMinutes < 0 -> (if (liveUnconfirmed) "About " else "") + minutesText(ceil(-daily.balanceMinutes))
+    // The open-session total may include time after you left, so a met goal is only possible.
+    liveUnconfirmed -> "Maybe none (goal may be met)"
     daily.balanceMinutes >= 1 -> "None, goal met (+${minutesText(daily.balanceMinutes)})"
     else -> "None, goal met"
 }

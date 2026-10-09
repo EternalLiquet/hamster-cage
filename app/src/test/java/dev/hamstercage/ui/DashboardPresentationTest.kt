@@ -114,6 +114,10 @@ class DashboardPresentationTest {
         assertEquals("None, goal met", todayRemainingText(daily.copy(balanceMinutes = 0.0), liveUnconfirmed = false))
         assertEquals("None, goal met (+30m)", todayRemainingText(daily.copy(balanceMinutes = 30.4), liveUnconfirmed = false))
         assertEquals("1m", todayRemainingText(daily.copy(balanceMinutes = -0.2), liveUnconfirmed = false))
+        // An unconfirmed open-session total cannot confirm that the goal is met.
+        assertEquals("Maybe none (goal may be met)", todayRemainingText(daily.copy(balanceMinutes = 0.0), liveUnconfirmed = true))
+        assertEquals("Maybe none (goal may be met)", todayRemainingText(daily.copy(balanceMinutes = 30.4), liveUnconfirmed = true))
+        assertEquals("Unknown", todayRemainingText(daily.copy(balanceMinutes = 30.4, unknownCalendarDays = 1), liveUnconfirmed = true))
         for (text in listOf(todayCreditNote(true, false), todayCreditNote(false, false), todayCreditNote(true, true)))
             assertFalse(text, jargon.containsMatchIn(text))
     }
@@ -138,5 +142,23 @@ class DashboardPresentationTest {
         assertFalse(todayLeaveConfident(input, result, true))
         assertFalse(todayLeaveText(AttendanceEngine.departure(input, result, TargetWindow.TODAY), true, now,
             ZoneId.of("UTC"), todayLeaveConfident(input, result, true)).startsWith("You can leave"))
+    }
+
+    @Test fun unconfirmedMetGoalReadsAsUncertainInBothRemainingTimeAndLeaveGuidance() {
+        val input = data(listOf(enter().copy(at = now.minusSeconds(7 * 3600))))
+        val result = AttendanceEngine.derive(input)
+        val daily = AttendanceEngine.daily(input, result, input.now.atZone(zone).toLocalDate())
+        assertTrue(daily.balanceMinutes >= 0)
+        val presence = dashboardPresence(input, result, trackingReady = false)
+        val liveUnconfirmed = presence.sessionStarted != null
+        val remaining = todayRemainingText(daily, liveUnconfirmed)
+        val leave = todayLeaveText(AttendanceEngine.departure(input, result, TargetWindow.TODAY), false, now, zone,
+            todayLeaveConfident(input, result, false))
+        assertEquals("Maybe none (goal may be met)", remaining)
+        assertEquals("Goal may be met. Check today's timeline before you leave.", leave)
+        // Confirmed control: both say the goal is met.
+        assertEquals("None, goal met (+55m)", todayRemainingText(daily, liveUnconfirmed = false))
+        assertEquals("Goal met. You can leave now.", todayLeaveText(AttendanceEngine.departure(input, result, TargetWindow.TODAY),
+            true, now, zone, todayLeaveConfident(input, result, true)))
     }
 }
