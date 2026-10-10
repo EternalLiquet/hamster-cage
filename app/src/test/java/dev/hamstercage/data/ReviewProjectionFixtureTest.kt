@@ -150,8 +150,8 @@ class ReviewProjectionFixtureTest {
         val next = input.corrections.maxOf { it.appendSequence }
         val appended = targets.withIndex().flatMap { (index, session) ->
             val start = session.start ?: session.end!!
-            listOf(Correction("edit-$index", session.id, start, null, stamp, appendSequence = next + 2L * index + 1),
-                Correction("undo-$index", session.id, start, null, stamp, revertToOriginal = true,
+            listOf(Correction("parity-edit-$index", session.id, start, null, stamp, appendSequence = next + 2L * index + 1),
+                Correction("parity-undo-$index", session.id, start, null, stamp, revertToOriginal = true,
                     appendSequence = next + 2L * index + 2))
         }
         val reverted = input.copy(corrections = input.corrections + appended)
