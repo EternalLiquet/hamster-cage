@@ -375,7 +375,7 @@ object AttendanceEngine {
         // observation at another office. That observation is not an invented EXIT
         // for this office: retain the visit as open, cap credit, and request review.
         val crossOfficeStops = effective.mapNotNull { session ->
-            val rejectedAt = if (session.start != null && session.correctionId == null)
+            val rejectedAt = if (session.start != null && !session.hasActiveCorrection)
                 usable.filter { it.id in session.sourceEventIds && it.id in input.rejectedExitIds }
                     .minOfOrNull { it.at } else null
             val conflict = rejectedAt?.let { exitAt -> usable.filter {
@@ -424,7 +424,7 @@ object AttendanceEngine {
             // after a rejected phantom EXIT does; any implied absence there is within the
             // engine's accepted tolerance. Another office's ENTER or PRESENCE shows the user was
             // elsewhere. No fix after the first of those counts.
-            val lastInsideBeforeGap = if (session.correctionId == null && session.end != null && start != null &&
+            val lastInsideBeforeGap = if (!session.hasActiveCorrection && session.end != null && start != null &&
                 ReviewReason.UNCONFIRMED_GAP in session.reviewReasons) {
                 val inSession = usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId }
                     .sortedWith(compareBy<RawEvent> { it.at }.thenBy { it.id })
@@ -458,7 +458,8 @@ object AttendanceEngine {
                 (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons && lastInsideBeforeGap == null) ||
                 ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons) null
             else {
-                val candidateAt = if (session.correctionId == null) usable.filter {
+                // Only an active override replaces observed bounds; a reverted one is audit only.
+                val candidateAt = if (!session.hasActiveCorrection) usable.filter {
                     it.id in session.sourceEventIds && it.id in input.candidateExitIds
                 }.minOfOrNull { it.at } else null
                 val end = minOf(session.end ?: input.now, input.now, candidateAt ?: input.now,
@@ -654,11 +655,9 @@ object AttendanceEngine {
         // Credit already stops at an observed unconfirmed EXIT, so if the user had in fact
         // stayed, the true leave time is earlier, never later. Receipt-timed EXITs may be
         // later than the departure and stay blocking, as do corrected or manual bounds.
-        // A revert restores reconstruction from facts and keeps its marker for audit. The
-        // candidate and rejected-EXIT credit caps still skip any session with a correction
-        // ID, so a restored visit qualifies only when neither cap would have applied.
-        fun uncorrected(session: Session) = session.manualSessionId == null && (session.correctionId == null ||
-            session.correctionReverted && session.sourceEventIds.none { it in input.candidateExitIds || it in input.rejectedExitIds })
+        // A revert restores reconstruction from facts, including its credit caps, and keeps
+        // its marker only for audit, so a restored visit qualifies exactly as the original.
+        fun uncorrected(session: Session) = session.manualSessionId == null && !session.hasActiveCorrection
         val unconfirmedEarlierIds = if (target == TargetWindow.TODAY) relevant.filter { session ->
             session.start != null && session.end != null && uncorrected(session) &&
                 ReviewReason.UNCONFIRMED_BOUNDARY in session.reviewReasons &&

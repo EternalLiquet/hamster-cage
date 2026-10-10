@@ -205,17 +205,17 @@ class QualifiedEstimateTest {
         assertEquals(original, today(reverted))
     }
 
-    @Test fun revertedVisitWithAPendingCandidateIsNotQualified() {
-        // The candidate credit cap skips sessions carrying a correction ID, so qualifying a
-        // restored visit with a pending candidate would project from uncapped credit.
+    @Test fun revertedVisitWithAPendingCandidateKeepsItsCapAndQualification() {
+        // #136: a revert restores the candidate credit cap, so the restored visit projects
+        // from the same capped credit, with the same qualifier, as the untouched one.
         val pending = lunch("14:53", listOf(exit("maybe", "14:50"))).copy(candidateExitIds = setOf("maybe"))
         assertEquals(DepartureStatus.ESTIMATED, today(pending).status)
         val reverted = pending.copy(corrections = listOf(
             Correction("edit", "session:back", at("13:00"), null, at("14:00"), appendSequence = 1),
             Correction("undo", "session:back", at("13:00"), null, at("14:10"), revertToOriginal = true, appendSequence = 2)))
-        val estimate = today(reverted)
-        assertEquals(DepartureStatus.NEEDS_REVIEW, estimate.status)
-        assertNull(estimate.estimatedExitAt)
+        assertEquals(credit(pending), credit(reverted), 0.0)
+        assertEquals(today(pending), today(reverted))
+        assertTrue(EstimateAssumption.STILL_PRESENT_WHILE_EXIT_CHECKED in today(reverted).assumptions)
     }
 
     @Test fun reviewDateScopeSeparatesEarlierDaysFromToday() {

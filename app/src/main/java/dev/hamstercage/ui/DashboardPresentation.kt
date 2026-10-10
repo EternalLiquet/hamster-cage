@@ -58,7 +58,7 @@ fun dashboardPresence(input: AttendanceInput, result: AttendanceResult, tracking
         else -> "Office state unknown"
     }
     return DashboardPresence(label, review, open.mapNotNull { it.start }.minOrNull(),
-        open.any { it.manualSessionId != null || it.correctionId != null }, otherReviews.isNotEmpty())
+        open.any { it.manualSessionId != null || it.hasActiveCorrection }, otherReviews.isNotEmpty())
 }
 
 /** User-controlled labels cannot inject directional/control characters into presence text. */
