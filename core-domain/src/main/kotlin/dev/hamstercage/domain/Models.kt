@@ -90,6 +90,8 @@ data class Session(
     val redundantEventIds: Set<String> = emptySet(),
 ) {
     val isOpen: Boolean get() = start != null && end == null
+    /** A user-stated override is in force. A revert keeps [correctionId] only as audit metadata. */
+    val hasActiveCorrection: Boolean get() = correctionId != null && !correctionReverted
     /** A later replay or missing boundary must not orphan edits to retained source facts. */
     val correctionTargetIds: Set<String> get() = setOf(id) + sourceEventIds.map { "session:$it" }
 }
