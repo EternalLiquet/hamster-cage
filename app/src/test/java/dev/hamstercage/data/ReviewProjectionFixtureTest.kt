@@ -140,4 +140,32 @@ class ReviewProjectionFixtureTest {
         // The week through today is not offered as reliable (unknown coverage is reported before its reviews).
         assertEquals(DepartureStatus.INCOMPLETE_HISTORY, AttendanceEngine.departure(input, result, TargetWindow.WEEK_TO_DATE).status)
     }
+
+    @Test fun correctingThenRevertingEachUncorrectedVisitRestoresTheFixtureBaseline() {
+        // #136: the pending candidate on the open visit and the unconfirmed lunch EXIT keep their
+        // caps and qualifiers after a correction and its revert; only audit metadata differs.
+        val targets = result.sessions.filter { it.correctionId == null && it.manualSessionId == null }
+        assertTrue(targets.any { it.id == lunchVisit } && targets.any { it.id == afternoonVisit })
+        val stamp = input.now.truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+        val next = input.corrections.maxOf { it.appendSequence }
+        val appended = targets.withIndex().flatMap { (index, session) ->
+            val start = session.start ?: session.end!!
+            listOf(Correction("edit-$index", session.id, start, null, stamp, appendSequence = next + 2L * index + 1),
+                Correction("undo-$index", session.id, start, null, stamp, revertToOriginal = true,
+                    appendSequence = next + 2L * index + 2))
+        }
+        val reverted = input.copy(corrections = input.corrections + appended)
+        val restored = AttendanceEngine.derive(reverted)
+        assertEquals(targets.map { it.id }.toSet(), restored.sessions.filter { it.correctionReverted }.map { it.id }.toSet())
+        assertEquals(result.intervals, restored.intervals)
+        assertEquals(result.reviews, restored.reviews)
+        assertEquals(result.sessions, restored.sessions.map {
+            if (it.correctionReverted) it.copy(correctionId = null, correctionReverted = false) else it })
+        assertEquals(AttendanceEngine.daily(input, result, fixture.selectedDay),
+            AttendanceEngine.daily(reverted, restored, fixture.selectedDay))
+        for (window in TargetWindow.entries)
+            assertEquals(window.name, AttendanceEngine.departure(input, result, window), AttendanceEngine.departure(reverted, restored, window))
+        assertEquals(dashboardPresence(input, result, true), dashboardPresence(reverted, restored, true))
+        assertEquals(todayLeaveConfident(input, result, true), todayLeaveConfident(reverted, restored, true))
+    }
 }
