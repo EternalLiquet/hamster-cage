@@ -13,7 +13,8 @@ package dev.hamstercage.capture
  * been a force-stop, which leaves the token, so it always stays an outage: a background start
  * cannot rule that out, because opening the app after a force-stop lets overdue work run first.
  * Accepted risk: Android 8–10 record no exit reason, so a force-stop there is undetectable, as
- * is one on Android 11–14 applied while no process was running.
+ * is one on Android 11–14 applied while no process was running; and clearing or updating Play
+ * services may drop geofences while the app's token remains.
  */
 enum class ProcessContinuity { SURVIVED, LOST, UNKNOWN }
 
