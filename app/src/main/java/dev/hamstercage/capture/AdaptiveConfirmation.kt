@@ -17,7 +17,6 @@ import dev.hamstercage.data.EXIT_VERIFY_OUTSIDE
 import dev.hamstercage.data.EXIT_VERIFICATION_WINDOW
 import dev.hamstercage.data.newlyRejectedExitIds
 import dev.hamstercage.data.exitVerificationState
-import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.RawEvent
 import dev.hamstercage.domain.Transition
 import dev.hamstercage.location.LocationPermissions
@@ -30,6 +29,8 @@ import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -121,24 +122,13 @@ internal fun confirmableCandidate(events: List<RecordedEvent>, id: String, offic
 }
 
 /**
- * Offices whose newly stored geofence EXIT cannot place the device outside: the fix's accuracy
- * circle is wider than the office itself. The platform nevertheless now treats the device as
- * outside, so a real departure later would raise no EXIT at all. Re-arming the fence with an
- * initial ENTER restores the platform's inside state if the device is inside, and does nothing
- * if it is outside, so this never invents presence.
- */
-internal fun implausibleExitOfficeIds(observations: List<RecordedEvent>, inserted: Set<String>,
-    offices: List<Office>): List<String> = observations.filter { observation ->
-        val accuracy = observation.accuracyMeters
-        observation.event.id in inserted && observation.source == "PLAY_SERVICES_GEOFENCE" &&
-            observation.event.transition == Transition.EXIT && accuracy != null && accuracy.isFinite() &&
-            offices.any { it.id == observation.event.officeId && it.enabled && it.countsTowardAttendance &&
-                accuracy > it.radiusMeters }
-    }.map { it.event.officeId }.distinct()
-
-/**
  * Offices in a verification batch whose EXIT is still undecided (awaiting checks, or expired
- * without a decision). Rejected and decisively confirmed departures need no re-arm.
+ * without a decision). Rejected and decisively confirmed departures need no re-arm. Once the
+ * platform has delivered an EXIT it treats the device as outside, so a later real departure
+ * would raise no EXIT; re-arming with an initial ENTER restores its inside state if the device
+ * is inside and does nothing if it is outside. Only the final scheduled check does this, after
+ * the outside checks have had their chance: an earlier re-arm could return an equally coarse
+ * ENTER within the quick-return window and reject a real departure.
  */
 internal fun unresolvedExitOfficeIds(evidence: List<RecordedEvent>, batch: List<RecordedEvent>,
     now: Instant): List<String> {
@@ -249,11 +239,17 @@ internal fun requiresAdaptiveRecoverySplit(snapshot: AppSnapshot, coverage: Cove
 class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val candidate = AdaptiveConfirmation.candidate(inputData) ?: return Result.success()
-        val result = check(candidate)
-        // Whatever this attempt found (or skipped), the last one re-arms a still-undecided EXIT so
-        // the platform can report the real departure later instead of staying "outside".
+        // Whatever this attempt found, skipped or failed on (for example a busy capture gate), the
+        // last one re-arms a still-undecided EXIT so the platform can report the real departure
+        // later instead of staying "outside". Cancellation of the worker itself still propagates.
+        var failure: Exception? = null
+        val result = try { check(candidate) } catch (cancelled: CancellationException) {
+            if (!currentCoroutineContext().isActive) throw cancelled
+            failure = cancelled; null
+        } catch (error: Exception) { failure = error; null }
         if (candidate.attempt == AdaptiveConfirmation.MAX_EXIT_ATTEMPTS) resyncIfUnresolved(applicationContext, candidate)
-        return result
+        failure?.let { throw it }
+        return result!!
     }
 
     private suspend fun check(candidate: AdaptiveConfirmation.Candidate): Result {
@@ -372,31 +368,35 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
 internal suspend fun resyncIfUnresolved(context: Context, candidate: AdaptiveConfirmation.Candidate) {
     try {
         val reset = PrivacyResetStore.read(context)
-        if (reset !is PrivacyResetState.Idle || reset.generation != candidate.generation) return
+        if (reset !is PrivacyResetState.Idle || reset.generation != candidate.generation ||
+            !MonitoringStore.read(context).enabled) return
         val snapshot = (HamsterRepository.get(context).state.first() as? StorageState.Ready)?.snapshot ?: return
         // A newer observation has already re-established the platform's state.
         if (!confirmableCandidate(snapshot.eventEvidence, candidate.eventId, candidate.officeId)) return
         val batch = AdaptiveConfirmation.batch(snapshot.eventEvidence, candidate.eventId, candidate.officeIds)
         resyncOfficeBoundaries(context, unresolvedExitOfficeIds(snapshot.eventEvidence, batch, Instant.now()))
     } catch (cancelled: CancellationException) { throw cancelled }
-    catch (_: Exception) { MonitoringStore.record(context, "Office boundary refresh unavailable; later checks may recover") }
+    catch (_: Exception) { recordBoundaryRefreshUnavailable(context) }
+}
+
+private suspend fun recordBoundaryRefreshUnavailable(context: Context) {
+    try { MonitoringStore.record(context, "Office boundary refresh unavailable; later checks may recover") }
+    catch (_: Exception) { Unit }
 }
 
 /**
- * Re-arms the platform's inside state for [officeIds]. With [refreshProcess], a new process first
- * restores its own registration, outside the timeout so a partial re-registration is never
- * cancelled; otherwise an unregistered process simply skips (the registrar reports false).
- * Without location prerequisites nothing is touched, because a refresh would then remove the
- * fences instead. Call outside the capture gate: re-registration takes it.
+ * Re-arms the platform's inside state for [officeIds]. A new process first restores its own
+ * registration, outside the timeout so a partial re-registration is never cancelled. Without
+ * location prerequisites nothing is touched, because a refresh would then remove the fences
+ * instead. Call outside the capture gate: re-registration takes it.
  */
-internal suspend fun resyncOfficeBoundaries(context: Context, officeIds: List<String>,
-    timeoutMillis: Long = 8_000, refreshProcess: Boolean = true) {
+internal suspend fun resyncOfficeBoundaries(context: Context, officeIds: List<String>) {
     if (officeIds.isEmpty() || !LocationPermissions.read(context).prerequisitesReady) return
     try {
         val controller = CaptureController.get(context)
-        if (refreshProcess) controller.refreshIfNeededForProcess()
-        val resynced = withTimeout(timeoutMillis) { controller.resyncAfterRejectedExit(officeIds) }
+        controller.refreshIfNeededForProcess()
+        val resynced = withTimeout(8_000) { controller.resyncAfterRejectedExit(officeIds) }
         if (!resynced) MonitoringStore.record(context, "Office boundary refresh skipped; later checks may recover")
     } catch (cancelled: CancellationException) { throw cancelled }
-    catch (_: Exception) { MonitoringStore.record(context, "Office boundary refresh unavailable; later checks may recover") }
+    catch (_: Exception) { recordBoundaryRefreshUnavailable(context) }
 }

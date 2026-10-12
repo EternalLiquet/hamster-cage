@@ -28,7 +28,6 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
         val receivedAt = Instant.ofEpochMilli(System.currentTimeMillis())
         worker.launch {
             var captureCommitted = false
-            var resyncOffices = emptyList<String>()
             try {
                 withCaptureGateTimeout(CaptureWriteGate.mutex, 6_000, action = {
                         val reset = PrivacyResetStore.read(application)
@@ -57,8 +56,6 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                         if (inserted.isNotEmpty() && snapshot != null &&
                             coverage.registration == RegistrationStatus.ACTIVE)
                             updateReconciliationAfterObservation(application, snapshot, receivedAt)
-                        if (snapshot != null && coverage.registration == RegistrationStatus.ACTIVE)
-                            resyncOffices = implausibleExitOfficeIds(observations, inserted, snapshot.offices)
                         if (delivery != null) try {
                             val officeIds = delivery.events.map { it.event.officeId }
                             val versions = repository.officeVersions(officeIds)
@@ -71,11 +68,6 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                     if (captureCommitted) recordConfirmationSchedulingFailure(application)
                     else recordDeliveryFailure(application, receivedAt)
                 })
-                // Outside the gate, within the goAsync budget: an EXIT too imprecise to place the
-                // device outside must not leave the platform unable to report the real departure.
-                // A process woken only for this delivery has no registration to re-arm; the
-                // final verification attempt covers it after restoring one.
-                resyncOfficeBoundaries(application, resyncOffices, timeoutMillis = 3_000, refreshProcess = false)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } finally {
