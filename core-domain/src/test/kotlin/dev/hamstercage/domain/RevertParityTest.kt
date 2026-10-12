@@ -124,24 +124,24 @@ class RevertParityTest {
 
     @Test fun genuinelyActiveCorrectionsStillOverrideTheObservationCaps() {
         val baseline = rejectedExitThenOtherOffice()
-        // A later edit after a revert is active again: the user's stated open visit is MANUAL
-        // and the observation caps do not apply to it.
+        // A later edit after a revert is active again: the user's stated bounds are MANUAL and the
+        // observation caps do not apply to them. (A blank end instead keeps observed bounds, #138.)
         val reEdited = baseline.copy(corrections = editThenRevert("session:a-in", "09:00") +
-            Correction("again", "session:a-in", at("09:00"), null, at("08:02"), appendSequence = 3))
+            Correction("again", "session:a-in", at("09:00"), at("12:00"), at("08:02"), appendSequence = 3))
         val session = derive(reEdited).sessions.single { it.id == "session:a-in" }
         assertEquals(Confidence.MANUAL, session.confidence)
         assertEquals("again", session.correctionId)
         assertFalse(session.correctionReverted)
         assertEquals(175.0, credit(reEdited), 0.0)
         // It behaves exactly like the same edit applied once.
-        val once = baseline.copy(corrections = listOf(Correction("again", "session:a-in", at("09:00"), null, at("08:02"))))
+        val once = baseline.copy(corrections = listOf(Correction("again", "session:a-in", at("09:00"), at("12:00"), at("08:02"))))
         assertEquals(derive(once).intervals, derive(reEdited).intervals)
         assertEquals(today(once), today(reEdited))
 
         // An active edit of a visit with a pending candidate likewise keeps its stated bounds.
         val pending = input("11:03", event("in", Transition.ENTER, "09:00"), event("maybe", Transition.EXIT, "11:00"))
             .copy(candidateExitIds = setOf("maybe"))
-        val confirmed = pending.copy(corrections = listOf(Correction("stay", "session:in", at("09:00"), null, at("11:01"))))
+        val confirmed = pending.copy(corrections = listOf(Correction("stay", "session:in", at("09:00"), at("11:03"), at("11:01"))))
         assertEquals(118.0, credit(confirmed), 0.0)
         assertEquals(Confidence.MANUAL, derive(confirmed).sessions.single().confidence)
     }
