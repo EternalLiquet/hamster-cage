@@ -1,5 +1,6 @@
 package dev.hamstercage.ui
 
+import android.os.SystemClock
 import android.view.View
 import android.widget.DatePicker
 import android.widget.TimePicker
@@ -11,10 +12,14 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.NoMatchingRootException
+import androidx.test.espresso.NoMatchingViewException
 import androidx.test.espresso.UiController
 import androidx.test.espresso.ViewAction
 import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import dev.hamstercage.data.AttendanceEdit
 import dev.hamstercage.domain.*
@@ -36,9 +41,38 @@ class CorrectionEditorTest {
             CorrectionEditor(input, session, CorrectionActions({ now }, { "edit" }, save)) {}
         } } }
     }
-    private fun pickTime(tag: String, hour: Int, minute: Int) {
+    /**
+     * The platform date/time dialogs open and close in their own windows, asynchronously to both
+     * Compose and Espresso. Tapping the next field while the previous dialog is still closing can
+     * drop the tap, so each step waits for the dialog to actually appear and to be gone again.
+     */
+    private fun dialogShown(type: Class<out View>): Boolean = try {
+        onView(isAssignableFrom(type)).check(matches(isDisplayed())); true
+    } catch (_: NoMatchingViewException) { false }
+      catch (_: NoMatchingRootException) { false }
+      catch (_: AssertionError) { false } // Still attached while its window closes.
+    private fun awaitDialog(type: Class<out View>, shown: Boolean, timeoutMillis: Long = 5_000): Boolean {
+        val deadline = SystemClock.uptimeMillis() + timeoutMillis
+        while (SystemClock.uptimeMillis() < deadline) {
+            compose.waitForIdle()
+            if (dialogShown(type) == shown) return true
+            SystemClock.sleep(100)
+        }
+        return dialogShown(type) == shown
+    }
+    private fun pickWith(tag: String, type: Class<out View>, action: ViewAction) {
         compose.onNodeWithTag(tag).performScrollTo().performClick()
-        onView(isAssignableFrom(TimePicker::class.java)).perform(object : ViewAction {
+        // A dropped tap leaves no dialog at all, so one retry cannot open a second dialog.
+        if (!awaitDialog(type, shown = true, timeoutMillis = 2_500)) {
+            compose.onNodeWithTag(tag).performScrollTo().performClick()
+            assertTrue("$tag did not open its dialog", awaitDialog(type, shown = true))
+        }
+        onView(isAssignableFrom(type)).perform(action)
+        onView(withId(android.R.id.button1)).perform(click())
+        assertTrue("$tag dialog did not close", awaitDialog(type, shown = false))
+    }
+    private fun pickTime(tag: String, hour: Int, minute: Int) {
+        pickWith(tag, TimePicker::class.java, object : ViewAction {
             override fun getConstraints() = isAssignableFrom(TimePicker::class.java)
             override fun getDescription() = "Select local correction time"
             override fun perform(uiController: UiController, view: View) {
@@ -46,18 +80,15 @@ class CorrectionEditorTest {
                 view.minute = minute
             }
         })
-        onView(withId(android.R.id.button1)).perform(click())
     }
     private fun pickDate(tag: String, year: Int, month: Int, day: Int) {
-        compose.onNodeWithTag(tag).performScrollTo().performClick()
-        onView(isAssignableFrom(DatePicker::class.java)).perform(object : ViewAction {
+        pickWith(tag, DatePicker::class.java, object : ViewAction {
             override fun getConstraints() = isAssignableFrom(DatePicker::class.java)
             override fun getDescription() = "Select local correction date"
             override fun perform(uiController: UiController, view: View) {
                 (view as DatePicker).updateDate(year, month - 1, day)
             }
         })
-        onView(withId(android.R.id.button1)).perform(click())
     }
     private fun validDraft() {
         pickTime("correction_start_time", 10, 30)
