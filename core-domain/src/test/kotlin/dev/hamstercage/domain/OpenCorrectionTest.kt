@@ -90,7 +90,31 @@ class OpenCorrectionTest {
         assertNull(corrected(derive(listOf(enter, phantom), at("2026-03-04T18:00:00Z"), rejected = setOf("phantom"))).end)
         val open = corrected(derive(listOf(enter, phantom), at("2026-03-04T17:31:00Z"), candidate = setOf("phantom")))
         assertNull(open.end)
-        assertEquals(setOf(ReviewReason.OPEN_SESSION), open.reviewReasons)
+        assertEquals(setOf(ReviewReason.OPEN_SESSION, ReviewReason.UNCONFIRMED_BOUNDARY), open.reviewReasons)
+    }
+
+    @Test fun startOnlyEditOfAnUnconfirmedGapVisitKeepsItsObservedPrefixCredit() {
+        val seen = RawEvent("seen", office.id, Transition.PRESENCE, at("2026-03-04T15:00:00Z"))
+        val out = RawEvent("out", office.id, Transition.ABSENCE, at("2026-03-04T16:00:00Z"))
+        val back = RawEvent("back", office.id, Transition.ENTER, at("2026-03-04T17:00:00Z"))
+        val events = listOf(enter, seen, out, back)
+        val now = at("2026-03-04T18:00:00Z")
+        val baseline = derive(events, now, corrections = emptyList())
+        assertTrue(ReviewReason.UNCONFIRMED_GAP in baseline.sessions.single { it.id == "session:in" }.reviewReasons)
+        val result = derive(events, now)
+        assertEquals(setOf(ReviewReason.UNCONFIRMED_GAP), corrected(result).reviewReasons)
+        // Same observed prefix as the uncorrected visit, from the corrected start + grace.
+        val prefix = result.intervals.single { "session:in" in it.sessionIds }
+        assertEquals(at("2026-03-04T13:55:00Z") to seen.at, prefix.start to prefix.end)
+    }
+
+    @Test fun startOnlyEditWhileAnExitIsPendingKeepsTheCandidateCapAndFlag() {
+        val exit = RawEvent("out", office.id, Transition.EXIT, at("2026-03-04T16:52:00Z"))
+        val result = derive(listOf(enter, exit), at("2026-03-04T16:58:00Z"), candidate = setOf("out"))
+        val session = corrected(result)
+        assertNull(session.end)
+        assertEquals(setOf(ReviewReason.OPEN_SESSION, ReviewReason.UNCONFIRMED_BOUNDARY), session.reviewReasons)
+        assertEquals(exit.at, result.intervals.single().end)
     }
 
     @Test fun observedEndBeyondTheOpenSessionLimitCannotCreditDaysOfAbsence() {
