@@ -38,9 +38,9 @@ class ExitResyncTest {
         assertEquals(emptyList<String>(), unresolvedExitOfficeIds(listOf(enter), listOf(enter), at.plusSeconds(30)))
     }
 
-    @Test fun reArmEnterAfterTheFinalCheckNeverRejectsTheDeparture() {
+    @Test fun reArmEnterObservedAfterTheFinalCheckDoesNotRejectTheDeparture() {
         // The final attempt runs about 270 s after the EXIT, beyond the 60 s quick-return window,
-        // so even an equally coarse platform ENTER cannot erase a real departure: the EXIT stays
+        // so an equally coarse platform ENTER observed then cannot erase a real departure: the EXIT stays
         // the observed boundary (undecided) and only the ENTER's own time opens a new visit.
         val arrived = event("arrived", Transition.ENTER, -3600, accuracy = 10f)
         val exit = event("exit", Transition.EXIT, accuracy = 400f)
