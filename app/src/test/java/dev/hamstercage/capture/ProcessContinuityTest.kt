@@ -46,21 +46,31 @@ class ProcessContinuityTest {
         assertEquals(ProcessContinuity.LOST, decide(exit = PreviousExit.STOPPED_OR_CHANGED, background = true))
     }
 
-    @Test fun unreadableSignalsStayConservative() {
+    @Test fun unreadableSignalsStayConservativeUnlessTheTokenRulesThemOut() {
         assertEquals(ProcessContinuity.UNKNOWN, decide(token = null, background = true))
-        assertEquals(ProcessContinuity.UNKNOWN, decide(rebooted = null, background = true))
         assertEquals(ProcessContinuity.UNKNOWN, decide(replaced = null, background = true))
+        // A reboot cancels the token, so a present token makes an unreadable boot count moot.
+        assertEquals(ProcessContinuity.SURVIVED, decide(rebooted = null))
     }
 
-    @Test fun survivalNeedsPositiveEvidenceOfNoForceStop() {
-        // A background job cannot run for a force-stopped app on any version.
+    @Test fun presentTokenIsTrustedUnlessAStopOrUpdateIsRecorded() {
+        // #142: an ordinary restart with the registration still held is continuous monitoring,
+        // even without a recorded reclaim (foreground launch, missing or stale exit record).
+        assertEquals(ProcessContinuity.SURVIVED, decide())
         assertEquals(ProcessContinuity.SURVIVED, decide(background = true))
-        // Android 15+ cancels the token on force-stop, so a present token rules it out.
         assertEquals(ProcessContinuity.SURVIVED, decide(cancelsTokens = true, forceStop = false))
-        // Android 11–14: a recorded system reclaim of the last healthy process.
         assertEquals(ProcessContinuity.SURVIVED, decide(exit = PreviousExit.RECLAIMED))
-        // A foreground launch with no exit record (Android 8–10) cannot rule out a force-stop.
-        assertEquals(ProcessContinuity.UNKNOWN, decide())
+    }
+
+    @Test fun userRequestedExitIsTrustedOnlyWhereItCannotBeAForceStop() {
+        // Android 11–14 record a force-stop as a user request and keep the token.
+        assertEquals(ProcessContinuity.LOST, decide(exit = PreviousExit.USER_REQUESTED))
+        // A background job cannot run for a force-stopped app.
+        assertEquals(ProcessContinuity.SURVIVED, decide(exit = PreviousExit.USER_REQUESTED, background = true))
+        // Android 15+ cancels the token on force-stop and records it separately, so a swipe-away is safe.
+        assertEquals(ProcessContinuity.SURVIVED, decide(exit = PreviousExit.USER_REQUESTED, cancelsTokens = true, forceStop = false))
+        assertEquals(ProcessContinuity.LOST, decide(exit = PreviousExit.USER_REQUESTED, cancelsTokens = true, forceStop = true))
+        assertEquals(ProcessContinuity.LOST, decide(token = false, exit = PreviousExit.USER_REQUESTED, cancelsTokens = true))
     }
 
     @Test fun recoveryRemembersWhereTheOutageBegan() {

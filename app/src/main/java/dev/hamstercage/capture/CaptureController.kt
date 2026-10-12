@@ -158,7 +158,8 @@ class CaptureController private constructor(context: Context) {
                 ?: return PreviousExit.UNKNOWN
             if (lastHealthyAt != null && info.timestamp < lastHealthyAt.toEpochMilli()) return PreviousExit.UNKNOWN
             when (info.reason) {
-                ApplicationExitInfo.REASON_USER_REQUESTED, ApplicationExitInfo.REASON_USER_STOPPED,
+                ApplicationExitInfo.REASON_USER_REQUESTED -> PreviousExit.USER_REQUESTED
+                ApplicationExitInfo.REASON_USER_STOPPED,
                 ApplicationExitInfo.REASON_PERMISSION_CHANGE, ApplicationExitInfo.REASON_PACKAGE_UPDATED,
                 ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE -> PreviousExit.STOPPED_OR_CHANGED
                 ApplicationExitInfo.REASON_LOW_MEMORY, ApplicationExitInfo.REASON_SIGNALED,
