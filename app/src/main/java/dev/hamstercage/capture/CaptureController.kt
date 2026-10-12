@@ -128,7 +128,7 @@ class CaptureController private constructor(context: Context) {
         }
     }
 
-    /** Re-arms the platform's inside state for offices whose phantom EXIT was just rejected. */
+    /** Re-arms the platform's inside state for offices whose EXIT was rejected, implausible or left undecided. */
     suspend fun resyncAfterRejectedExit(officeIds: List<String>): Boolean = CaptureWriteGate.mutex.withLock {
         val reset = PrivacyResetStore.read(application)
         if (reset !is PrivacyResetState.Idle || !MonitoringStore.read(application).enabled ||

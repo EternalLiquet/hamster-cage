@@ -17,6 +17,7 @@ import dev.hamstercage.data.EXIT_VERIFY_OUTSIDE
 import dev.hamstercage.data.EXIT_VERIFICATION_WINDOW
 import dev.hamstercage.data.newlyRejectedExitIds
 import dev.hamstercage.data.exitVerificationState
+import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.RawEvent
 import dev.hamstercage.domain.Transition
 import dev.hamstercage.location.LocationPermissions
@@ -117,6 +118,34 @@ internal fun confirmableCandidate(events: List<RecordedEvent>, id: String, offic
     return events.none { it.event.id != id &&
         it.source !in setOf(EXIT_VERIFY_INSIDE, EXIT_VERIFY_OUTSIDE) &&
         (it.event.at > candidate.event.at || it.event.at == candidate.event.at && it.receivedAt > candidate.receivedAt) }
+}
+
+/**
+ * Offices whose newly stored geofence EXIT cannot place the device outside: the fix's accuracy
+ * circle is wider than the office itself. The platform nevertheless now treats the device as
+ * outside, so a real departure later would raise no EXIT at all. Re-arming the fence with an
+ * initial ENTER restores the platform's inside state if the device is inside, and does nothing
+ * if it is outside, so this never invents presence.
+ */
+internal fun implausibleExitOfficeIds(observations: List<RecordedEvent>, inserted: Set<String>,
+    offices: List<Office>): List<String> = observations.filter { observation ->
+        val accuracy = observation.accuracyMeters
+        observation.event.id in inserted && observation.source == "PLAY_SERVICES_GEOFENCE" &&
+            observation.event.transition == Transition.EXIT && accuracy != null && accuracy.isFinite() &&
+            offices.any { it.id == observation.event.officeId && it.enabled && it.countsTowardAttendance &&
+                accuracy > it.radiusMeters }
+    }.map { it.event.officeId }.distinct()
+
+/**
+ * Offices in a verification batch whose EXIT is still undecided (awaiting checks, or expired
+ * without a decision). Rejected and decisively confirmed departures need no re-arm.
+ */
+internal fun unresolvedExitOfficeIds(evidence: List<RecordedEvent>, batch: List<RecordedEvent>,
+    now: Instant): List<String> {
+    val state = exitVerificationState(evidence, now)
+    return batch.filter { it.event.transition == Transition.EXIT &&
+        (it.event.id in state.candidateIds || it.event.id in state.uncertainIds) }
+        .map { it.event.officeId }.distinct()
 }
 
 internal fun canRequestAdaptiveFix(setup: LocationSetup, enabled: Boolean, privacyIdle: Boolean,
@@ -220,6 +249,14 @@ internal fun requiresAdaptiveRecoverySplit(snapshot: AppSnapshot, coverage: Cove
 class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val candidate = AdaptiveConfirmation.candidate(inputData) ?: return Result.success()
+        val result = check(candidate)
+        // Whatever this attempt found (or skipped), the last one re-arms a still-undecided EXIT so
+        // the platform can report the real departure later instead of staying "outside".
+        if (candidate.attempt == AdaptiveConfirmation.MAX_EXIT_ATTEMPTS) resyncIfUnresolved(applicationContext, candidate)
+        return result
+    }
+
+    private suspend fun check(candidate: AdaptiveConfirmation.Candidate): Result {
         val (id, officeId, generation) = candidate
         val context = applicationContext
         val repository = HamsterRepository.get(context)
@@ -329,4 +366,37 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
         catch (_: Exception) { MonitoringStore.record(context, "Office boundary refresh unavailable; later checks may recover") }
         return Result.success()
     }
+}
+
+/** The last scheduled check re-arms an EXIT that is still undecided; see [unresolvedExitOfficeIds]. */
+internal suspend fun resyncIfUnresolved(context: Context, candidate: AdaptiveConfirmation.Candidate) {
+    try {
+        val reset = PrivacyResetStore.read(context)
+        if (reset !is PrivacyResetState.Idle || reset.generation != candidate.generation) return
+        val snapshot = (HamsterRepository.get(context).state.first() as? StorageState.Ready)?.snapshot ?: return
+        // A newer observation has already re-established the platform's state.
+        if (!confirmableCandidate(snapshot.eventEvidence, candidate.eventId, candidate.officeId)) return
+        val batch = AdaptiveConfirmation.batch(snapshot.eventEvidence, candidate.eventId, candidate.officeIds)
+        resyncOfficeBoundaries(context, unresolvedExitOfficeIds(snapshot.eventEvidence, batch, Instant.now()))
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { MonitoringStore.record(context, "Office boundary refresh unavailable; later checks may recover") }
+}
+
+/**
+ * Re-arms the platform's inside state for [officeIds]. With [refreshProcess], a new process first
+ * restores its own registration, outside the timeout so a partial re-registration is never
+ * cancelled; otherwise an unregistered process simply skips (the registrar reports false).
+ * Without location prerequisites nothing is touched, because a refresh would then remove the
+ * fences instead. Call outside the capture gate: re-registration takes it.
+ */
+internal suspend fun resyncOfficeBoundaries(context: Context, officeIds: List<String>,
+    timeoutMillis: Long = 8_000, refreshProcess: Boolean = true) {
+    if (officeIds.isEmpty() || !LocationPermissions.read(context).prerequisitesReady) return
+    try {
+        val controller = CaptureController.get(context)
+        if (refreshProcess) controller.refreshIfNeededForProcess()
+        val resynced = withTimeout(timeoutMillis) { controller.resyncAfterRejectedExit(officeIds) }
+        if (!resynced) MonitoringStore.record(context, "Office boundary refresh skipped; later checks may recover")
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { MonitoringStore.record(context, "Office boundary refresh unavailable; later checks may recover") }
 }
