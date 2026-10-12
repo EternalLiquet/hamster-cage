@@ -113,7 +113,7 @@ class CorrectionEditorTest {
         pickDate("correction_start_date", 2026, 9, 22)
         pickTime("correction_start_time", 10, 30)
         compose.onNodeWithTag("correction_has_end").performScrollTo().performClick()
-        compose.onNodeWithText("No end selected · the visit stays open until your phone next reports you leaving.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("No end selected · the end your phone observes is kept; until there is one, the visit stays open.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Preview attendance change").performScrollTo().performClick()
         compose.onNodeWithTag("correction_preview_bounds").performScrollTo()
             .assert(hasText("Open session", substring = true))

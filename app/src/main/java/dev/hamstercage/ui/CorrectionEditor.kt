@@ -98,7 +98,7 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
                 modifier = Modifier.testTag("correction_has_end").semantics { contentDescription = "Include an end time" })
             Text(when {
                 hasEnd -> "End time selected"
-                session != null -> "No end selected · the visit stays open until your phone next reports you leaving."
+                session != null -> "No end selected · the end your phone observes is kept; until there is one, the visit stays open."
                 else -> "No end selected · this creates an open session."
             })
             if (hasEnd) LocalBoundaryPicker("End", LocalDateTime.parse(endLocal), endOverlap, zone, use24Hour, busy,

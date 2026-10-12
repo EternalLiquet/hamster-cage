@@ -27,7 +27,11 @@ fun explainDay(input: AttendanceInput, result: AttendanceResult, date: LocalDate
     val originals = AttendanceEngine.derive(input.copy(corrections = emptyList())).sessions
     val eventsOnDay = input.events.filter { onDay(it.at) }.map { it.id }.toSet()
     val manualOnDay = input.manualSessions.filter { touches(it.start, it.end) || onDay(it.createdAt) }.map { it.id }.toSet()
-    val correctionsOnDay = input.corrections.filter { touches(it.start, it.end) || onDay(it.createdAt) }
+    // A blank correction end follows the visit's observed end, so only an applied visit that is
+    // still open reaches later days.
+    fun correctionEnd(correction: Correction) = correction.end ?: result.sessions.firstOrNull {
+        it.correctionId == correction.id && !correction.revertToOriginal }?.end
+    val correctionsOnDay = input.corrections.filter { touches(it.start, correctionEnd(it)) || onDay(it.createdAt) }
     val related = (result.sessions + originals).filter { session ->
         session.id in contributingSessions || touches(session.start, session.end) ||
             (session.sourceEventIds + session.redundantEventIds).any { it in eventsOnDay } ||

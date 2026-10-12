@@ -357,24 +357,22 @@ object AttendanceEngine {
                     confidence = if (invalid.isEmpty()) original.confidence else Confidence.LOW,
                     reviewReasons = original.reviewReasons + if (invalid.isEmpty()) emptySet() else setOf(ReviewReason.INVALID_CORRECTION))
             } else {
-                // A blank end records presence as of the edit, not a promise to ignore later
-                // departures. The first same-office EXIT observed after the edit closes it,
-                // unless that EXIT was rejected as a phantom or lies beyond the open-session
-                // limit, in which case the visit stays open for review as before.
-                val laterExit = if (correction.end != null) null else usable.filter {
-                    it.officeId == original.officeId && it.transition == Transition.EXIT &&
-                        it.at > correction.createdAt && it.at > correction.start &&
-                        it.id !in input.rejectedExitIds
-                }.minWithOrNull(compareBy<RawEvent> { it.at }.thenBy { it.id })?.takeIf {
-                    Duration.between(correction.start, it.at) <= Duration.ofHours(input.policy.maxOpenSessionHours.toLong())
+                // A blank end leaves the end to the visit's own reconstruction: the edit changes
+                // only what the user set. The observed end (bounces already merged, the same
+                // evidence an uncorrected visit uses) applies whenever the reconstruction has one,
+                // keeping its uncertainty. An end beyond the open-session limit from the corrected
+                // start is not trusted; the visit stays open and stale for review instead.
+                val observedEnd = if (correction.end != null) null else original.end?.takeIf {
+                    it > correction.start &&
+                        Duration.between(correction.start, it) <= Duration.ofHours(input.policy.maxOpenSessionHours.toLong())
                 }
-                val end = correction.end ?: laterExit?.at
+                val end = correction.end ?: observedEnd
                 val openFlags = if (end == null) {
                     if (Duration.between(correction.start, input.now) > Duration.ofHours(input.policy.maxOpenSessionHours.toLong()))
                         setOf(ReviewReason.OPEN_SESSION, ReviewReason.STALE_OPEN_SESSION)
                     else setOf(ReviewReason.OPEN_SESSION)
-                } else if (laterExit != null && (laterExit.id in input.unconfirmedExitIds ||
-                        laterExit.id in input.candidateExitIds)) setOf(ReviewReason.UNCONFIRMED_BOUNDARY)
+                } else if (observedEnd != null) original.reviewReasons.intersect(
+                    setOf(ReviewReason.UNCONFIRMED_BOUNDARY, ReviewReason.UNCONFIRMED_GAP))
                 else emptySet()
                 val flags = openFlags + if (invalid.isNotEmpty()) setOf(ReviewReason.INVALID_CORRECTION) else emptySet()
                 // The original evidence remains in input/events; old warnings are resolved by explicit correction.
