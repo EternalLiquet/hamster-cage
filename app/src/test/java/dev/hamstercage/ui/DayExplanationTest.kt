@@ -31,6 +31,17 @@ class DayExplanationTest {
         assertTrue(detail.denominator.contains("1 day × 360 minutes"))
     }
 
+    @Test fun startOnlyCorrectionOfAClosedVisitStaysOnItsOwnDay() {
+        val data = input(raw("in", Transition.ENTER, "09:15"), raw("out", Transition.EXIT, "17:00"))
+            .copy(corrections = listOf(Correction("edit", "session:in", at("09:00"), null, at("10:00"))))
+        val today = explain(data)
+        assertEquals(listOf("edit"), today.corrections.map { it.id })
+        assertEquals(at("17:00"), today.sessions.single().end)
+        val nextDay = explain(data, day.plusDays(1))
+        assertTrue(nextDay.corrections.isEmpty())
+        assertTrue(nextDay.sessions.isEmpty())
+    }
+
     @Test fun laterOutsideCheckKeepsUnknownExitAndUncreditedSpanVisible() {
         val data = input(raw("in", Transition.ENTER, "09:00"),
             raw("outside", Transition.ABSENCE, "10:00"))
