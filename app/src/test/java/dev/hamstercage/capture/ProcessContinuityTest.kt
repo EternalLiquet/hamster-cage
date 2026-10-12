@@ -60,13 +60,17 @@ class ProcessContinuityTest {
         assertEquals(ProcessContinuity.SURVIVED, decide(background = true))
         assertEquals(ProcessContinuity.SURVIVED, decide(cancelsTokens = true, forceStop = false))
         assertEquals(ProcessContinuity.SURVIVED, decide(exit = PreviousExit.RECLAIMED))
+        // Accepted risk: Android 8–10 record no exit reason, so a force-stop there cannot be told
+        // apart from a reclaim and is trusted too.
+        assertEquals(ProcessContinuity.SURVIVED, decide(exit = PreviousExit.UNKNOWN, cancelsTokens = false))
     }
 
     @Test fun userRequestedExitIsTrustedOnlyWhereItCannotBeAForceStop() {
         // Android 11–14 record a force-stop as a user request and keep the token.
         assertEquals(ProcessContinuity.LOST, decide(exit = PreviousExit.USER_REQUESTED))
-        // A background job cannot run for a force-stopped app.
-        assertEquals(ProcessContinuity.SURVIVED, decide(exit = PreviousExit.USER_REQUESTED, background = true))
+        // Opening the app after a force-stop lets overdue work run first, so a background start
+        // does not rule a force-stop out.
+        assertEquals(ProcessContinuity.LOST, decide(exit = PreviousExit.USER_REQUESTED, background = true))
         // Android 15+ cancels the token on force-stop and records it separately, so a swipe-away is safe.
         assertEquals(ProcessContinuity.SURVIVED, decide(exit = PreviousExit.USER_REQUESTED, cancelsTokens = true, forceStop = false))
         assertEquals(ProcessContinuity.LOST, decide(exit = PreviousExit.USER_REQUESTED, cancelsTokens = true, forceStop = true))
