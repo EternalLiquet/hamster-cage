@@ -357,25 +357,44 @@ object AttendanceEngine {
                     confidence = if (invalid.isEmpty()) original.confidence else Confidence.LOW,
                     reviewReasons = original.reviewReasons + if (invalid.isEmpty()) emptySet() else setOf(ReviewReason.INVALID_CORRECTION))
             } else {
-                val openFlags = if (correction.end == null) {
-                    if (Duration.between(correction.start, input.now) > Duration.ofHours(input.policy.maxOpenSessionHours.toLong()))
+                // A blank end leaves the end to the visit's own reconstruction: the edit changes
+                // only what the user set. The observed end (bounces already merged, the same
+                // evidence an uncorrected visit uses) applies whenever the reconstruction has one,
+                // keeping its uncertainty. An end beyond the open-session limit from the corrected
+                // start is not trusted; the visit stays open and stale for review instead.
+                val observedEnd = if (correction.end != null) null else original.end?.takeIf {
+                    it > correction.start &&
+                        Duration.between(correction.start, it) <= Duration.ofHours(input.policy.maxOpenSessionHours.toLong())
+                }
+                val end = correction.end ?: observedEnd
+                val openFlags = if (end == null) {
+                    (if (Duration.between(correction.start, input.now) > Duration.ofHours(input.policy.maxOpenSessionHours.toLong()))
                         setOf(ReviewReason.OPEN_SESSION, ReviewReason.STALE_OPEN_SESSION)
-                    else setOf(ReviewReason.OPEN_SESSION)
-                } else emptySet()
+                    else setOf(ReviewReason.OPEN_SESSION)) + if (correction.end == null && original.end == null)
+                        original.reviewReasons.intersect(setOf(ReviewReason.UNCONFIRMED_BOUNDARY)) else emptySet()
+                } else if (observedEnd != null) original.reviewReasons.intersect(
+                    setOf(ReviewReason.UNCONFIRMED_BOUNDARY, ReviewReason.UNCONFIRMED_GAP))
+                else emptySet()
                 val flags = openFlags + if (invalid.isNotEmpty()) setOf(ReviewReason.INVALID_CORRECTION) else emptySet()
                 // The original evidence remains in input/events; old warnings are resolved by explicit correction.
                 reviews.removeAll { it.sessionId == original.id && it.reason != ReviewReason.INVALID_CORRECTION }
                 flags.forEach { reviews += ReviewItem(it, original.sourceEventIds, original.id) }
-                original.copy(start = correction.start, end = correction.end, confidence = Confidence.MANUAL,
+                original.copy(start = correction.start, end = end, confidence = Confidence.MANUAL,
                     reviewReasons = flags, correctionId = correction.id)
             }
         }.sortedWith(compareBy<Session> { it.start ?: it.end }.thenBy { it.id })
+
+        // A blank-end correction keeps observed bounds, so the same evidence caps that limit an
+        // uncorrected visit (pending EXIT, rejected EXIT then elsewhere, unconfirmed gap) apply.
+        val observedEndCorrectionIds = input.corrections.filter { it.end == null && !it.revertToOriginal }
+            .map { it.id }.toSet()
+        fun evidenceCapped(session: Session) = !session.hasActiveCorrection || session.correctionId in observedEndCorrectionIds
 
         // A rejected false EXIT does not grant indefinite credit after a later
         // observation at another office. That observation is not an invented EXIT
         // for this office: retain the visit as open, cap credit, and request review.
         val crossOfficeStops = effective.mapNotNull { session ->
-            val rejectedAt = if (session.start != null && !session.hasActiveCorrection)
+            val rejectedAt = if (session.start != null && evidenceCapped(session))
                 usable.filter { it.id in session.sourceEventIds && it.id in input.rejectedExitIds }
                     .minOfOrNull { it.at } else null
             val conflict = rejectedAt?.let { exitAt -> usable.filter {
@@ -424,14 +443,17 @@ object AttendanceEngine {
             // after a rejected phantom EXIT does; any implied absence there is within the
             // engine's accepted tolerance. Another office's ENTER or PRESENCE shows the user was
             // elsewhere. No fix after the first of those counts.
-            val lastInsideBeforeGap = if (!session.hasActiveCorrection && session.end != null && start != null &&
+            val lastInsideBeforeGap = if (evidenceCapped(session) && session.end != null && start != null &&
                 ReviewReason.UNCONFIRMED_GAP in session.reviewReasons) {
                 val inSession = usable.filter { it.id in session.sourceEventIds && it.officeId == session.officeId }
                     .sortedWith(compareBy<RawEvent> { it.at }.thenBy { it.id })
-                var lastInside: Instant = start
+                // A corrected start before the visit's own opening must not make that opening
+                // observation look like a missed departure and return.
+                val floor = maxOf(start, inSession.firstOrNull()?.at ?: start)
+                var lastInside: Instant = floor
                 var lastExit: Instant? = null
                 val missedDeparture = inSession.firstOrNull { event ->
-                    if (event.at <= start) return@firstOrNull false
+                    if (event.at <= floor) return@firstOrNull false
                     when (event.transition) {
                         Transition.EXIT -> { lastExit = event.at; false }
                         Transition.ENTER -> {
@@ -459,7 +481,7 @@ object AttendanceEngine {
                 ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons) null
             else {
                 // Only an active override replaces observed bounds; a reverted one is audit only.
-                val candidateAt = if (!session.hasActiveCorrection) usable.filter {
+                val candidateAt = if (evidenceCapped(session)) usable.filter {
                     it.id in session.sourceEventIds && it.id in input.candidateExitIds
                 }.minOfOrNull { it.at } else null
                 val end = minOf(session.end ?: input.now, input.now, candidateAt ?: input.now,

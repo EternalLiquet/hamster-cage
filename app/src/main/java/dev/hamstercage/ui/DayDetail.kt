@@ -167,7 +167,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         EvidenceSection("Correction audit", detail.corrections) { correction ->
             Text("Correction to a recorded session")
             if (correction.revertToOriginal) Text("Revert to original reconstruction · entered ${at(correction.createdAt)}")
-            else Text("${at(correction.start)} → ${at(correction.end)} · entered ${at(correction.createdAt)}")
+            else Text("${at(correction.start)} → ${correction.end?.let(::at) ?: "end left to observations"} · entered ${at(correction.createdAt)}")
             Text(if (detail.sessions.any { it.correctionId == correction.id })
                 if (correction.revertToOriginal) "Currently restores original reconstruction." else "Applied to effective bounds."
                 else "Retained audit entry; not the currently applied correction.")
