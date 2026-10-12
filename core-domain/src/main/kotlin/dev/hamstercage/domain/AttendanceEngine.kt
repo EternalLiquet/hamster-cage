@@ -357,16 +357,30 @@ object AttendanceEngine {
                     confidence = if (invalid.isEmpty()) original.confidence else Confidence.LOW,
                     reviewReasons = original.reviewReasons + if (invalid.isEmpty()) emptySet() else setOf(ReviewReason.INVALID_CORRECTION))
             } else {
-                val openFlags = if (correction.end == null) {
+                // A blank end records presence as of the edit, not a promise to ignore later
+                // departures. The first same-office EXIT observed after the edit closes it,
+                // unless that EXIT was rejected as a phantom or lies beyond the open-session
+                // limit, in which case the visit stays open for review as before.
+                val laterExit = if (correction.end != null) null else usable.filter {
+                    it.officeId == original.officeId && it.transition == Transition.EXIT &&
+                        it.at > correction.createdAt && it.at > correction.start &&
+                        it.id !in input.rejectedExitIds
+                }.minWithOrNull(compareBy<RawEvent> { it.at }.thenBy { it.id })?.takeIf {
+                    Duration.between(correction.start, it.at) <= Duration.ofHours(input.policy.maxOpenSessionHours.toLong())
+                }
+                val end = correction.end ?: laterExit?.at
+                val openFlags = if (end == null) {
                     if (Duration.between(correction.start, input.now) > Duration.ofHours(input.policy.maxOpenSessionHours.toLong()))
                         setOf(ReviewReason.OPEN_SESSION, ReviewReason.STALE_OPEN_SESSION)
                     else setOf(ReviewReason.OPEN_SESSION)
-                } else emptySet()
+                } else if (laterExit != null && (laterExit.id in input.unconfirmedExitIds ||
+                        laterExit.id in input.candidateExitIds)) setOf(ReviewReason.UNCONFIRMED_BOUNDARY)
+                else emptySet()
                 val flags = openFlags + if (invalid.isNotEmpty()) setOf(ReviewReason.INVALID_CORRECTION) else emptySet()
                 // The original evidence remains in input/events; old warnings are resolved by explicit correction.
                 reviews.removeAll { it.sessionId == original.id && it.reason != ReviewReason.INVALID_CORRECTION }
                 flags.forEach { reviews += ReviewItem(it, original.sourceEventIds, original.id) }
-                original.copy(start = correction.start, end = correction.end, confidence = Confidence.MANUAL,
+                original.copy(start = correction.start, end = end, confidence = Confidence.MANUAL,
                     reviewReasons = flags, correctionId = correction.id)
             }
         }.sortedWith(compareBy<Session> { it.start ?: it.end }.thenBy { it.id })

@@ -96,7 +96,11 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
                 onOverlap = { startOverlap = it })
             Checkbox(checked = hasEnd, onCheckedChange = { hasEnd = it }, enabled = !busy,
                 modifier = Modifier.testTag("correction_has_end").semantics { contentDescription = "Include an end time" })
-            Text(if (hasEnd) "End time selected" else "No end selected · this creates an open session.")
+            Text(when {
+                hasEnd -> "End time selected"
+                session != null -> "No end selected · the visit stays open until your phone next reports you leaving."
+                else -> "No end selected · this creates an open session."
+            })
             if (hasEnd) LocalBoundaryPicker("End", LocalDateTime.parse(endLocal), endOverlap, zone, use24Hour, busy,
                 onChange = { value -> endLocal = value.toString(); endOverlap = null },
                 onOverlap = { endOverlap = it })
