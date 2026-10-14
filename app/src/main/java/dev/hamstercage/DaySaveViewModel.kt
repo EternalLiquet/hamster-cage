@@ -39,9 +39,15 @@ internal class DaySaveViewModel : ViewModel() {
     var shareNotice by mutableStateOf<String?>(null)
     private val requestedPicker = MutableStateFlow<String?>(null)
     val pickerRequest = requestedPicker.asStateFlow()
+    private var initialized = false
 
     fun restore(state: Bundle?) {
-        if (pendingSave == null) pendingSave = PendingDaySave.restore(state)
+        // The same ViewModel survives rotation. Its live state is newer than the Activity's
+        // saved Bundle, especially if a provider result began writing during recreation.
+        if (initialized) return
+        initialized = true
+        pendingSave = PendingDaySave.restore(state)
+        pendingSave?.takeIf { !it.pickerLaunched }?.filename?.let { requestedPicker.value = it }
     }
 
     fun save(state: Bundle) { pendingSave?.save(state) }
@@ -68,7 +74,8 @@ internal class DaySaveViewModel : ViewModel() {
     }
 
     internal fun stageForPicker(staged: File, generation: Long, filename: String) {
-        pendingSave = PendingDaySave(staged.absolutePath, generation)
+        initialized = true
+        pendingSave = PendingDaySave(staged.absolutePath, generation, filename, pickerLaunched = false)
         requestedPicker.value = filename
     }
 
@@ -76,6 +83,7 @@ internal class DaySaveViewModel : ViewModel() {
     fun launchPicker(launch: (String) -> Unit) {
         val name = requestedPicker.value ?: return
         requestedPicker.value = null
+        pendingSave = pendingSave?.copy(pickerLaunched = true)
         try { launch(name) }
         catch (_: Exception) {
             pendingSave?.let { File(it.path).delete() }
@@ -136,18 +144,24 @@ internal class DaySaveViewModel : ViewModel() {
 }
 
 /** Only the staged path and generation cross process recreation while the picker is open. */
-internal data class PendingDaySave(val path: String, val generation: Long) {
+internal data class PendingDaySave(val path: String, val generation: Long,
+    val filename: String? = null, val pickerLaunched: Boolean = true) {
     fun save(outState: Bundle) {
         outState.putString(PATH, path)
         outState.putLong(GENERATION, generation)
+        outState.putString(FILENAME, filename)
+        outState.putBoolean(PICKER_LAUNCHED, pickerLaunched)
     }
 
     companion object {
         private const val PATH = "pendingDaySavePath"
         private const val GENERATION = "pendingDaySaveGeneration"
+        private const val FILENAME = "pendingDaySaveFilename"
+        private const val PICKER_LAUNCHED = "pendingDaySavePickerLaunched"
         fun restore(state: Bundle?): PendingDaySave? {
             val path = state?.getString(PATH) ?: return null
-            return PendingDaySave(path, state.getLong(GENERATION))
+            return PendingDaySave(path, state.getLong(GENERATION), state.getString(FILENAME),
+                state.getBoolean(PICKER_LAUNCHED, true))
         }
     }
 }
