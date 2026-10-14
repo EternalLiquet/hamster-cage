@@ -76,8 +76,9 @@ fun HamsterApp(
     savePolicy: (suspend (PolicySettings, PolicySettings) -> Unit)? = null,
     calendarActions: CalendarActions? = null,
     privacyActions: PrivacyActions? = null,
-    appVersion: String = "unknown", shareError: String? = null,
+    appVersion: String = "unknown", shareError: String? = null, shareNotice: String? = null,
     shareDayDiagnostics: ((String, LocalDate, Long) -> Unit)? = null,
+    saveDayDiagnostics: ((String, LocalDate, Long) -> Unit)? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     var detailDate by rememberSaveable(privacyState.generation) { mutableStateOf<String?>(null) }
@@ -192,7 +193,7 @@ fun HamsterApp(
                                     eventEvidence = snapshot.eventEvidence,
                                     backLabel = if (selected == Destination.DASHBOARD) "Back to Dashboard" else "Back to History",
                                     trackingReady = effectiveTrackingReady,
-                                    shareError = shareError,
+                                    shareError = shareError, shareNotice = shareNotice,
                                     prepareDayShare = if (shareDayDiagnostics == null) null else {
                                         { dayDiagnostics(snapshot, LocalDate.parse(detailDate), now, coverage,
                                             captureStatus, appVersion) }
@@ -200,6 +201,11 @@ fun HamsterApp(
                                     shareDay = if (shareDayDiagnostics == null) null else { prepared ->
                                         editingGeneration?.let { generation ->
                                             shareDayDiagnostics(prepared.json, LocalDate.parse(detailDate), generation)
+                                        }
+                                    },
+                                    saveDay = if (saveDayDiagnostics == null) null else { prepared ->
+                                        editingGeneration?.let { generation ->
+                                            saveDayDiagnostics(prepared.json, LocalDate.parse(detailDate), generation)
                                         }
                                     })
                             } else if (selected == Destination.HISTORY) key(privacyState.generation) {

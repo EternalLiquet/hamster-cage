@@ -4,6 +4,8 @@ import android.graphics.Color
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -41,6 +43,8 @@ import dev.hamstercage.privacy.PrivacyStorageState
 import dev.hamstercage.privacy.privacyVisibleStorage
 import dev.hamstercage.ui.HamsterApp
 import dev.hamstercage.ui.DayShareFiles
+import dev.hamstercage.ui.copyStagedDayData
+import dev.hamstercage.ui.daySaveFileName
 import dev.hamstercage.ui.dayShareIntent
 import dev.hamstercage.ui.OfficeActions
 import dev.hamstercage.ui.CorrectionActions
@@ -48,6 +52,8 @@ import dev.hamstercage.ui.CalendarActions
 import dev.hamstercage.ui.PrivacyActions
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,12 +64,19 @@ class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
     private var setupError by mutableStateOf<String?>(null)
     private var shareError by mutableStateOf<String?>(null)
+    private var shareNotice by mutableStateOf<String?>(null)
+    /** A reviewed draft staged in app-private cache while the system file picker is open. */
+    private var pendingSave: PendingDaySave? = null
+    private var saveInFlight = false
+    private val saveDocument = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")) { uri -> finishDaySave(uri) }
     private var fullResetRequested by mutableStateOf(false)
     private val foregroundRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshLocationSetup() }
     private val backgroundRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshLocationSetup() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingSave = PendingDaySave.restore(savedInstanceState)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
@@ -127,7 +140,8 @@ class MainActivity : ComponentActivity() {
                     privacy.resetAllAppData().also { if (it) fullResetRequested = true }
                 }),
                 appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown",
-                shareError = shareError,
+                shareError = shareError, shareNotice = shareNotice,
+                saveDayDiagnostics = { json, date, generation -> startDaySave(json, date, generation) },
                 shareDayDiagnostics = { json, date, generation ->
                     lifecycleScope.launch {
                         CaptureWriteGate.mutex.withLock {
@@ -138,6 +152,11 @@ class MainActivity : ComponentActivity() {
                     }
                 })
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pendingSave?.save(outState)
     }
 
     override fun onResume() {
@@ -169,6 +188,7 @@ class MainActivity : ComponentActivity() {
 
     private fun shareDayDiagnostics(json: String, date: LocalDate) {
         shareError = null
+        shareNotice = null
         var file: File? = null
         try {
             val created = DayShareFiles.create(cacheDir, date, json)
@@ -180,6 +200,108 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
             file?.delete()
             shareError = "Couldn't share this day, or the file was too large. No data was sent."
+        }
+    }
+
+    /**
+     * Stages the frozen, reviewed JSON before opening the picker so the bytes written are exactly
+     * the ones previewed, even after activity or process recreation. History deletion clears the
+     * staging directory under the same gate, so a late picker result cannot restore deleted data.
+     */
+    private fun startDaySave(json: String, date: LocalDate, generation: Long) {
+        if (pendingSave != null || saveInFlight) return
+        saveInFlight = true
+        shareError = null
+        shareNotice = null
+        lifecycleScope.launch {
+            try {
+                val staged = CaptureWriteGate.mutex.withLock {
+                    if (PrivacyResetStore.read(this@MainActivity) != PrivacyResetState.Idle(generation)) null
+                    else withContext(Dispatchers.IO) { DayShareFiles.create(cacheDir, date, json) }
+                }
+                if (staged == null) {
+                    shareError = "Attendance changed. Reopen the day before saving."
+                    return@launch
+                }
+                pendingSave = PendingDaySave(staged.absolutePath, generation)
+                try { saveDocument.launch(daySaveFileName(date)) }
+                catch (_: ActivityNotFoundException) {
+                    pendingSave = null
+                    staged.delete()
+                    shareError = "No app is available to save files. Nothing was saved."
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                shareError = "Couldn't prepare this day for saving, or it was too large. Nothing was saved."
+            } finally { saveInFlight = false }
+        }
+    }
+
+    private fun finishDaySave(uri: Uri?) {
+        val pending = pendingSave
+        pendingSave = null
+        if (pending == null) {
+            // The reviewed draft was lost; never fill a picked document with anything else.
+            if (uri != null) {
+                deleteCreatedDocument(uri)
+                shareError = "Couldn't save this day. Reopen it and try again."
+            }
+            return
+        }
+        val staged = File(pending.path)
+        if (uri == null) {
+            staged.delete()
+            shareNotice = "Save cancelled. Nothing was saved."
+            return
+        }
+        saveInFlight = true
+        lifecycleScope.launch {
+            try {
+                val outcome = withContext(NonCancellable + Dispatchers.IO) {
+                    CaptureWriteGate.mutex.withLock {
+                        val current = PrivacyResetStore.read(this@MainActivity) ==
+                            PrivacyResetState.Idle(pending.generation)
+                        val written = current && try {
+                            copyStagedDayData(staged) { contentResolver.openOutputStream(uri) }
+                            true
+                        } catch (_: Exception) { false }
+                        // Remove the empty or partial document the picker created for a failed save.
+                        if (!written) deleteCreatedDocument(uri)
+                        staged.delete()
+                        when { !current -> DaySaveOutcome.CHANGED; written -> DaySaveOutcome.SAVED
+                            else -> DaySaveOutcome.FAILED }
+                    }
+                }
+                when (outcome) {
+                    DaySaveOutcome.SAVED -> shareNotice =
+                        "Saved. This copy is outside Hamster Cage, so deleting history here won't remove it."
+                    DaySaveOutcome.FAILED -> shareError = "Couldn't save this day to that location. Try another location."
+                    DaySaveOutcome.CHANGED -> shareError = "Attendance changed while choosing a location. Reopen the day before saving."
+                }
+            } finally { saveInFlight = false }
+        }
+    }
+
+    private fun deleteCreatedDocument(uri: Uri) {
+        try { DocumentsContract.deleteDocument(contentResolver, uri) } catch (_: Exception) { }
+    }
+}
+
+private enum class DaySaveOutcome { SAVED, FAILED, CHANGED }
+
+/** The staged path and privacy generation needed to finish a save after recreation. */
+private data class PendingDaySave(val path: String, val generation: Long) {
+    fun save(outState: Bundle) {
+        outState.putString(PATH, path)
+        outState.putLong(GENERATION, generation)
+    }
+
+    companion object {
+        private const val PATH = "pendingDaySavePath"
+        private const val GENERATION = "pendingDaySaveGeneration"
+        fun restore(state: Bundle?): PendingDaySave? {
+            val path = state?.getString(PATH) ?: return null
+            return PendingDaySave(path, state.getLong(GENERATION))
         }
     }
 }
