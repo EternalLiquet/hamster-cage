@@ -132,6 +132,8 @@ class DayDiagnosticsRegistrationTest {
             listOf(attempt("a", "before", a, "2025-03-09T04:59:00Z"),
                 attempt("b", "before", b, "2025-03-09T04:59:30Z"))))
         assertEquals(2, report.registrationContextCount)
+        assertEquals(0, report.registrationCycleCount)
+        assertEquals(1, report.registrationCycleContextCount)
         assertEquals(day.minusDays(1), report.firstIncludedDay)
         assertTrue(report.json.contains("\"office\":\"office-1\""))
         assertTrue(report.json.contains("\"office\":\"office-2\""))
@@ -163,6 +165,18 @@ class DayDiagnosticsRegistrationTest {
         assertTrue(report.json.contains("2025-03-08T20:00:00Z"))
         assertFalse(report.json.contains("2025-02-28"))
         assertEquals(day.minusDays(1), report.firstIncludedDay)
+    }
+
+    @Test fun parentCycleBeforeLookbackKeepsItsAliasWithoutDisclosingOldTimes() {
+        val report = dayDiagnostics(snapshot(), day, now, null, CaptureStatus(), "test", RegistrationDiagnostics(
+            listOf(cycle("old-parent", "2025-02-20T12:00:00Z")),
+            listOf(attempt("recent-add", "old-parent", a, "2025-03-09T04:59:00Z"))))
+        assertEquals(day.minusDays(1), report.firstIncludedDay)
+        assertEquals(1, report.registrationCycleContextCount)
+        assertTrue(report.json.contains("\"startedAt\":\"beforeLookback\",\"completedAt\":\"beforeLookback\""))
+        assertTrue(report.json.contains("\"registration\":\"reg-1\",\"cycle\":\"cycle-1\""))
+        assertFalse(report.json.contains("2025-02-20"))
+        assertFalse(report.json.contains("old-parent"))
     }
 
     @Test fun fixMetadataIsExportedAsStoredAndLegacyRowsStayUnknown() {

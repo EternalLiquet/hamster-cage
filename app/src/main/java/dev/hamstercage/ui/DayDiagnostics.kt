@@ -16,7 +16,8 @@ import java.time.LocalDate
 /** A read-only, redacted copy of source facts for one policy-local day. Never persist this in Room. */
 data class DayDiagnostics(val json: String, val observationCount: Int, val contextCount: Int,
     val firstIncludedDay: LocalDate, val lastIncludedDay: LocalDate,
-    val registrationCount: Int = 0, val registrationContextCount: Int = 0)
+    val registrationCount: Int = 0, val registrationContextCount: Int = 0,
+    val registrationCycleCount: Int = 0, val registrationCycleContextCount: Int = 0)
 
 /** How far before the selected day an office's most recent registration attempt may be included. */
 internal const val REGISTRATION_LOOKBACK_DAYS = 7L
@@ -60,21 +61,28 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
     val includedFacts = detail.rawEvents.toSet() + previous.map { it.event } + next.map { it.event }
     val evidence = snapshot.eventEvidence.filter { it.event in includedFacts }
         .sortedWith(compareBy<dev.hamstercage.data.RecordedEvent> { it.event.at }.thenBy { it.event.id })
-    // Registration attempts: every attempt started inside the window, plus, for each related office,
-    // its most recent attempt in the bounded lookback before the window. Offices are considered
-    // separately because each is registered by its own call; one global "last" could hide another.
+    // Include the latest preceding attempt per office even when there were no callbacks.
+    // Intervening cycles can invalidate an add without creating another attempt (REMOVE or
+    // failure during removal), so preserve that bounded lifecycle context as well.
     val attemptsInWindow = registrations?.attempts.orEmpty().filter { it.startedAt >= start && it.startedAt < end }
     val dayOfficeIds = (evidence.map { it.event.officeId } + detail.manualSessions.map { it.officeId } +
         detail.sessions.map { it.officeId }).toSet()
     val lookbackStart = date.minusDays(REGISTRATION_LOOKBACK_DAYS).atStartOfDay(zone).toInstant()
-    val precedingAttempts = (dayOfficeIds + attemptsInWindow.map { it.officeId }).mapNotNull { officeId ->
-        registrations?.attempts.orEmpty().filter { it.officeId == officeId && it.startedAt >= lookbackStart &&
-            it.startedAt < start }.maxWithOrNull(compareBy<RegistrationAttempt> { it.startedAt }.thenBy { it.id })
-    }
+    val precedingAttempts = registrations?.attempts.orEmpty()
+        .filter { it.startedAt >= lookbackStart && it.startedAt < start }
+        .groupBy { it.officeId }.values.mapNotNull { attempts ->
+            attempts.maxWithOrNull(compareBy<RegistrationAttempt> { it.startedAt }.thenBy { it.id })
+        }
     val includedAttempts = (attemptsInWindow + precedingAttempts).distinctBy { it.id }
         .sortedWith(compareBy<RegistrationAttempt> { it.startedAt }.thenBy { it.id })
     val cycleById = registrations?.cycles.orEmpty().associateBy { it.id }
-    val includedCycles = (registrations?.cycles.orEmpty().filter { it.startedAt >= start && it.startedAt < end } +
+    val latestPrecedingCycle = registrations?.cycles.orEmpty()
+        .filter { it.startedAt >= lookbackStart && it.startedAt < start }
+        .maxWithOrNull(compareBy<RegistrationCycle> { it.startedAt }.thenBy { it.id })
+    val cycleContextStart = (precedingAttempts.map { cycleById[it.cycleId]?.startedAt ?: it.startedAt } +
+        listOfNotNull(latestPrecedingCycle?.startedAt)).minOrNull()?.coerceAtLeast(lookbackStart) ?: start
+    val includedCycles = (registrations?.cycles.orEmpty().filter {
+        it.startedAt >= cycleContextStart && it.startedAt < end } +
         includedAttempts.mapNotNull { cycleById[it.cycleId] }).distinctBy { it.id }
         .sortedWith(compareBy<RegistrationCycle> { it.startedAt }.thenBy { it.id })
     val officeIds = (dayOfficeIds + includedAttempts.map { it.officeId }).distinct().sorted()
@@ -110,7 +118,8 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         detail.corrections.flatMap { listOfNotNull(it.start, it.end, it.createdAt) }.map(::localDay) +
         detail.sessions.flatMap { listOfNotNull(it.start, it.end) }.map(::localDay) +
         includedAttempts.flatMap { listOfNotNull(it.startedAt, it.completedAt) }.map(::localDay) +
-        includedCycles.flatMap { listOfNotNull(it.startedAt, it.completedAt) }.map(::localDay) + date
+        includedCycles.flatMap { listOfNotNull(it.startedAt, it.completedAt) }
+            .filter { it >= lookbackStart }.map(::localDay) + date
     val firstIncludedDay = includedDays.min()
     val lastIncludedDay = includedDays.max()
     // Capture status describes the device now, not the selected day. A time outside the span
@@ -132,6 +141,11 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
     }
     val checkInSpan = capture.lastVerifiedAt?.let { it >= spanStart && it < spanEnd } == true
     val policy = input.policy
+    fun cycleTime(at: Instant?): String? = when {
+        at == null -> null
+        at < lookbackStart -> "beforeLookback"
+        else -> at.toString()
+    }
     val payload = linkedMapOf<String, Any?>(
         "schemaVersion" to 2,
         "purpose" to "Private, user-initiated attendance engine diagnosis; not a backup",
@@ -140,7 +154,7 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "policyZone" to zone.id,
         "windowStartInclusive" to start.toString(),
         "windowEndExclusive" to end.toString(),
-        "contextRule" to "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day; for the latest EXIT in the final two hours, the earliest same-office return and earliest cross-office presence within two hours after local midnight. Registration attempts started on the selected day, their cycles, and for each related office its latest attempt within $REGISTRATION_LOOKBACK_DAYS days before the selected day. Capture times outside the evidence date span are written as beforeSpan or afterSpan.",
+        "contextRule" to "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day; for the latest EXIT in the final two hours, the earliest same-office return and earliest cross-office presence within two hours after local midnight. Registration attempts started on the selected day, their cycles, and for every office with retained attempts its latest attempt within $REGISTRATION_LOOKBACK_DAYS days before the selected day, including offices without callbacks. Includes subsequent cycles through the selected day and the latest preceding cycle within that lookback even if it has no attempts; parent cycle times before the lookback are coarsened. Capture times outside the evidence date span are written as beforeSpan or afterSpan.",
         "evaluatedAt" to now.toString(),
         "offices" to officeIds.map { id -> snapshot.offices.find { it.id == id }?.let { office ->
             linkedMapOf<String, Any?>("alias" to officeAlias[id], "radiusMeters" to office.radiusMeters,
@@ -176,6 +190,10 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "registrationDiagnostics" to registrations?.let { retained -> linkedMapOf<String, Any?>(
             "retentionDays" to RegistrationDiagnostics.RETENTION_DAYS,
             "precedingLookbackDays" to REGISTRATION_LOOKBACK_DAYS,
+            "attemptCount" to attemptsInWindow.size,
+            "attemptContextCount" to precedingAttempts.size,
+            "cycleCount" to includedCycles.count { it.startedAt >= start && it.startedAt < end },
+            "cycleContextCount" to includedCycles.count { it.startedAt < start || it.startedAt >= end },
             // Absence of attempts before this point does not mean none happened.
             "oldestRetainedAttemptAt" to withinSpan(retained.attempts.minOfOrNull { it.startedAt }),
             "fixMetadataSources" to listOf("PLAY_SERVICES_GEOFENCE"),
@@ -183,7 +201,7 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "registrationCycles" to includedCycles.map { cycle -> linkedMapOf<String, Any?>(
             "cycle" to cycleAlias[cycle.id], "kind" to cycle.kind.name, "reason" to cycle.reason.name,
             "generation" to cycle.generation, "plannedCount" to cycle.plannedCount,
-            "startedAt" to cycle.startedAt.toString(), "completedAt" to cycle.completedAt?.toString(),
+            "startedAt" to cycleTime(cycle.startedAt), "completedAt" to cycleTime(cycle.completedAt),
             "outcome" to cycle.outcome.name, "removal" to cycle.removal?.name, "cleanup" to cycle.cleanup?.name,
             "errorCode" to sanitizedErrorCode(cycle.errorCode),
             "context" to (cycle.startedAt < start || cycle.startedAt >= end)) },
@@ -219,7 +237,9 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
     )
     return DayDiagnostics(jsonValue(payload), evidence.count { it.event.at >= start && it.event.at < end },
         evidence.count { it.event.at < start || it.event.at >= end }, firstIncludedDay, lastIncludedDay,
-        attemptsInWindow.size, includedAttempts.size - attemptsInWindow.size)
+        attemptsInWindow.size, includedAttempts.size - attemptsInWindow.size,
+        includedCycles.count { it.startedAt >= start && it.startedAt < end },
+        includedCycles.count { it.startedAt < start || it.startedAt >= end })
 }
 
 private fun jsonValue(value: Any?): String = when (value) {

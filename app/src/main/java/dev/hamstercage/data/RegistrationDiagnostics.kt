@@ -98,7 +98,9 @@ internal class RoomRegistrationLog(private val database: HamsterDatabase) : Regi
     override suspend fun cycleStarted(cycle: RegistrationCycle) { database.withTransaction {
         val cutoff = cycle.startedAt.minusSeconds(RegistrationDiagnostics.RETENTION_DAYS * 24 * 60 * 60).toEpochMilli()
         dao.pruneCycles(cutoff, RegistrationDiagnostics.MAX_CYCLES - 1)
-        dao.pruneAttempts(cutoff, RegistrationDiagnostics.MAX_ATTEMPTS - cycle.plannedCount.coerceAtLeast(0))
+        dao.pruneCyclesForAttempts(cutoff, RegistrationDiagnostics.MAX_ATTEMPTS -
+            cycle.plannedCount.coerceIn(0, RegistrationDiagnostics.MAX_ATTEMPTS))
+        dao.pruneOrphanAttempts()
         dao.insertCycle(RegistrationCycleRecord(cycle.id, cycle.kind.name, cycle.reason.name, cycle.generation,
             cycle.plannedCount, cycle.startedAt.toEpochMilli(), cycle.completedAt?.toEpochMilli(),
             cycle.outcome.name, cycle.removal?.name, cycle.cleanup?.name, cycle.errorCode))
@@ -116,6 +118,10 @@ internal class RoomRegistrationLog(private val database: HamsterDatabase) : Regi
             attempt.cycleId, attempt.officeId, attempt.officeVersion, attempt.initialTrigger,
             attempt.startedAt.toEpochMilli(), attempt.completedAt?.toEpochMilli(), attempt.status.name,
             attempt.errorCode))
+        // Enforce the cap even if a caller makes more attempts than it originally planned.
+        val cutoff = attempt.startedAt.minusSeconds(RegistrationDiagnostics.RETENTION_DAYS * 24 * 60 * 60).toEpochMilli()
+        dao.pruneCyclesForAttempts(cutoff, RegistrationDiagnostics.MAX_ATTEMPTS)
+        dao.pruneOrphanAttempts()
     } }
 
     override suspend fun attemptFinished(id: String, completedAt: Instant, status: RegistrationOutcome, errorCode: String?) {

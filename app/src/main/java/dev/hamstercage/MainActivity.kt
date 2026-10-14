@@ -92,7 +92,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val visible = remember(repository, privacy) {
                 privacyVisibleStorage(privacy.state, freshStorage = { repository.state },
-                    freshCoverage = { CoverageStore.state(this).map { it } })
+                    freshCoverage = { CoverageStore.state(this).map { it } },
+                    freshDiagnostics = { repository.registrationDiagnostics })
             }
             val presentation by visible.collectAsState(
                 initial = PrivacyStorageState(PrivacyResetState.Unavailable, StorageState.Unavailable))
@@ -100,8 +101,8 @@ class MainActivity : ComponentActivity() {
             val privacyState = presentation.reset
             val coverage = presentation.coverage
             val captureStatus by CaptureHealth.state.collectAsState()
-            // Read for export only. A history deletion empties these tables with attendance history.
-            val registrationDiagnostics by repository.registrationDiagnostics.collectAsState(initial = null)
+            // Diagnostics share the reset generation and wait for a fresh post-reset query.
+            val registrationDiagnostics = presentation.registrationDiagnostics
             val editingGeneration = (privacyState as? PrivacyResetState.Idle)?.generation
             suspend fun historyWrite(action: suspend () -> Unit) = CaptureWriteGate.mutex.withLock {
                 check(editingGeneration != null &&

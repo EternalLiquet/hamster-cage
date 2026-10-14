@@ -114,9 +114,14 @@ internal interface HamsterDao {
     @Query("""DELETE FROM registration_cycles WHERE startedAt < :cutoff OR id NOT IN
         (SELECT id FROM registration_cycles ORDER BY startedAt DESC, id DESC LIMIT :keep)""")
     suspend fun pruneCycles(cutoff: Long, keep: Int)
-    @Query("""DELETE FROM registration_attempts WHERE startedAt < :cutoff OR id NOT IN
-        (SELECT id FROM registration_attempts ORDER BY startedAt DESC, id DESC LIMIT :keep)""")
-    suspend fun pruneAttempts(cutoff: Long, keep: Int)
+    // Evict a complete cycle if any of its attempts falls outside retention. Keeping only a
+    // subset would lose the evidence that a later failure/cleanup invalidated an earlier add.
+    @Query("""DELETE FROM registration_cycles WHERE id IN
+        (SELECT cycleId FROM registration_attempts WHERE startedAt < :cutoff OR id NOT IN
+        (SELECT id FROM registration_attempts ORDER BY startedAt DESC, id DESC LIMIT :keep))""")
+    suspend fun pruneCyclesForAttempts(cutoff: Long, keep: Int)
+    @Query("DELETE FROM registration_attempts WHERE cycleId NOT IN (SELECT id FROM registration_cycles)")
+    suspend fun pruneOrphanAttempts()
     // Privacy reset only, in the same transaction as attendance history.
     @Query("DELETE FROM registration_attempts") suspend fun deleteAllRegistrationAttempts()
     @Query("DELETE FROM registration_cycles") suspend fun deleteAllRegistrationCycles()
