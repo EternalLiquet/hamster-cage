@@ -43,7 +43,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             sharePreview?.let { prepared ->
                 AlertDialog(onDismissRequest = { sharePreview = null },
                     title = { Text("Share $date?") },
-                    text = { Text("${prepared.observationCount} observations, ${prepared.contextCount} nearby or linked context. Evidence dates span ${prepared.firstIncludedDay} through ${prepared.lastIncludedDay}; includes observation and edit times with engine classifications, manual intervals, office settings, the day's policy and result, app version, capture status within that span, and when this file was prepared. Office names, coordinates and notes are left out. " +
+                    text = { Text("${prepared.observationCount} observations, ${prepared.contextCount} nearby or linked context, ${prepared.registrationCount} geofence registration attempts and ${prepared.registrationContextCount} earlier registration context. Evidence dates span ${prepared.firstIncludedDay} through ${prepared.lastIncludedDay}; includes observation, registration and edit times with engine classifications, location-fix age and provider, manual intervals, office settings, the day's policy and result, app version, capture status within that span, and when this file was prepared. Office names, coordinates, notes and error messages are left out. " +
                         if (saveDay == null) "Choose where to send it next."
                         else "Share it to an app, or save a copy to a location you choose. A saved copy is outside Hamster Cage: deleting history here won't remove it, and a location that syncs will upload it.") },
                     confirmButton = {

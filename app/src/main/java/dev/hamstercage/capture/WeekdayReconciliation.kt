@@ -8,6 +8,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.hamstercage.data.HamsterRepository
+import dev.hamstercage.data.RegistrationReason
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.StorageState
@@ -122,7 +123,7 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
             return Result.success()
         val setup = LocationPermissions.read(context)
         if (!setup.prerequisitesReady) { MonitoringStore.record(context, "Location permission or service unavailable"); return Result.success() }
-        try { CaptureController.get(context).refreshIfNeededForProcess() }
+        try { CaptureController.get(context).refreshIfNeededForProcess(RegistrationReason.PERIODIC_VERIFICATION) }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Office recovery unavailable"); return Result.success() }
         val coverage = CoverageStore.state(context).first()

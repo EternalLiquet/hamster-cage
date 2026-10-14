@@ -12,6 +12,7 @@ import dev.hamstercage.capture.RegistrationStatus
 import dev.hamstercage.capture.WeekdayReconciliation
 import dev.hamstercage.capture.MonitoringStore
 import dev.hamstercage.data.HamsterRepository
+import dev.hamstercage.data.RegistrationReason
 import dev.hamstercage.ui.DayShareFiles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -54,7 +55,7 @@ class PrivacyController private constructor(context: Context) {
     private suspend fun finishHistoryDeletion(beginIfNeeded: Boolean) {
         val completed = deletion.run(beginIfNeeded)
         if (completed) {
-            try { CaptureController.get(application).refreshFromSystem() }
+            try { CaptureController.get(application).refreshFromSystem(reason = RegistrationReason.HISTORY_DELETION) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { CaptureHealth.registration(RegistrationStatus.FAILED) }
         }

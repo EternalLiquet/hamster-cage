@@ -98,6 +98,8 @@ class MainActivity : ComponentActivity() {
             val privacyState = presentation.reset
             val coverage = presentation.coverage
             val captureStatus by CaptureHealth.state.collectAsState()
+            // Read for export only. A history deletion empties these tables with attendance history.
+            val registrationDiagnostics by repository.registrationDiagnostics.collectAsState(initial = null)
             val editingGeneration = (privacyState as? PrivacyResetState.Idle)?.generation
             suspend fun historyWrite(action: suspend () -> Unit) = CaptureWriteGate.mutex.withLock {
                 check(editingGeneration != null &&
@@ -142,6 +144,7 @@ class MainActivity : ComponentActivity() {
                 appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown",
                 shareError = shareError, shareNotice = shareNotice,
                 saveDayDiagnostics = { json, date, generation -> startDaySave(json, date, generation) },
+                registrationDiagnostics = registrationDiagnostics,
                 shareDayDiagnostics = { json, date, generation ->
                     lifecycleScope.launch {
                         CaptureWriteGate.mutex.withLock {

@@ -32,7 +32,16 @@ data class RecordedEvent(
     val event: RawEvent, val receivedAt: Instant,
     val observedLocationAt: Instant? = null, val source: String = "PLAY_SERVICES_GEOFENCE",
     val accuracyMeters: Float? = null,
+    /** Diagnostic fix metadata, first seen at receipt. Null means unknown, never zero or false. */
+    val fix: FixMetadata? = null,
 )
+
+/**
+ * Location-fix metadata captured once, at broadcast receipt. [ageMs] compares the elapsed-realtime
+ * clock at receipt with the fix's elapsed-realtime timestamp; it is null when either is missing or
+ * inconsistent. [mock] is the platform flag for the delivered fix (false means not flagged).
+ */
+data class FixMetadata(val ageMs: Long?, val provider: String?, val mock: Boolean?)
 
 /** Source facts only. Every caller supplies an explicit evaluation time for fresh derivation. */
 data class AppSnapshot(
@@ -143,17 +152,27 @@ class HamsterRepository internal constructor(
             require(observationSourceAccepts(evidence.source, event.transition)) { "Observation source and type disagree." }
             require(evidence.accuracyMeters == null || evidence.accuracyMeters.isFinite() &&
                 evidence.accuracyMeters in 0f..10000f) { "Invalid fix accuracy." }
+            val fixAge = evidence.fix?.ageMs
+            val fixProvider = evidence.fix?.provider
+            require(fixAge == null || fixAge >= 0) { "Invalid fix age." }
+            require(fixProvider == null || fixProvider in fixProviders) { "Invalid fix provider." }
             val record = EventRecord(event.id, event.officeId, event.transition.name, event.at.persistedMillis(),
                 evidence.receivedAt.persistedMillis(), evidence.observedLocationAt?.persistedMillis(), evidence.source,
-                accuracyMeters = evidence.accuracyMeters)
+                accuracyMeters = evidence.accuracyMeters, fixAgeMs = evidence.fix?.ageMs,
+                locationProvider = evidence.fix?.provider, locationMock = evidence.fix?.mock)
             val previous = dao.event(event.id)
             // A second delivery of the same observation cannot rewrite the first receipt time.
             // The delivery itself may arrive later, while the observed fact remains identical.
             // The hashed geofence ID identifies office/type/observed time. A replay may
-            // report a different accuracy; retain the first immutable evidence metadata.
+            // report a different accuracy or fix age; retain the first immutable evidence metadata.
+            val replayable = record.source == "PLAY_SERVICES_GEOFENCE"
             require(previous == null || previous.copy(receivedAt = record.receivedAt,
-                accuracyMeters = if (record.source == "PLAY_SERVICES_GEOFENCE") record.accuracyMeters
-                    else previous.accuracyMeters) == record) { "Conflicting event ID." }
+                accuracyMeters = if (replayable) record.accuracyMeters else previous.accuracyMeters,
+                fixAgeMs = if (replayable) record.fixAgeMs else previous.fixAgeMs,
+                locationProvider = if (replayable) record.locationProvider else previous.locationProvider,
+                locationMock = if (replayable) record.locationMock else previous.locationMock) == record) {
+                "Conflicting event ID."
+            }
             if (previous == null) {
                 // Delivery may lag behind a user disabling the office. Keep the observation;
                 // current policy decides whether it contributes credit during derivation.
@@ -163,6 +182,19 @@ class HamsterRepository internal constructor(
             }
         }
         inserted
+    }
+
+    /** Registration diagnostics are read on demand for export; they never enter [AppSnapshot]. */
+    val registrationLog: RegistrationLog = RoomRegistrationLog(database)
+    val registrationDiagnostics: Flow<RegistrationDiagnostics?> = dao.registrationChanges(
+        SimpleSQLiteQuery("SELECT COUNT(*) FROM registration_attempts")).map<Int, RegistrationDiagnostics?> {
+        database.withTransaction {
+            RegistrationDiagnostics(dao.registrationCycles().map { it.toEvidence() },
+                dao.registrationAttempts().map { it.toEvidence() })
+        }
+    }.catch { failure ->
+        if (failure is CancellationException) throw failure
+        emit(null)
     }
 
     suspend fun appendCorrection(correction: Correction) = database.withTransaction {
@@ -214,6 +246,8 @@ class HamsterRepository internal constructor(
         dao.deleteAllManualSessions()
         dao.deleteAllExclusions()
         dao.deleteAllLabels()
+        dao.deleteAllRegistrationAttempts()
+        dao.deleteAllRegistrationCycles()
         beforeCommit()
     } }
 
@@ -250,6 +284,9 @@ class HamsterRepository internal constructor(
     }
 }
 
+/** Provider names kept as fix metadata; any other platform value is stored as "other". */
+internal val fixProviders = setOf("fused", "gps", "network", "passive", "other")
+
 private fun validId(id: String) { require(id.isNotBlank() && id.length <= 200) { "Invalid source ID." } }
 private fun validNote(note: String) { require(note.length <= 2000) { "Note is too long." } }
 /** Schema 1 stores epoch milliseconds; reject extra precision rather than silently changing a fact. */
@@ -258,8 +295,10 @@ private fun OfficeRecord.toDomain() = Office(id, name, latitude, longitude, radi
 private fun EventRecord.toEvidence(): RecordedEvent {
     require(payloadVersion == 1) { "Unsupported event payload." }
     validId(id); validId(officeId)
+    val fix = if (fixAgeMs == null && locationProvider == null && locationMock == null) null
+        else FixMetadata(fixAgeMs?.takeIf { it >= 0 }, locationProvider?.takeIf { it in fixProviders }, locationMock)
     return RecordedEvent(RawEvent(id, officeId, Transition.valueOf(transition), Instant.ofEpochMilli(at)),
-        Instant.ofEpochMilli(receivedAt), observedLocationAt?.let(Instant::ofEpochMilli), source, accuracyMeters)
+        Instant.ofEpochMilli(receivedAt), observedLocationAt?.let(Instant::ofEpochMilli), source, accuracyMeters, fix)
 }
 private fun CorrectionRecord.toDomain() = Correction(id, sessionId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note, revertToOriginal, appendSequence)
 private fun ManualSessionRecord.toDomain() = ManualSession(id, officeId, Instant.ofEpochMilli(start), end?.let(Instant::ofEpochMilli), Instant.ofEpochMilli(createdAt), note)

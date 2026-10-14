@@ -1,5 +1,6 @@
 package dev.hamstercage.ui
 
+import dev.hamstercage.data.RegistrationDiagnostics
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -79,6 +80,7 @@ fun HamsterApp(
     appVersion: String = "unknown", shareError: String? = null, shareNotice: String? = null,
     shareDayDiagnostics: ((String, LocalDate, Long) -> Unit)? = null,
     saveDayDiagnostics: ((String, LocalDate, Long) -> Unit)? = null,
+    registrationDiagnostics: RegistrationDiagnostics? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     var detailDate by rememberSaveable(privacyState.generation) { mutableStateOf<String?>(null) }
@@ -196,7 +198,7 @@ fun HamsterApp(
                                     shareError = shareError, shareNotice = shareNotice,
                                     prepareDayShare = if (shareDayDiagnostics == null) null else {
                                         { dayDiagnostics(snapshot, LocalDate.parse(detailDate), now, coverage,
-                                            captureStatus, appVersion) }
+                                            captureStatus, appVersion, registrationDiagnostics) }
                                     },
                                     shareDay = if (shareDayDiagnostics == null) null else { prepared ->
                                         editingGeneration?.let { generation ->
