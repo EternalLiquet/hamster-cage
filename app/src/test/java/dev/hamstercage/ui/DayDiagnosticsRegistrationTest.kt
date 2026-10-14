@@ -125,6 +125,46 @@ class DayDiagnosticsRegistrationTest {
         assertTrue(json.contains("\"cycle\":\"cycle-1\",\"kind\":\"REMOVE\",\"reason\":\"FOREGROUND_CHECK\""))
     }
 
+
+    @Test fun precedingRegistrationOnlyOfficesAreIncludedEvenWithoutAnyCallbacks() {
+        val report = dayDiagnostics(snapshot(), day, now, null, CaptureStatus(), "test", RegistrationDiagnostics(
+            listOf(cycle("before", "2025-03-09T04:58:00Z")),
+            listOf(attempt("a", "before", a, "2025-03-09T04:59:00Z"),
+                attempt("b", "before", b, "2025-03-09T04:59:30Z"))))
+        assertEquals(2, report.registrationContextCount)
+        assertEquals(day.minusDays(1), report.firstIncludedDay)
+        assertTrue(report.json.contains("\"office\":\"office-1\""))
+        assertTrue(report.json.contains("\"office\":\"office-2\""))
+        assertFalse(report.json.contains(a.id))
+        assertFalse(report.json.contains(b.id))
+    }
+
+    @Test fun predecessorContextIncludesInterveningRemovalAndFailedSyncWithoutAttempts() {
+        val registrations = RegistrationDiagnostics(listOf(
+            cycle("before-bound", "2025-02-28T20:00:00Z", RegistrationKind.REMOVE),
+            cycle("add", "2025-03-07T10:00:00Z"),
+            cycle("remove", "2025-03-08T10:00:00Z", RegistrationKind.REMOVE),
+            cycle("failed", "2025-03-09T04:00:00Z", outcome = RegistrationOutcome.FAILED)),
+            listOf(attempt("add-a", "add", a, "2025-03-07T10:00:01Z")))
+        val report = dayDiagnostics(snapshot(fact("arrival", a, Transition.ENTER, "2025-03-09T14:00:00Z")),
+            day, now, null, CaptureStatus(), "test", registrations)
+        assertTrue(report.json.contains("2025-03-08T10:00:00Z"))
+        assertTrue(report.json.contains("2025-03-09T04:00:00Z"))
+        assertFalse(report.json.contains("2025-02-28"))
+        assertEquals(day.minusDays(2), report.firstIncludedDay)
+        assertEquals(3, "\"cycle\":\"cycle-".toRegex().findAll(
+            report.json.substringAfter("\"registrationCycles\":[").substringBefore("],\"registrations\"")).count())
+    }
+
+    @Test fun latestCycleWithoutAttemptsExplainsNoRegistrationInTheLookback() {
+        val report = dayDiagnostics(snapshot(), day, now, null, CaptureStatus(), "test", RegistrationDiagnostics(
+            listOf(cycle("too-old", "2025-02-28T20:00:00Z", RegistrationKind.REMOVE),
+                cycle("remove", "2025-03-08T20:00:00Z", RegistrationKind.REMOVE)), emptyList()))
+        assertTrue(report.json.contains("2025-03-08T20:00:00Z"))
+        assertFalse(report.json.contains("2025-02-28"))
+        assertEquals(day.minusDays(1), report.firstIncludedDay)
+    }
+
     @Test fun fixMetadataIsExportedAsStoredAndLegacyRowsStayUnknown() {
         val data = snapshot(
             fact("legacy", a, Transition.ENTER, "2025-03-09T14:00:00Z"),

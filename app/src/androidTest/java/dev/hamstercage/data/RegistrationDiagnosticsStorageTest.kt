@@ -131,6 +131,44 @@ class RegistrationDiagnosticsStorageTest {
         assertEquals(listOf("recent-x"), database.dao().registrationAttempts().map { it.id })
     }
 
+
+    @Test fun cycleCountRetentionCannotLeaveOrphanAttempts() = withRepository(
+        "registration-cycle-limit-${UUID.randomUUID()}") { database, repository ->
+        val dao = database.dao()
+        val oldest = fixedNow.minusSeconds(RegistrationDiagnostics.MAX_CYCLES.toLong())
+        repository.registrationLog.cycleStarted(cycle("oldest", oldest))
+        repository.registrationLog.attemptStarted(attempt("oldest-add", "oldest", oldest.plusSeconds(1)))
+        repeat(RegistrationDiagnostics.MAX_CYCLES - 1) { index ->
+            val at = oldest.plusSeconds(index + 1L)
+            dao.insertCycle(RegistrationCycleRecord("remove-$index", "REMOVE", "PROCESS_START", 0, 0,
+                at.toEpochMilli(), null, "PENDING", null, null, null))
+        }
+        repository.registrationLog.cycleStarted(cycle("now", fixedNow))
+        val cycleIds = dao.registrationCycles().map { it.id }.toSet()
+        assertTrue(dao.registrationAttempts().all { it.cycleId in cycleIds })
+        assertTrue(dao.registrationAttempts().isEmpty())
+    }
+
+    @Test fun attemptCountRetentionRemovesWholeCyclesIncludingTheirOtherAttempts() = withRepository(
+        "registration-attempt-limit-${UUID.randomUUID()}") { database, repository ->
+        val dao = database.dao()
+        val at = fixedNow.minusSeconds(60)
+        repository.registrationLog.cycleStarted(cycle("old", at, planned = 2))
+        repository.registrationLog.attemptStarted(attempt("old-a", "old", at))
+        repository.registrationLog.attemptStarted(attempt("old-b", "old", at.plusMillis(1)))
+        dao.insertCycle(RegistrationCycleRecord("bulk", "SYNC", "PROCESS_START", 0,
+            RegistrationDiagnostics.MAX_ATTEMPTS - 2, at.plusSeconds(1).toEpochMilli(), null,
+            "PENDING", null, null, null))
+        repeat(RegistrationDiagnostics.MAX_ATTEMPTS - 2) { index ->
+            dao.insertAttempt(RegistrationAttemptRecord("bulk-$index", "bulk", "office-a", 1, 0,
+                at.plusSeconds(2).toEpochMilli(), null, "PENDING", null))
+        }
+        repository.registrationLog.cycleStarted(cycle("now", fixedNow))
+        assertTrue(dao.registrationCycles().none { it.id == "old" })
+        assertTrue(dao.registrationAttempts().none { it.cycleId == "old" })
+        assertEquals(RegistrationDiagnostics.MAX_ATTEMPTS - 2, dao.registrationAttempts().size)
+    }
+
     @Test fun replayKeepsFirstSeenFixMetadataAndLegacyRowsStayUnknown() = withRepository(
         "registration-fix-${UUID.randomUUID()}") { database, repository ->
         repository.saveOffice(Office("office-a", "Synthetic office", 0.0, 0.0))
