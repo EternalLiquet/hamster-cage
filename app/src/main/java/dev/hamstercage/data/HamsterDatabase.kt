@@ -37,6 +37,12 @@ internal data class EventRecord(
     val at: Long, val receivedAt: Long, val observedLocationAt: Long?,
     val source: String, val payloadVersion: Int = 1,
     val accuracyMeters: Float? = null,
+    /** Age of the platform fix at receipt, from the elapsed-realtime clock. Null when unknown. */
+    val fixAgeMs: Long? = null,
+    /** Sanitized provider name of the platform fix, or null when no fix was delivered. */
+    val locationProvider: String? = null,
+    /** Platform mock flag of the delivered fix; null when no fix was delivered. */
+    val locationMock: Boolean? = null,
 )
 
 @Entity(tableName = "corrections", indices = [Index("sessionId")])
@@ -88,10 +94,42 @@ internal interface HamsterDao {
     @Query("DELETE FROM manual_sessions") suspend fun deleteAllManualSessions()
     @Query("DELETE FROM excluded_dates") suspend fun deleteAllExclusions()
     @Query("DELETE FROM day_labels") suspend fun deleteAllLabels()
+
+    @RawQuery(observedEntities = [RegistrationCycleRecord::class, RegistrationAttemptRecord::class])
+    fun registrationChanges(query: SupportSQLiteQuery): Flow<Int>
+    @Query("SELECT * FROM registration_cycles ORDER BY startedAt, id") suspend fun registrationCycles(): List<RegistrationCycleRecord>
+    @Query("SELECT * FROM registration_attempts ORDER BY startedAt, id") suspend fun registrationAttempts(): List<RegistrationAttemptRecord>
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCycle(record: RegistrationCycleRecord)
+    @Query("SELECT EXISTS(SELECT 1 FROM registration_cycles WHERE id = :id)") suspend fun cycleExists(id: String): Boolean
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertAttempt(record: RegistrationAttemptRecord)
+    @Query("""UPDATE registration_cycles SET completedAt = :completedAt, outcome = :outcome, removal = :removal,
+        cleanup = :cleanup, errorCode = :errorCode WHERE id = :id AND outcome = 'PENDING'""")
+    suspend fun finishCycle(id: String, completedAt: Long, outcome: String, removal: String?, cleanup: String?, errorCode: String?)
+    @Query("UPDATE registration_attempts SET completedAt = :completedAt, status = :status, errorCode = :errorCode WHERE id = :id AND status = 'PENDING'")
+    suspend fun finishAttempt(id: String, completedAt: Long, status: String, errorCode: String?)
+    @Query("UPDATE registration_attempts SET status = :interrupted WHERE status = 'PENDING'")
+    suspend fun interruptPendingAttempts(interrupted: String)
+    @Query("UPDATE registration_cycles SET outcome = :interrupted WHERE outcome = 'PENDING'")
+    suspend fun interruptPendingCycles(interrupted: String)
+    @Query("""DELETE FROM registration_cycles WHERE startedAt < :cutoff OR id NOT IN
+        (SELECT id FROM registration_cycles ORDER BY startedAt DESC, id DESC LIMIT :keep)""")
+    suspend fun pruneCycles(cutoff: Long, keep: Int)
+    // Evict a complete cycle if any of its attempts falls outside retention. Keeping only a
+    // subset would lose the evidence that a later failure/cleanup invalidated an earlier add.
+    @Query("""DELETE FROM registration_cycles WHERE id IN
+        (SELECT cycleId FROM registration_attempts WHERE startedAt < :cutoff OR id NOT IN
+        (SELECT id FROM registration_attempts ORDER BY startedAt DESC, id DESC LIMIT :keep))""")
+    suspend fun pruneCyclesForAttempts(cutoff: Long, keep: Int)
+    @Query("DELETE FROM registration_attempts WHERE cycleId NOT IN (SELECT id FROM registration_cycles)")
+    suspend fun pruneOrphanAttempts()
+    // Privacy reset only, in the same transaction as attendance history.
+    @Query("DELETE FROM registration_attempts") suspend fun deleteAllRegistrationAttempts()
+    @Query("DELETE FROM registration_cycles") suspend fun deleteAllRegistrationCycles()
 }
 
 @Database(entities = [OfficeRecord::class, EventRecord::class, CorrectionRecord::class,
-    ManualSessionRecord::class, ExclusionRecord::class, DayLabelRecord::class], version = 3, exportSchema = true)
+    ManualSessionRecord::class, ExclusionRecord::class, DayLabelRecord::class,
+    RegistrationCycleRecord::class, RegistrationAttemptRecord::class], version = 4, exportSchema = true)
 internal abstract class HamsterDatabase : RoomDatabase() {
     abstract fun dao(): HamsterDao
     companion object {
@@ -106,10 +144,24 @@ internal abstract class HamsterDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE raw_events ADD COLUMN accuracyMeters REAL")
             }
         }
+        /** Additive only: existing facts and correction history are untouched; new fix fields stay NULL. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE raw_events ADD COLUMN fixAgeMs INTEGER")
+                db.execSQL("ALTER TABLE raw_events ADD COLUMN locationProvider TEXT")
+                db.execSQL("ALTER TABLE raw_events ADD COLUMN locationMock INTEGER")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `registration_cycles` (`id` TEXT NOT NULL, `kind` TEXT NOT NULL, `reason` TEXT NOT NULL, `generation` INTEGER NOT NULL, `plannedCount` INTEGER NOT NULL, `startedAt` INTEGER NOT NULL, `completedAt` INTEGER, `outcome` TEXT NOT NULL, `removal` TEXT, `cleanup` TEXT, `errorCode` TEXT, PRIMARY KEY(`id`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_registration_cycles_startedAt` ON `registration_cycles` (`startedAt`)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `registration_attempts` (`id` TEXT NOT NULL, `cycleId` TEXT NOT NULL, `officeId` TEXT NOT NULL, `officeVersion` INTEGER, `initialTrigger` INTEGER NOT NULL, `startedAt` INTEGER NOT NULL, `completedAt` INTEGER, `status` TEXT NOT NULL, `errorCode` TEXT, PRIMARY KEY(`id`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_registration_attempts_cycleId` ON `registration_attempts` (`cycleId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_registration_attempts_startedAt` ON `registration_attempts` (`startedAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_registration_attempts_officeId` ON `registration_attempts` (`officeId`)")
+            }
+        }
         fun open(context: Context, name: String = "hamster-cage.db"): HamsterDatabase =
             Room.databaseBuilder(context.applicationContext, HamsterDatabase::class.java, name)
                 .openHelperFactory(PreservingOpenHelperFactory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
         // No destructive fallback. Every future version requires a reviewed, tested Migration.
     }

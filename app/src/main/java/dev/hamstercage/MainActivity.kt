@@ -92,7 +92,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val visible = remember(repository, privacy) {
                 privacyVisibleStorage(privacy.state, freshStorage = { repository.state },
-                    freshCoverage = { CoverageStore.state(this).map { it } })
+                    freshCoverage = { CoverageStore.state(this).map { it } },
+                    freshDiagnostics = { repository.registrationDiagnostics })
             }
             val presentation by visible.collectAsState(
                 initial = PrivacyStorageState(PrivacyResetState.Unavailable, StorageState.Unavailable))
@@ -100,6 +101,8 @@ class MainActivity : ComponentActivity() {
             val privacyState = presentation.reset
             val coverage = presentation.coverage
             val captureStatus by CaptureHealth.state.collectAsState()
+            // Diagnostics share the reset generation and wait for a fresh post-reset query.
+            val registrationDiagnostics = presentation.registrationDiagnostics
             val editingGeneration = (privacyState as? PrivacyResetState.Idle)?.generation
             suspend fun historyWrite(action: suspend () -> Unit) = CaptureWriteGate.mutex.withLock {
                 check(editingGeneration != null &&
@@ -146,6 +149,7 @@ class MainActivity : ComponentActivity() {
                 saveDayDiagnostics = { json, date, generation ->
                     daySaveModel.startDaySave(applicationContext, json, date, generation)
                 },
+                registrationDiagnostics = registrationDiagnostics,
                 shareDayDiagnostics = { json, date, generation ->
                     lifecycleScope.launch {
                         CaptureWriteGate.mutex.withLock {

@@ -3,6 +3,7 @@ package dev.hamstercage.capture
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import com.google.android.gms.location.GeofencingEvent
 import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.StorageState
@@ -26,6 +27,9 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
         val pending = goAsync()
         val application = context.applicationContext
         val receivedAt = Instant.ofEpochMilli(System.currentTimeMillis())
+        // Sampled before any coroutine scheduling or capture-gate wait, so fix age reflects
+        // delivery to this receiver rather than local processing delay.
+        val receiptElapsedNanos = SystemClock.elapsedRealtimeNanos()
         worker.launch {
             var captureCommitted = false
             try {
@@ -39,7 +43,8 @@ class GeofenceTransitionReceiver : BroadcastReceiver() {
                         // Old queued callbacks cannot recreate facts after deletion, including
                         // deliveries without a trustworthy location-fix timestamp.
                         if (intent?.action != GeofenceRegistrar.action(reset.generation)) return@withCaptureGateTimeout
-                        val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt)
+                        val observations = GeofenceObservation.parse(GeofencingEvent.fromIntent(intent), receivedAt,
+                            receiptElapsedNanos)
                         val repository = HamsterRepository.get(application)
                         val inserted = repository.appendRawEvents(observations)
                         val coverage = CoverageStore.change(application) { ledger ->

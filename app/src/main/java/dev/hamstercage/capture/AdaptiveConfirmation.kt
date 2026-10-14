@@ -9,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.hamstercage.data.HamsterRepository
+import dev.hamstercage.data.RegistrationReason
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.StorageState
@@ -261,7 +262,7 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             !MonitoringStore.read(context).enabled) return Result.success()
         val setup = LocationPermissions.read(context)
         if (setup.prerequisitesReady) {
-            try { CaptureController.get(context).refreshIfNeededForProcess() }
+            try { CaptureController.get(context).refreshIfNeededForProcess(RegistrationReason.ADAPTIVE_CONFIRMATION) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
                 MonitoringStore.record(context, "Office registration unavailable")
@@ -394,7 +395,7 @@ internal suspend fun resyncOfficeBoundaries(context: Context, officeIds: List<St
     if (officeIds.isEmpty() || !LocationPermissions.read(context).prerequisitesReady) return
     try {
         val controller = CaptureController.get(context)
-        controller.refreshIfNeededForProcess()
+        controller.refreshIfNeededForProcess(RegistrationReason.ADAPTIVE_CONFIRMATION)
         val resynced = withTimeout(8_000) { controller.resyncAfterRejectedExit(officeIds) }
         if (!resynced) MonitoringStore.record(context, "Office boundary refresh skipped; later checks may recover")
     } catch (cancelled: CancellationException) { throw cancelled }
