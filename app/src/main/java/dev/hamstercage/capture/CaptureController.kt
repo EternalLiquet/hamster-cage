@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import dev.hamstercage.data.HamsterRepository
+import dev.hamstercage.data.RegistrationReason
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.offices.registrationIntents
 import dev.hamstercage.location.LocationPermissions
@@ -48,7 +49,13 @@ class CaptureController private constructor(context: Context) {
                     if (prerequisites == null || state == StorageState.Loading) return@collect
                     val force = prerequisites.revision != lastRevision
                     lastRevision = prerequisites.revision
-                    try { reconcile(state, prerequisites.ready, monitoring.enabled, force) }
+                    // A diagnostic label for the trigger only; it does not change reconciliation.
+                    val reason = when {
+                        !processStarted -> RegistrationReason.PROCESS_START
+                        force -> RegistrationReason.FOREGROUND_CHECK
+                        else -> RegistrationReason.STATE_CHANGED
+                    }
+                    try { reconcile(state, prerequisites.ready, monitoring.enabled, force, reason = reason) }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { CaptureHealth.registration(RegistrationStatus.FAILED) }
                 }
@@ -56,27 +63,27 @@ class CaptureController private constructor(context: Context) {
     }
 
     /** Used by a bounded system receiver; its coroutine remains attached to goAsync. */
-    suspend fun refreshFromSystem(backgroundStart: Boolean = false) {
+    suspend fun refreshFromSystem(backgroundStart: Boolean = false, reason: RegistrationReason = RegistrationReason.UNKNOWN) {
         val ready = LocationPermissions.read(application).prerequisitesReady
         reconcile(repository.state.first(), ready, MonitoringStore.read(application).enabled, force = true,
-            backgroundStart = backgroundStart)
+            backgroundStart = backgroundStart, reason = reason)
     }
 
     /**
      * Worker process starts must not trust a registration from a previous process without
      * evidence. A background job is itself evidence that the app was not force-stopped.
      */
-    suspend fun refreshIfNeededForProcess() {
-        if (!processStarted) refreshFromSystem(backgroundStart = true)
+    suspend fun refreshIfNeededForProcess(reason: RegistrationReason = RegistrationReason.UNKNOWN) {
+        if (!processStarted) refreshFromSystem(backgroundStart = true, reason = reason)
     }
 
     suspend fun setMonitoringEnabled(enabled: Boolean) {
         MonitoringStore.setEnabled(application, enabled)
-        refreshFromSystem()
+        refreshFromSystem(reason = RegistrationReason.MONITORING_SETTING)
     }
 
     private suspend fun reconcile(state: StorageState, ready: Boolean, enabled: Boolean, force: Boolean,
-        backgroundStart: Boolean = false) = CaptureWriteGate.mutex.withLock {
+        backgroundStart: Boolean = false, reason: RegistrationReason) = CaptureWriteGate.mutex.withLock {
         val reset = PrivacyResetStore.read(application)
         if (reset !is PrivacyResetState.Idle) {
             WeekdayReconciliation.cancel(application)
@@ -102,10 +109,13 @@ class CaptureController private constructor(context: Context) {
             processStarted = true
         }
         val status = when (state) {
-            is StorageState.Ready -> registrar.synchronize(state.snapshot.registrationIntents(), ready && enabled, force,
-                reset.generation)
+            is StorageState.Ready -> {
+                val intents = state.snapshot.registrationIntents()
+                registrar.synchronize(intents, ready && enabled, force, reset.generation, reason,
+                    officeVersions(intents.map { it.officeId }))
+            }
             StorageState.Unavailable -> {
-                registrar.synchronize(emptyList(), false, generation = reset.generation)
+                registrar.synchronize(emptyList(), false, generation = reset.generation, reason = reason)
                 CaptureHealth.registration(RegistrationStatus.FAILED)
                 CaptureStatus(RegistrationStatus.FAILED)
             }
@@ -135,8 +145,13 @@ class CaptureController private constructor(context: Context) {
             !LocationPermissions.read(application).prerequisitesReady) return@withLock false
         val state = repository.state.first() as? StorageState.Ready ?: return@withLock false
         val intents = state.snapshot.registrationIntents().filter { it.officeId in officeIds }
-        registrar.resyncInside(intents, reset.generation)
+        registrar.resyncInside(intents, reset.generation, officeVersions(intents.map { it.officeId }))
     }
+
+    /** Diagnostic correlation only; an unreadable version is recorded as unknown. */
+    private suspend fun officeVersions(ids: List<String>): Map<String, Long> = try { repository.officeVersions(ids) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { emptyMap() }
 
     private fun processIdentity(): ProcessIdentity {
         val boots = try { Settings.Global.getInt(application.contentResolver, Settings.Global.BOOT_COUNT) }

@@ -55,7 +55,7 @@ class DayDiagnosticsTest {
         assertTrue(report.json.contains("\"receivedAt\":\"2025-03-09T15:00:13Z\""))
         assertTrue(report.json.contains("\"accuracyMeters\":17.5"))
         assertTrue(report.json.contains("\"entryGraceMinutes\":5"))
-        assertTrue(report.json.contains("\"schemaVersion\":1"))
+        assertTrue(report.json.contains("\"schemaVersion\":2"))
     }
 
     @Test fun missingCorrectionTargetsAndNoteOnlyConflictsRemainDistinguishable() {
