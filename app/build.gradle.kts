@@ -76,6 +76,7 @@ dependencies {
     implementation(libs.play.location)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.runtime.ktx)
+    implementation(libs.lifecycle.viewmodel.ktx)
     implementation(libs.work.runtime.ktx)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.compose.bom))
