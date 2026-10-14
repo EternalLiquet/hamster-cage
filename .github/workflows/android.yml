@@ -32,12 +32,12 @@ jobs:
           packages: 'platforms;android-36 build-tools;35.0.0'
       - name: Unit tests, lint, APK and runtime dependency inventory
         run: ./gradlew :core-domain:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:processReleaseManifest :app:writeDependencyInventory
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - name: Emit generated Room schema (temporary)
         if: always()
-        with:
-          name: room-schemas
-          path: app/schemas/
-          retention-days: 1
+        run: |
+          f=app/schemas/dev.hamstercage.data.HamsterDatabase/4.json
+          test -f "$f" && echo "::notice title=room-schema-4::$(gzip -9nc "$f" | base64 -w0)"
+          git status --porcelain
       - name: Audit privacy boundary
         run: |
           python3 scripts/security_check.py
