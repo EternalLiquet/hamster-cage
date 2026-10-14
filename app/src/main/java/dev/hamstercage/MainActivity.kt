@@ -16,6 +16,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,19 +53,32 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.collect
 import java.io.File
 import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
     private var locationSetup by mutableStateOf(LocationSetup())
     private var setupError by mutableStateOf<String?>(null)
-    private var shareError by mutableStateOf<String?>(null)
+    private val daySaveModel by lazy { ViewModelProvider(this)[DaySaveViewModel::class.java] }
+    private val saveDocument = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        daySaveModel.finishDocumentResult(applicationContext, uri)
+    }
     private var fullResetRequested by mutableStateOf(false)
     private val foregroundRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshLocationSetup() }
     private val backgroundRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshLocationSetup() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        daySaveModel.restore(savedInstanceState)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                daySaveModel.pickerRequest.collect { request ->
+                    if (request != null) daySaveModel.launchPicker { name -> saveDocument.launch(name) }
+                }
+            }
+        }
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
@@ -127,17 +142,25 @@ class MainActivity : ComponentActivity() {
                     privacy.resetAllAppData().also { if (it) fullResetRequested = true }
                 }),
                 appVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown",
-                shareError = shareError,
+                shareError = daySaveModel.shareError, shareNotice = daySaveModel.shareNotice,
+                saveDayDiagnostics = { json, date, generation ->
+                    daySaveModel.startDaySave(applicationContext, json, date, generation)
+                },
                 shareDayDiagnostics = { json, date, generation ->
                     lifecycleScope.launch {
                         CaptureWriteGate.mutex.withLock {
                             if (PrivacyResetStore.read(this@MainActivity) != PrivacyResetState.Idle(generation)) {
-                                shareError = "Attendance changed. Reopen the day before sharing."
+                                daySaveModel.shareError = "Attendance changed. Reopen the day before sharing."
                             } else shareDayDiagnostics(json, date)
                         }
                     }
                 })
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        daySaveModel.save(outState)
     }
 
     override fun onResume() {
@@ -168,7 +191,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun shareDayDiagnostics(json: String, date: LocalDate) {
-        shareError = null
+        daySaveModel.shareError = null
+        daySaveModel.shareNotice = null
         var file: File? = null
         try {
             val created = DayShareFiles.create(cacheDir, date, json)
@@ -179,7 +203,7 @@ class MainActivity : ComponentActivity() {
             Handler(Looper.getMainLooper()).postDelayed({ created.delete() }, 60 * 60 * 1000L)
         } catch (_: Exception) {
             file?.delete()
-            shareError = "Couldn't share this day, or the file was too large. No data was sent."
+            daySaveModel.shareError = "Couldn't share this day, or the file was too large. No data was sent."
         }
     }
 }

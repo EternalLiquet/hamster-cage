@@ -2,6 +2,7 @@ package dev.hamstercage.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,7 +21,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
     edit: ((Session) -> Unit)? = null, eventEvidence: List<RecordedEvent> = emptyList(),
     backLabel: String = "Back to daily history", trackingReady: Boolean = true,
     prepareDayShare: (() -> DayDiagnostics)? = null, shareDay: ((DayDiagnostics) -> Unit)? = null,
-    shareError: String? = null) {
+    shareError: String? = null, saveDay: ((DayDiagnostics) -> Unit)? = null, shareNotice: String? = null) {
     var sharePreview by remember(date) { mutableStateOf<DayDiagnostics?>(null) }
     val detail = remember(input, result, date) { explainDay(input, result, date) }
     val timeline = remember(input, detail) { dayTimeline(input, detail) }
@@ -42,11 +43,21 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             sharePreview?.let { prepared ->
                 AlertDialog(onDismissRequest = { sharePreview = null },
                     title = { Text("Share $date?") },
-                    text = { Text("${prepared.observationCount} observations, ${prepared.contextCount} nearby or linked context. Evidence dates span ${prepared.firstIncludedDay} through ${prepared.lastIncludedDay}; includes observation and edit times with engine classifications, manual intervals, office settings, the day's policy and result, app version, capture status within that span, and when this file was prepared. Office names, coordinates and notes are left out. Choose where to send it next.") },
-                    confirmButton = { TextButton(onClick = { sharePreview = null; shareDay(prepared) }) { Text("Choose app") } },
+                    text = { Text("${prepared.observationCount} observations, ${prepared.contextCount} nearby or linked context. Evidence dates span ${prepared.firstIncludedDay} through ${prepared.lastIncludedDay}; includes observation and edit times with engine classifications, manual intervals, office settings, the day's policy and result, app version, capture status within that span, and when this file was prepared. Office names, coordinates and notes are left out. " +
+                        if (saveDay == null) "Choose where to send it next."
+                        else "Share it to an app, or save a copy to a location you choose. A saved copy is outside Hamster Cage: deleting history here won't remove it, and a location that syncs will upload it.") },
+                    confirmButton = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(CageStyle.Small)) {
+                            if (saveDay != null) TextButton(onClick = { sharePreview = null; saveDay(prepared) },
+                                modifier = Modifier.testTag("save_day_data")) { Text("Save to file") }
+                            TextButton(onClick = { sharePreview = null; shareDay(prepared) },
+                                modifier = Modifier.testTag("share_day_choose_app")) { Text("Choose app") }
+                        }
+                    },
                     dismissButton = { TextButton(onClick = { sharePreview = null }) { Text("Cancel") } })
             }
             shareError?.let { FormError(it) }
+            shareNotice?.let { Text(it, Modifier.testTag("share_day_notice"), style = MaterialTheme.typography.bodyMedium) }
         }
         Panel {
             Text("Recorded credit: ${minutesText(detail.summary.creditedMinutes)}", Modifier.testTag("detail_credit"), style = MaterialTheme.typography.titleLarge)

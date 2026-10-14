@@ -1,5 +1,8 @@
 package dev.hamstercage.ui
 
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.OutputStream
 import java.nio.file.Files
 import java.time.LocalDate
 import org.junit.Assert.*
@@ -49,6 +52,69 @@ class DayShareFilesTest {
                 fail("Oversized draft should be refused")
             } catch (_: IllegalArgumentException) { }
             assertFalse(cache.resolve("day-diagnostics").exists())
+        } finally { cache.deleteRecursively() }
+    }
+
+    @Test fun saveNameIsTheSelectedDay() {
+        assertEquals("hamster-day-2026-10-08.json", daySaveFileName(day))
+    }
+
+    @Test fun saveCopiesTheExactReviewedBytesAndClosesTheStream() {
+        val cache = Files.createTempDirectory("hamster-save-test").toFile()
+        try {
+            val reviewed = "{\"schemaVersion\":1,\"note\":\"caf\u00e9\"}"
+            val staged = DayShareFiles.create(cache, day, reviewed)
+            var closed = false
+            val target = object : ByteArrayOutputStream() {
+                override fun close() { closed = true; super.close() }
+            }
+            copyStagedDayData(staged) { target }
+            assertTrue(closed)
+            assertEquals(reviewed, target.toString(Charsets.UTF_8.name()))
+        } finally { cache.deleteRecursively() }
+    }
+
+    @Test fun saveFailuresAlwaysThrowSoSuccessIsNeverReported() {
+        val cache = Files.createTempDirectory("hamster-save-test").toFile()
+        try {
+            val staged = DayShareFiles.create(cache, day, "{}")
+            // A provider that returns no stream.
+            assertThrows(IOException::class.java) { copyStagedDayData(staged) { null } }
+            // A provider that refuses to open.
+            assertThrows(SecurityException::class.java) {
+                copyStagedDayData(staged) { throw SecurityException("denied") }
+            }
+            // A failed write still closes the stream and surfaces the write error.
+            var closedAfterWriteFailure = false
+            val failingWrite = object : OutputStream() {
+                override fun write(b: Int) = throw IOException("disk full")
+                override fun write(b: ByteArray, off: Int, len: Int) = throw IOException("disk full")
+                override fun close() { closedAfterWriteFailure = true }
+            }
+            val writeError = assertThrows(IOException::class.java) { copyStagedDayData(staged) { failingWrite } }
+            assertEquals("disk full", writeError.message)
+            assertTrue(closedAfterWriteFailure)
+            // Some providers only report a failed commit when the stream closes.
+            val failingClose = object : OutputStream() {
+                override fun write(b: Int) = Unit
+                override fun close() = throw IOException("commit failed")
+            }
+            assertThrows(IOException::class.java) { copyStagedDayData(staged) { failingClose } }
+        } finally { cache.deleteRecursively() }
+    }
+
+    @Test fun saveRefusesMissingOrOversizedStagedData() {
+        val cache = Files.createTempDirectory("hamster-save-test").toFile()
+        try {
+            var opened = false
+            val missing = cache.resolve("day-diagnostics/gone.json")
+            // History deletion clears the staging directory before a late picker result arrives.
+            assertThrows(IOException::class.java) { copyStagedDayData(missing) { opened = true; ByteArrayOutputStream() } }
+            val oversized = cache.resolve("oversized.json").apply { writeText("x".repeat(2_000_001)) }
+            assertThrows(IllegalArgumentException::class.java) {
+                copyStagedDayData(oversized) { opened = true; ByteArrayOutputStream() }
+            }
+            assertFalse("No destination may be opened for refused data", opened)
         } finally { cache.deleteRecursively() }
     }
 }
