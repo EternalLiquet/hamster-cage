@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import dev.hamstercage.domain.TimeSource
 import dev.hamstercage.domain.AttendanceEngine
+import dev.hamstercage.capture.BoundaryCheckEntry
 import dev.hamstercage.capture.CaptureStatus
 import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.capture.RegistrationStatus
@@ -81,6 +82,7 @@ fun HamsterApp(
     shareDayDiagnostics: ((String, LocalDate, Long) -> Unit)? = null,
     saveDayDiagnostics: ((String, LocalDate, Long) -> Unit)? = null,
     registrationDiagnostics: RegistrationDiagnostics? = null,
+    boundaryChecks: List<BoundaryCheckEntry>? = null,
 ) {
     var selectedName by rememberSaveable { mutableStateOf(Destination.DASHBOARD.name) }
     var detailDate by rememberSaveable(privacyState.generation) { mutableStateOf<String?>(null) }
@@ -198,7 +200,7 @@ fun HamsterApp(
                                     shareError = shareError, shareNotice = shareNotice,
                                     prepareDayShare = if (shareDayDiagnostics == null) null else {
                                         { dayDiagnostics(snapshot, LocalDate.parse(detailDate), now, coverage,
-                                            captureStatus, appVersion, registrationDiagnostics) }
+                                            captureStatus, appVersion, registrationDiagnostics, boundaryChecks) }
                                     },
                                     shareDay = if (shareDayDiagnostics == null) null else { prepared ->
                                         editingGeneration?.let { generation ->

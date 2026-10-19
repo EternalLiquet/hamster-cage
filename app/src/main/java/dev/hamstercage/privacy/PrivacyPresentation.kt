@@ -1,5 +1,6 @@
 package dev.hamstercage.privacy
 
+import dev.hamstercage.capture.BoundaryCheckEntry
 import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.RegistrationDiagnostics
@@ -14,15 +15,18 @@ import kotlinx.coroutines.flow.onStart
 /** Attendance, confidence and diagnostics come from fresh subscriptions after journal Idle. */
 data class PrivacyStorageState(val reset: PrivacyResetState, val storage: StorageState,
     val coverage: CoverageLedger? = null,
-    val registrationDiagnostics: RegistrationDiagnostics? = null)
+    val registrationDiagnostics: RegistrationDiagnostics? = null,
+    val boundaryChecks: List<BoundaryCheckEntry>? = null)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 fun privacyVisibleStorage(reset: Flow<PrivacyResetState>, freshStorage: () -> Flow<StorageState>,
     freshCoverage: () -> Flow<CoverageLedger?> = { flowOf(null) },
-    freshDiagnostics: () -> Flow<RegistrationDiagnostics?> = { flowOf(null) }): Flow<PrivacyStorageState> =
+    freshDiagnostics: () -> Flow<RegistrationDiagnostics?> = { flowOf(null) },
+    freshBoundaryChecks: () -> Flow<List<BoundaryCheckEntry>?> = { flowOf(null) }): Flow<PrivacyStorageState> =
     reset.distinctUntilChanged().flatMapLatest { state ->
-        if (state is PrivacyResetState.Idle) combine(freshStorage(), freshCoverage(), freshDiagnostics()) { storage, coverage, diagnostics ->
-            PrivacyStorageState(state, storage, coverage, diagnostics)
+        if (state is PrivacyResetState.Idle) combine(freshStorage(), freshCoverage(), freshDiagnostics(),
+            freshBoundaryChecks()) { storage, coverage, diagnostics, checks ->
+            PrivacyStorageState(state, storage, coverage, diagnostics, checks)
         }
             .onStart { emit(PrivacyStorageState(state, StorageState.Loading)) }
         else flowOf(PrivacyStorageState(state, StorageState.Unavailable))

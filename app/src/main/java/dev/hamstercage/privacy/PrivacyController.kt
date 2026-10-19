@@ -2,6 +2,7 @@ package dev.hamstercage.privacy
 
 import android.app.ActivityManager
 import android.content.Context
+import dev.hamstercage.capture.BoundaryCheckLog
 import dev.hamstercage.capture.CaptureController
 import dev.hamstercage.capture.CaptureHealth
 import dev.hamstercage.capture.CaptureHealthStore
@@ -31,6 +32,7 @@ class PrivacyController private constructor(context: Context) {
         resetHealth = {
             CaptureHealthStore.setDeliveryFailure(application, false)
             MonitoringStore.clearDiagnostics(application)
+            BoundaryCheckLog.clear(application)
             check(DayShareFiles.clearAll(application.cacheDir)) { "Temporary day data could not be deleted" }
         })
 

@@ -33,3 +33,13 @@ These fields are diagnostic only. They never change attendance credit, sessions,
   - **`isMock`** is the platform's mock flag for the delivered fix, read through `LocationCompat` so it works on older Android versions. `false` means not flagged.
   - Observations recorded before version 2, or delivered without a fix, have `null` in all three fields. A redelivered observation keeps the first-seen values.
   - Accuracy describes uncertainty, not freshness. Use `fixAgeMs` for freshness.
+
+## Boundary check diagnostics (#135)
+
+After a geofence delivery the app schedules inexact one-shot location checks (five for an EXIT). These fields explain what each check attempt did. They are diagnostic only: a check affects attendance solely through the PRESENCE or ABSENCE observation it records, never through this log.
+
+- **`boundaryChecks`.** One row per attempt that actually started, for observations included in this export: the observation's `fact` alias, `attempt` (1–5), `startedAt`, `finishedAt`, `outcome`, and when a fix was obtained its `accuracyMeters` and `fixAgeMs` (wall-clock age when the result was evaluated). Checks for observations outside the export are left out.
+- **Outcomes.** `RECORDED_INSIDE` / `RECORDED_OUTSIDE` wrote an observation. Skips before a location request: `MONITORING_OFF`, `PREREQUISITES_MISSING`, `REGISTRATION_REFRESH_FAILED`, `REGISTRATION_NOT_ACTIVE` (also an open capture outage), `STORAGE_UNAVAILABLE`, `STARTED_PAST_DEADLINE` (the attempt began after the five-minute window), `NOT_AWAITING_VERIFICATION` (for example an EXIT with no open visit, or one already settled) and `SUPERSEDED_OR_CHANGED`. After a request: `FIX_UNAVAILABLE`, `CHANGED_DURING_FIX`, `FIX_CACHED` (the fix predates the request), `FIX_STALE`, `FIX_NO_ACCURACY`, `FIX_IMPRECISE`, `BOUNDARY_UNCERTAIN`, `FIX_PAST_DEADLINE`, `SETTLED_BEFORE_FIX`, `WRITE_FAILED` and `ERROR`.
+- **Missing attempts.** An attempt that never started leaves no row. A missing attempt number means Android delayed it beyond retention, a newer delivery replaced the scheduled checks, or it was cancelled.
+- **Storage and retention.** Rows live in app-private storage excluded from backup, keeping the newest 1,000 started within 30 days. Writes share the capture gate with history deletion and are skipped for an older privacy generation, so a late attempt cannot recreate rows a reset removed. Deleting attendance history clears the log. `boundaryCheckDiagnostics` is `null` when the log could not be read, and `oldestRetainedCheckAt` shows where the retained log begins.
+- **Preview.** The share preview counts the included check attempts.
