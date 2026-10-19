@@ -30,6 +30,19 @@ internal fun timelineReviewCue(reason: ReviewReason): String = when (reason) {
     ReviewReason.REPEATED_EXIT -> "Another office-area exit followed soon after this departure. Credit ends at the first exit. If you came back and stayed until the later exit, correct this visit."
 }
 
+/**
+ * The review line shown once per session in the day timeline, or null when nothing blocks.
+ * An orphan exit row already explains the missing arrival in its own detail, so the
+ * MISSING_ENTER cue is not repeated there; every other blocking cue still shows (#147).
+ */
+internal fun timelineReviewLine(session: Session): String? {
+    val reasons = session.reviewReasons.filter { it != ReviewReason.OPEN_SESSION && it !in ADVISORY_REVIEW_REASONS }
+    if (reasons.isEmpty()) return null
+    val orphanExit = session.start == null && ReviewReason.MISSING_ENTER in reasons
+    val cues = reasons.filterNot { orphanExit && it == ReviewReason.MISSING_ENTER }.map(::timelineReviewCue)
+    return (listOf(if (orphanExit) "Review this signal." else "This session needs review.") + cues).joinToString(" ")
+}
+
 internal fun dayTimeline(input: AttendanceInput, detail: DayExplanation): List<DayTimelineRow> {
     val dayStart = detail.date.atStartOfDay(input.policy.zoneId).toInstant()
     val dayEnd = detail.date.plusDays(1).atStartOfDay(input.policy.zoneId).toInstant()

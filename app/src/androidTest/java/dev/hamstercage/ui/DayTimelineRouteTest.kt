@@ -143,8 +143,10 @@ class DayTimelineRouteTest {
         } } }
         compose.onNodeWithText("Unconfirmed exit signal · Westerville Office", substring = true)
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Review this signal.", substring = true).performScrollTo()
-            .assertTextContains("does not indicate that you were at this office", substring = true)
+        compose.onNodeWithText("Review this signal.", substring = true).performScrollTo().assertIsDisplayed()
+        // The row detail explains the missing arrival; the review line must not repeat it (#147).
+        compose.onAllNodesWithText("does not indicate that you were at this office", substring = true)
+            .assertCountEquals(1)
         compose.onNodeWithText("Arrival time unknown", substring = true).assertDoesNotExist()
     }
 
