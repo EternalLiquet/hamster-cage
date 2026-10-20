@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
+import dev.hamstercage.capture.BoundaryCheckLog
 import dev.hamstercage.capture.CaptureController
 import dev.hamstercage.capture.ForegroundReconciliation
 import dev.hamstercage.capture.CaptureHealth
@@ -93,7 +94,8 @@ class MainActivity : ComponentActivity() {
             val visible = remember(repository, privacy) {
                 privacyVisibleStorage(privacy.state, freshStorage = { repository.state },
                     freshCoverage = { CoverageStore.state(this).map { it } },
-                    freshDiagnostics = { repository.registrationDiagnostics })
+                    freshDiagnostics = { repository.registrationDiagnostics },
+                    freshBoundaryChecks = { BoundaryCheckLog.state(this) })
             }
             val presentation by visible.collectAsState(
                 initial = PrivacyStorageState(PrivacyResetState.Unavailable, StorageState.Unavailable))
@@ -150,6 +152,7 @@ class MainActivity : ComponentActivity() {
                     daySaveModel.startDaySave(applicationContext, json, date, generation)
                 },
                 registrationDiagnostics = registrationDiagnostics,
+                boundaryChecks = presentation.boundaryChecks,
                 shareDayDiagnostics = { json, date, generation ->
                     lifecycleScope.launch {
                         CaptureWriteGate.mutex.withLock {

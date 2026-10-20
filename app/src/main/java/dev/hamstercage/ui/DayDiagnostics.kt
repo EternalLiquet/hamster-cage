@@ -1,5 +1,7 @@
 package dev.hamstercage.ui
 
+import dev.hamstercage.capture.BoundaryCheckCodec
+import dev.hamstercage.capture.BoundaryCheckEntry
 import dev.hamstercage.capture.CaptureStatus
 import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.data.AppSnapshot
@@ -17,18 +19,21 @@ import java.time.LocalDate
 data class DayDiagnostics(val json: String, val observationCount: Int, val contextCount: Int,
     val firstIncludedDay: LocalDate, val lastIncludedDay: LocalDate,
     val registrationCount: Int = 0, val registrationContextCount: Int = 0,
-    val registrationCycleCount: Int = 0, val registrationCycleContextCount: Int = 0)
+    val registrationCycleCount: Int = 0, val registrationCycleContextCount: Int = 0,
+    val boundaryCheckCount: Int = 0)
 
 /** How far before the selected day an office's most recent registration attempt may be included. */
 internal const val REGISTRATION_LOOKBACK_DAYS = 7L
 
 /**
  * [registrations] is null when registration diagnostics could not be read; the export then says
- * so instead of implying that no registration happened.
+ * so instead of implying that no registration happened. [boundaryChecks] is null in the same way
+ * when the boundary check log could not be read; only attempts for included facts are exported.
  */
 internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant,
     coverage: CoverageLedger?, capture: CaptureStatus, appVersion: String,
-    registrations: RegistrationDiagnostics? = null): DayDiagnostics {
+    registrations: RegistrationDiagnostics? = null,
+    boundaryChecks: List<BoundaryCheckEntry>? = null): DayDiagnostics {
     val input = snapshot.input(now).copy(historyStartDate = coverage?.historyStartDate,
         unknownDates = coverage?.unreviewedUnknownDates.orEmpty())
     val detail = explainDay(input, AttendanceEngine.derive(input), date)
@@ -89,6 +94,11 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
     val officeAlias = officeIds.mapIndexed { index, id -> id to "office-${index + 1}" }.toMap()
     val factIds = evidence.map { it.event.id }.distinct().sorted()
     val factAlias = factIds.mapIndexed { index, id -> id to "fact-${index + 1}" }.toMap()
+    // A check belongs to one included observation; checks for other facts would disclose timing
+    // outside the export, so they are left out.
+    val includedChecks = boundaryChecks.orEmpty().filter { it.candidateEventId in factAlias }
+        .sortedWith(compareBy<BoundaryCheckEntry> { it.startedAt }.thenBy { factAlias[it.candidateEventId] }
+            .thenBy { it.attempt })
     val sessionIds = detail.sessions.map { it.id }.distinct().sorted()
     val sessionAlias = sessionIds.mapIndexed { index, id -> id to "session-${index + 1}" }.toMap()
     val targetIds = detail.corrections.map { it.sessionId }.distinct().sorted()
@@ -119,7 +129,8 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         detail.sessions.flatMap { listOfNotNull(it.start, it.end) }.map(::localDay) +
         includedAttempts.flatMap { listOfNotNull(it.startedAt, it.completedAt) }.map(::localDay) +
         includedCycles.flatMap { listOfNotNull(it.startedAt, it.completedAt) }
-            .filter { it >= lookbackStart }.map(::localDay) + date
+            .filter { it >= lookbackStart }.map(::localDay) +
+        includedChecks.flatMap { listOf(it.startedAt, it.finishedAt) }.map(::localDay) + date
     val firstIncludedDay = includedDays.min()
     val lastIncludedDay = includedDays.max()
     // Capture status describes the device now, not the selected day. A time outside the span
@@ -212,6 +223,19 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
             "startedAt" to attempt.startedAt.toString(), "completedAt" to attempt.completedAt?.toString(),
             "status" to attempt.status.name, "errorCode" to sanitizedErrorCode(attempt.errorCode),
             "context" to (attempt.startedAt < start || attempt.startedAt >= end)) },
+        "boundaryCheckDiagnostics" to boundaryChecks?.let { retained -> linkedMapOf<String, Any?>(
+            "retentionDays" to BoundaryCheckCodec.RETENTION.toDays(),
+            "maxRetained" to BoundaryCheckCodec.MAX_ENTRIES,
+            "attemptCount" to includedChecks.size,
+            "oldestRetainedCheckAt" to withinSpan(retained.minOfOrNull { it.startedAt }),
+            // An absent row is not evidence about execution; see BoundaryCheckOutcome's KDoc.
+            "missingAttemptOutcome" to "UNKNOWN",
+            "note" to "Diagnostic only; checks never affect attendance except through the observations they record. Each row is an attempt whose outcome was recorded. A missing attempt number has an unknown outcome: the attempt may not have run, may have been cancelled while running (for example when a newer delivery replaced the scheduled checks), may have recorded nothing because of a privacy reset, may have failed to save its row, or may have been pruned. PAST_DEADLINE_BEFORE_REQUEST comes from an older log that did not separate a late start from a deadline crossed while preparing.") },
+        "boundaryChecks" to includedChecks.map { check -> linkedMapOf<String, Any?>(
+            "fact" to factAlias[check.candidateEventId], "attempt" to check.attempt,
+            "startedAt" to check.startedAt.toString(), "finishedAt" to check.finishedAt.toString(),
+            "outcome" to check.outcome.name, "accuracyMeters" to check.accuracyMeters?.takeIf { it.isFinite() },
+            "fixAgeMs" to check.fixAgeMs) },
         "manualSessions" to detail.manualSessions.map { item -> linkedMapOf<String, Any?>(
             "manual" to manualAlias[item.id], "office" to officeAlias[item.officeId],
             "start" to item.start.toString(), "end" to item.end?.toString(),
@@ -239,7 +263,7 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         evidence.count { it.event.at < start || it.event.at >= end }, firstIncludedDay, lastIncludedDay,
         attemptsInWindow.size, includedAttempts.size - attemptsInWindow.size,
         includedCycles.count { it.startedAt >= start && it.startedAt < end },
-        includedCycles.count { it.startedAt < start || it.startedAt >= end })
+        includedCycles.count { it.startedAt < start || it.startedAt >= end }, includedChecks.size)
 }
 
 private fun jsonValue(value: Any?): String = when (value) {
