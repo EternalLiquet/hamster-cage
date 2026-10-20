@@ -249,6 +249,18 @@ internal fun fixFreshnessFailure(fixTimeMs: Long, requestedAtMs: Long, wallAgeMs
     else -> null
 }
 
+/**
+ * Whether an EXIT check must stop before requesting a fix, and how to describe it. Enforcement is
+ * unchanged: the attempt stops when the clock at [checkedAt] has reached [deadline]. The label only
+ * separates a worker that began after the deadline from one that began in time and crossed it
+ * while preparing (registration refresh, storage reads). Null means the check may continue.
+ */
+internal fun deadlineStop(startedAt: Instant, checkedAt: Instant, deadline: Instant?): BoundaryCheckOutcome? = when {
+    deadline == null || checkedAt < deadline -> null
+    startedAt >= deadline -> BoundaryCheckOutcome.STARTED_PAST_DEADLINE
+    else -> BoundaryCheckOutcome.DEADLINE_PASSED_DURING_PREPARATION
+}
+
 /** WorkManager may start later under Doze; a late fix only establishes state at its own time. */
 class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
@@ -258,7 +270,7 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
         // last one re-arms a still-undecided EXIT so the platform can report the real departure
         // later instead of staying "outside". Cancellation of the worker itself still propagates.
         var failure: Exception? = null
-        try { check(candidate) } catch (cancelled: CancellationException) {
+        try { check(candidate, startedAt) } catch (cancelled: CancellationException) {
             if (!currentCoroutineContext().isActive) throw cancelled
             failure = cancelled
         } catch (error: Exception) { failure = error }
@@ -276,7 +288,7 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
     private var report: CheckReport? = CheckReport(BoundaryCheckOutcome.ERROR)
 
     /** Every path sets [report] before returning. */
-    private suspend fun check(candidate: AdaptiveConfirmation.Candidate) {
+    private suspend fun check(candidate: AdaptiveConfirmation.Candidate, startedAt: Instant) {
         val (id, officeId, generation) = candidate
         val context = applicationContext
         val repository = HamsterRepository.get(context)
@@ -308,9 +320,7 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
         val isExit = initialBatch.firstOrNull()?.event?.transition == Transition.EXIT
         val deadline = if (isExit) initialBatch.first().receivedAt.plusSeconds(AdaptiveConfirmation.EXIT_WINDOW_SECONDS)
             else null
-        if (deadline != null && Instant.now() >= deadline) {
-            report = CheckReport(BoundaryCheckOutcome.STARTED_PAST_DEADLINE); return
-        }
+        deadlineStop(startedAt, Instant.now(), deadline)?.let { report = CheckReport(it); return }
         if (isExit && initialBatch.none { it.event.id in initial.snapshot.input(Instant.now()).candidateExitIds }) {
             report = CheckReport(BoundaryCheckOutcome.NOT_AWAITING_VERIFICATION); return
         }

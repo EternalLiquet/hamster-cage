@@ -20,8 +20,11 @@ import kotlinx.coroutines.withTimeout
 
 /**
  * What one scheduled boundary check attempt did (#135). Diagnostic only: these rows never feed
- * attendance derivation, and an attempt that never started (delayed past retention, replaced by
- * a newer delivery, or cancelled) leaves no row at all.
+ * attendance derivation. A missing row means the attempt's outcome is unknown, not that it never
+ * ran: it may not have started yet or at all, it may have been cancelled while running (for example
+ * when a newer delivery replaced the scheduled checks), a privacy reset may have made it record
+ * nothing, its row may have failed to save (busy capture gate or storage error), or it may have
+ * been pruned.
  */
 enum class BoundaryCheckOutcome {
     /** Location monitoring was switched off. */
@@ -33,8 +36,16 @@ enum class BoundaryCheckOutcome {
     /** Registration was not active or a capture outage was open. */
     REGISTRATION_NOT_ACTIVE,
     STORAGE_UNAVAILABLE,
-    /** The attempt started after the EXIT's verification window had closed. */
+    /** The worker itself began after the EXIT's verification window had closed. */
     STARTED_PAST_DEADLINE,
+    /** The worker began within the window, but it closed while preparing, before any location request. */
+    DEADLINE_PASSED_DURING_PREPARATION,
+    /**
+     * Legacy rows written before these two cases were separated (codec v1): the window had closed
+     * before any location request, but it is unknown whether the worker began late or crossed the
+     * deadline while preparing. Never written by current code.
+     */
+    PAST_DEADLINE_BEFORE_REQUEST,
     /** The observation was not awaiting verification (for example an EXIT with no open visit, or already settled). */
     NOT_AWAITING_VERIFICATION,
     /** A newer observation, an office edit or a gate change made the candidate ineligible before the fix. */
@@ -74,7 +85,9 @@ data class BoundaryCheckEntry(
 internal object BoundaryCheckCodec {
     val RETENTION: Duration = Duration.ofDays(30)
     const val MAX_ENTRIES = 1_000
-    private const val VERSION = "v1"
+    /** v1 rows used STARTED_PAST_DEADLINE for both deadline cases; see [BoundaryCheckOutcome.PAST_DEADLINE_BEFORE_REQUEST]. */
+    private const val VERSION = "v2"
+    private const val LEGACY_VERSION = "v1"
     private val encoder = Base64.getUrlEncoder().withoutPadding()
     private val decoder = Base64.getUrlDecoder()
 
@@ -85,15 +98,28 @@ internal object BoundaryCheckCodec {
             entry.accuracyMeters?.toString() ?: "-", entry.fixAgeMs?.toString() ?: "-").joinToString(";")
     }
 
-    /** Malformed or unknown lines are dropped rather than failing the whole log. */
+    /**
+     * Malformed or unknown lines are dropped rather than failing the whole log. A v1 deadline row is
+     * read back as [BoundaryCheckOutcome.PAST_DEADLINE_BEFORE_REQUEST], because v1 could not tell a late
+     * start from a deadline crossed during preparation; other v1 outcomes keep their meaning.
+     */
     fun decode(text: String?): List<BoundaryCheckEntry> = text.orEmpty().lineSequence().mapNotNull { line ->
         val parts = line.split(';')
-        if (parts.size != 8 || parts[0] != VERSION) return@mapNotNull null
+        if (parts.size != 8 || parts[0] !in setOf(VERSION, LEGACY_VERSION)) return@mapNotNull null
         try {
+            val stored = BoundaryCheckOutcome.valueOf(parts[5])
+            val outcome = when {
+                parts[0] != LEGACY_VERSION -> stored
+                stored == BoundaryCheckOutcome.STARTED_PAST_DEADLINE -> BoundaryCheckOutcome.PAST_DEADLINE_BEFORE_REQUEST
+                // These did not exist in v1, so a v1 line naming them is not trustworthy.
+                stored in setOf(BoundaryCheckOutcome.DEADLINE_PASSED_DURING_PREPARATION,
+                    BoundaryCheckOutcome.PAST_DEADLINE_BEFORE_REQUEST) -> return@mapNotNull null
+                else -> stored
+            }
             val id = String(decoder.decode(parts[1]), Charsets.UTF_8)
             val accuracy = parts[6].takeUnless { it == "-" }?.toFloat()
             BoundaryCheckEntry(id, parts[2].toInt(), Instant.ofEpochMilli(parts[3].toLong()),
-                Instant.ofEpochMilli(parts[4].toLong()), BoundaryCheckOutcome.valueOf(parts[5]),
+                Instant.ofEpochMilli(parts[4].toLong()), outcome,
                 accuracy, parts[7].takeUnless { it == "-" }?.toLong())
                 .takeIf { valid(it) }
         } catch (_: RuntimeException) { null }

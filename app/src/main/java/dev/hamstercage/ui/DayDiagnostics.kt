@@ -228,7 +228,9 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
             "maxRetained" to BoundaryCheckCodec.MAX_ENTRIES,
             "attemptCount" to includedChecks.size,
             "oldestRetainedCheckAt" to withinSpan(retained.minOfOrNull { it.startedAt }),
-            "note" to "Diagnostic only; checks never affect attendance except through the observations they record. One row per scheduled attempt that started. A missing attempt number means that attempt never started: it was delayed, replaced by a newer delivery, or cancelled.") },
+            // An absent row is not evidence about execution; see BoundaryCheckOutcome's KDoc.
+            "missingAttemptOutcome" to "UNKNOWN",
+            "note" to "Diagnostic only; checks never affect attendance except through the observations they record. Each row is an attempt whose outcome was recorded. A missing attempt number has an unknown outcome: the attempt may not have run, may have been cancelled while running (for example when a newer delivery replaced the scheduled checks), may have recorded nothing because of a privacy reset, may have failed to save its row, or may have been pruned. PAST_DEADLINE_BEFORE_REQUEST comes from an older log that did not separate a late start from a deadline crossed while preparing.") },
         "boundaryChecks" to includedChecks.map { check -> linkedMapOf<String, Any?>(
             "fact" to factAlias[check.candidateEventId], "attempt" to check.attempt,
             "startedAt" to check.startedAt.toString(), "finishedAt" to check.finishedAt.toString(),

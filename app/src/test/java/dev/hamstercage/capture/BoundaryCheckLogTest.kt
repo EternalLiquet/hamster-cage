@@ -57,4 +57,49 @@ class BoundaryCheckLogTest {
         assertEquals(BoundaryCheckOutcome.FIX_NO_ACCURACY, fixFreshnessFailure(requested, requested, 5_000, 5_000_000_000, false))
         assertNull(fixFreshnessFailure(requested, requested, 30_000, 30_000_000_000, true))
     }
+
+    // Review finding 2: the deadline label must reflect when the worker began, while the stop
+    // itself still uses the clock after preparation exactly as before.
+    private val received = Instant.parse("2026-10-19T20:22:19.227Z")
+    private val deadline = received.plusSeconds(AdaptiveConfirmation.EXIT_WINDOW_SECONDS)
+
+    @Test fun workerThatBeganAfterTheDeadlineIsALateStart() {
+        val began = deadline.plusSeconds(40)
+        assertEquals(BoundaryCheckOutcome.STARTED_PAST_DEADLINE, deadlineStop(began, began.plusSeconds(2), deadline))
+        assertEquals(BoundaryCheckOutcome.STARTED_PAST_DEADLINE, deadlineStop(deadline, deadline, deadline))
+    }
+
+    @Test fun workerThatBeganInTimeButCrossedTheDeadlineWhilePreparingIsNotALateStart() {
+        val began = received.plusSeconds(295)
+        val afterPreparation = began.plusSeconds(6)
+        assertEquals(BoundaryCheckOutcome.DEADLINE_PASSED_DURING_PREPARATION, deadlineStop(began, afterPreparation, deadline))
+        // Exactly reaching the deadline still stops, as the original `now >= deadline` check did.
+        assertEquals(BoundaryCheckOutcome.DEADLINE_PASSED_DURING_PREPARATION,
+            deadlineStop(deadline.minusMillis(1), deadline, deadline))
+    }
+
+    @Test fun workerStillWithinTheDeadlineAfterPreparationContinues() {
+        val began = received.plusSeconds(290)
+        assertNull(deadlineStop(began, began.plusSeconds(6), deadline))
+        assertNull(deadlineStop(began, deadline.minusMillis(1), deadline))
+        // An ENTER check has no verification deadline.
+        assertNull(deadlineStop(began, began.plusSeconds(600), null))
+    }
+
+    @Test fun legacyDeadlineRowsAreReadAsAmbiguousAndOtherOutcomesKeepTheirMeaning() {
+        val v1 = listOf("v1;ZXhpdA;2;1000;1500;STARTED_PAST_DEADLINE;-;-",
+            "v1;ZXhpdA;3;2000;2500;FIX_STALE;16.5;41000",
+            // Outcomes that did not exist in v1 cannot be trusted on a v1 line.
+            "v1;ZXhpdA;4;3000;3500;DEADLINE_PASSED_DURING_PREPARATION;-;-",
+            "v1;ZXhpdA;5;4000;4500;PAST_DEADLINE_BEFORE_REQUEST;-;-").joinToString("\n")
+        val decoded = BoundaryCheckCodec.decode(v1)
+        assertEquals(listOf(BoundaryCheckOutcome.PAST_DEADLINE_BEFORE_REQUEST, BoundaryCheckOutcome.FIX_STALE),
+            decoded.map { it.outcome })
+        // Rewriting the log after a new attempt keeps the legacy meaning instead of upgrading it.
+        assertEquals(decoded, BoundaryCheckCodec.decode(BoundaryCheckCodec.encode(decoded)))
+        assertTrue(BoundaryCheckCodec.encode(decoded).lines().all { it.startsWith("v2;") })
+        val current = listOf(entry(outcome = BoundaryCheckOutcome.STARTED_PAST_DEADLINE, accuracy = null, age = null),
+            entry(attempt = 2, outcome = BoundaryCheckOutcome.DEADLINE_PASSED_DURING_PREPARATION, accuracy = null, age = null))
+        assertEquals(current, BoundaryCheckCodec.decode(BoundaryCheckCodec.encode(current)))
+    }
 }

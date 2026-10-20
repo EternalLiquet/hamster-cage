@@ -54,11 +54,35 @@ class DayDiagnosticsBoundaryCheckTest {
         listOf("secret", "Private place", "39.123456", "-82.654321").forEach { assertFalse(it, json.contains(it)) }
     }
 
+    // Review finding 1: an absent row says nothing about whether the attempt ran.
+    @Test fun missingAttemptsAreReportedAsUnknownNotAsNeverRun() {
+        val checks = listOf(
+            check("exit-secret", 1, "2026-10-19T18:00:40Z", BoundaryCheckOutcome.FIX_IMPRECISE, 180f, 900),
+            check("exit-secret", 3, "2026-10-19T18:02:40Z", BoundaryCheckOutcome.DEADLINE_PASSED_DURING_PREPARATION),
+            check("exit-secret", 4, "2026-10-19T18:03:40Z", BoundaryCheckOutcome.PAST_DEADLINE_BEFORE_REQUEST))
+        val report = dayDiagnostics(data, day, now, null, CaptureStatus(), "test", boundaryChecks = checks)
+        val json = report.json
+
+        assertEquals(3, report.boundaryCheckCount)
+        // No row is fabricated for attempts 2 and 5.
+        assertEquals(3, "\"attempt\":".toRegex().findAll(json).count())
+        assertFalse(json, json.contains("\"attempt\":2"))
+        assertFalse(json, json.contains("\"attempt\":5"))
+        assertTrue(json, json.contains("\"missingAttemptOutcome\":\"UNKNOWN\""))
+        assertTrue(json, json.contains("missing attempt number has an unknown outcome"))
+        assertTrue(json, json.contains("cancelled while running"))
+        assertTrue(json, json.contains("failed to save its row"))
+        listOf("never started", "never ran", "that started").forEach { assertFalse(it, json.contains(it)) }
+        // Both deadline labels and the ambiguous legacy label are exported as stored.
+        assertTrue(json, json.contains("\"outcome\":\"DEADLINE_PASSED_DURING_PREPARATION\""))
+        assertTrue(json, json.contains("\"outcome\":\"PAST_DEADLINE_BEFORE_REQUEST\""))
+    }
+
     @Test fun unreadableLogIsExplicitAndEmptyLogIsNot() {
         val unknown = dayDiagnostics(data, day, now, null, CaptureStatus(), "test", boundaryChecks = null).json
         assertTrue(unknown, unknown.contains("\"boundaryCheckDiagnostics\":null,\"boundaryChecks\":[]"))
         val empty = dayDiagnostics(data, day, now, null, CaptureStatus(), "test", boundaryChecks = emptyList()).json
-        assertTrue(empty, empty.contains("\"attemptCount\":0,\"oldestRetainedCheckAt\":null"))
+        assertTrue(empty, empty.contains("\"attemptCount\":0,\"oldestRetainedCheckAt\":null,\"missingAttemptOutcome\":\"UNKNOWN\""))
     }
 
     @Test fun checksNeverChangeAttendanceResults() {
