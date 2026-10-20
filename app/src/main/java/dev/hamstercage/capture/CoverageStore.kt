@@ -32,6 +32,7 @@ private val PACKAGE_UPDATED = longPreferencesKey("registered_package_updated_ms"
 private val LAST_OUTAGE = longPreferencesKey("last_outage_started_ms")
 private val LAST_OUTAGE_HEALTHY_SINCE = longPreferencesKey("last_outage_healthy_since_ms")
 private val OUTAGE_HEALTHY_SINCE = longPreferencesKey("outage_healthy_since_ms")
+private val SHUTDOWN = longPreferencesKey("last_shutdown_ms")
 
 /** App-private, atomic capture confidence metadata, separate from immutable Room facts. */
 internal object CoverageStore {
@@ -57,7 +58,7 @@ internal object CoverageStore {
             instant(p[OUTAGE]), date(p[THROUGH]), instant(p[BOUNDARY]), instant(p[OBSERVED]),
             p[REGISTRATION]?.let(RegistrationStatus::valueOf) ?: RegistrationStatus.UNKNOWN,
             p[POLICY_ZONE]?.let(java.time.ZoneId::of), p[BOOT_COUNT], p[PACKAGE_UPDATED], instant(p[LAST_OUTAGE]),
-            instant(p[LAST_OUTAGE_HEALTHY_SINCE]), instant(p[OUTAGE_HEALTHY_SINCE]))
+            instant(p[LAST_OUTAGE_HEALTHY_SINCE]), instant(p[OUTAGE_HEALTHY_SINCE]), instant(p[SHUTDOWN]))
     }
 
     private fun encode(p: androidx.datastore.preferences.core.MutablePreferences, value: CoverageLedger) {
@@ -78,5 +79,6 @@ internal object CoverageStore {
         set(LAST_OUTAGE, value.lastOutageStartedAt?.toEpochMilli())
         set(LAST_OUTAGE_HEALTHY_SINCE, value.lastOutageHealthySince?.toEpochMilli())
         set(OUTAGE_HEALTHY_SINCE, value.outageHealthySince?.toEpochMilli())
+        set(SHUTDOWN, value.shutdownAt?.toEpochMilli())
     }
 }

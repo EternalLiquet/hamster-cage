@@ -189,7 +189,8 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
             "lastOutageStartedAt" to withinSpan(coverage?.lastOutageStartedAt),
             "lastOutageHealthySince" to withinSpan(coverage?.lastOutageHealthySince),
             "openOutageHealthySince" to withinSpan(coverage?.outageHealthySince),
-            "lastObservationAt" to withinSpan(coverage?.lastObservationAt)),
+            "lastObservationAt" to withinSpan(coverage?.lastObservationAt),
+            "lastShutdownAt" to withinSpan(coverage?.shutdownAt)),
         "observations" to evidence.map { item -> linkedMapOf<String, Any?>(
             "fact" to factAlias[item.event.id], "office" to officeAlias[item.event.officeId],
             "transition" to item.event.transition.name, "eventAt" to item.event.at.toString(),

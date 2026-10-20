@@ -28,6 +28,8 @@ data class CoverageLedger(
     val lastOutageHealthySince: Instant? = null,
     /** While an outage is open: the recovery boundary that was in effect when it began. */
     val outageHealthySince: Instant? = null,
+    /** The last orderly device shutdown that found capture healthy; null if none recorded. */
+    val shutdownAt: Instant? = null,
 ) {
     /** Null when either side is unknown. */
     fun rebootedSince(current: ProcessIdentity): Boolean? =
@@ -45,6 +47,19 @@ data class CoverageLedger(
         lastHealthyAt == null && outageStartedAt == null -> this
         continuity == ProcessContinuity.SURVIVED -> this
         else -> outage(now, zone)
+    }
+
+    /**
+     * Android announces an orderly shutdown or restart. Monitoring that was healthy then stayed in
+     * force until that moment, so a later reboot gap starts here, not at the last observation,
+     * which may be hours earlier. A shutdown during an outage, or before capture was ever
+     * healthy, proves nothing. A sudden power loss sends no announcement and keeps the old bound.
+     */
+    fun shutdown(now: Instant): CoverageLedger {
+        val healthy = lastHealthyAt
+        return if (registration == RegistrationStatus.ACTIVE && outageStartedAt == null &&
+            healthy != null && !now.isBefore(healthy)) copy(lastHealthyAt = now, shutdownAt = now)
+        else this
     }
 
     fun outage(now: Instant, zone: ZoneId): CoverageLedger {

@@ -139,10 +139,15 @@ class SecurityAuditTest(unittest.TestCase):
         component = '<receiver android:name="dev.hamstercage.capture.CaptureRecoveryReceiver" android:exported="true"><intent-filter>' \
             '<action android:name="android.intent.action.BOOT_COMPLETED" />' \
             '<action android:name="android.intent.action.MY_PACKAGE_REPLACED" />' \
+            '<action android:name="android.intent.action.ACTION_SHUTDOWN" />' \
             '</intent-filter></receiver>'
+        shutdown = '<action android:name="android.intent.action.ACTION_SHUTDOWN" />'
         for candidate, allowed in [(component, True),
                                    (component.replace("MY_PACKAGE_REPLACED", "PACKAGE_REPLACED"), False),
-                                   (component.replace("BOOT_COMPLETED", "synthetic.ACTION"), False)]:
+                                   (component.replace("BOOT_COMPLETED", "synthetic.ACTION"), False),
+                                   (component.replace("ACTION_SHUTDOWN", "synthetic.SHUTDOWN"), False),
+                                   (component.replace(shutdown, ""), False),
+                                   (component.replace(shutdown, shutdown + '<action android:name="synthetic.EXTRA" />'), False)]:
             with self.subTest(candidate=candidate), tempfile.TemporaryDirectory() as directory:
                 manifest = SAFE_MANIFEST.replace("<application", '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /><application')
                 manifest = manifest.replace("</application></manifest>", candidate + "</application></manifest>")

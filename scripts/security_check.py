@@ -101,9 +101,10 @@ def audit(root, variant="debug"):
                 filters = component.findall("intent-filter")
                 require("android.permission.RECEIVE_BOOT_COMPLETED" in permissions and
                         component.get(A + "permission") is None and len(filters) == 1 and
-                        len(filters[0]) == 2 and {(item.tag, item.get(A + "name")) for item in filters[0]} == {
+                        len(filters[0]) == 3 and {(item.tag, item.get(A + "name")) for item in filters[0]} == {
                             ("action", "android.intent.action.BOOT_COMPLETED"),
-                            ("action", "android.intent.action.MY_PACKAGE_REPLACED")},
+                            ("action", "android.intent.action.MY_PACKAGE_REPLACED"),
+                            ("action", "android.intent.action.ACTION_SHUTDOWN")},
                         "Recovery receiver must accept only reviewed protected system actions")
             elif name == "androidx.work.impl.background.systemjob.SystemJobService" and component.tag == "service":
                 require(component.get(A + "permission") == "android.permission.BIND_JOB_SERVICE" and

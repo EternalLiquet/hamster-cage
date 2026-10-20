@@ -98,4 +98,48 @@ class CoverageLedgerTest {
         assertEquals(LocalDate.parse("2025-03-10"), observedAgain.historyStartDate)
         assertTrue(LocalDate.parse("2025-03-10") in observedAgain.unreviewedUnknownDates)
     }
+
+    @Test fun orderlyShutdownStartsTheRebootGapAtShutdownNotAtTheLastObservation() {
+        val arrived = at("2025-03-10T13:48:00Z")
+        val shutdown = at("2025-03-10T19:24:30Z")
+        val healthy = CoverageLedger().registrationSucceeded(arrived.minusSeconds(60), zone, true).observed(arrived)
+        val recorded = healthy.shutdown(shutdown)
+        assertEquals(shutdown, recorded.lastHealthyAt)
+        assertEquals(shutdown, recorded.shutdownAt)
+        val booted = recorded.processStarted(at("2025-03-10T19:25:03Z"), zone, ProcessContinuity.LOST)
+            .registrationSucceeded(at("2025-03-10T19:25:04Z"), zone, true)
+        assertEquals(shutdown, booted.lastOutageStartedAt)
+        // A reboot is still a real gap: presence needs a new observation after it.
+        assertFalse(booted.presenceConfirmed(at("2025-03-10T19:26:00Z"), zone))
+        // Without the announcement (sudden power loss) the gap keeps the last observation as its start.
+        val unannounced = healthy.processStarted(at("2025-03-10T19:25:03Z"), zone, ProcessContinuity.LOST)
+            .registrationSucceeded(at("2025-03-10T19:25:04Z"), zone, true)
+        assertEquals(arrived, unannounced.lastOutageStartedAt)
+    }
+
+    @Test fun shutdownKeepsEarlierDaysOutOfAnOvernightRebootGap() {
+        val seen = at("2025-03-10T13:00:00Z")
+        val healthy = CoverageLedger().registrationSucceeded(seen.minusSeconds(60), zone, true).observed(seen)
+            .review(LocalDate.parse("2025-03-10"))
+        val shutdown = at("2025-03-11T11:00:00Z")
+        val boot = at("2025-03-11T11:02:00Z")
+        val bounded = healthy.shutdown(shutdown).processStarted(boot, zone, ProcessContinuity.LOST)
+        assertEquals(setOf(LocalDate.parse("2025-03-11")), bounded.unreviewedUnknownDates)
+        val unbounded = healthy.processStarted(boot, zone, ProcessContinuity.LOST)
+        assertEquals(setOf(LocalDate.parse("2025-03-10"), LocalDate.parse("2025-03-11")), unbounded.unreviewedUnknownDates)
+    }
+
+    @Test fun shutdownProvesNothingWithoutHealthyCapture() {
+        val seen = at("2025-03-10T13:00:00Z")
+        val later = at("2025-03-10T18:00:00Z")
+        val healthy = CoverageLedger().registrationSucceeded(seen.minusSeconds(60), zone, true).observed(seen)
+        // During an outage, before any health, with registration not active, or with a clock earlier
+        // than the last health, the shutdown does not extend health.
+        val inOutage = healthy.processStarted(seen.plusSeconds(600), zone, ProcessContinuity.LOST)
+        assertEquals(inOutage, inOutage.shutdown(later))
+        assertEquals(CoverageLedger(), CoverageLedger().shutdown(later))
+        val disabled = healthy.copy(registration = RegistrationStatus.DISABLED)
+        assertEquals(disabled, disabled.shutdown(later))
+        assertEquals(healthy, healthy.shutdown(seen.minusSeconds(1)))
+    }
 }
