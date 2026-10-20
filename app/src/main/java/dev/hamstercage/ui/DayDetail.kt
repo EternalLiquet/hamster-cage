@@ -94,11 +94,9 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                     Modifier.testTag("day_timeline_$index"), style = MaterialTheme.typography.titleMedium)
                 Text(row.detail)
                 val session = detail.sessions.find { it.id == row.sessionId }
-                val reviewReasons = session?.reviewReasons?.filter {
-                    it != ReviewReason.OPEN_SESSION && it !in ADVISORY_REVIEW_REASONS
-                }.orEmpty()
-                if (session != null && reviewReasons.isNotEmpty() && shownReview.add(session.id))
-                    Text("${if (session.start == null && ReviewReason.MISSING_ENTER in reviewReasons) "Review this signal." else "This session needs review."} ${reviewReasons.joinToString(" ") { timelineReviewCue(it) }}")
+                val reviewLine = session?.let(::timelineReviewLine)
+                if (session != null && reviewLine != null && shownReview.add(session.id))
+                    Text(reviewLine)
                 if (session != null && offeredEdit.add(session.id)) edit?.let { action ->
                     OutlinedButton(onClick = { action(session) }, modifier = Modifier.testTag("timeline_edit_$index")) {
                         Text("Review or correct this session")

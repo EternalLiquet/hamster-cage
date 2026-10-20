@@ -181,4 +181,32 @@ class DayTimelineTest {
         assertFalse(prior.any { it.title.startsWith("Continues into") })
         assertTrue(rows(input, date.plusDays(1).toString()).isEmpty())
     }
+
+    @Test fun orphanExitStatesMissingArrivalOnceAcrossRowAndReviewLine() {
+        val input = AttendanceInput(listOf(office), listOf(event("left", Transition.EXIT, "2026-09-23T10:00:00Z")),
+            policy = policy, now = Instant.parse("2026-09-23T11:00:00Z"))
+        val session = AttendanceEngine.derive(input).sessions.single()
+        val row = rows(input).single { it.sessionId == session.id }
+        val line = timelineReviewLine(session)!!
+        val phrase = "does not indicate that you were at this office"
+        assertTrue(row.detail.contains(phrase))
+        assertEquals("Review this signal.", line)
+        assertEquals(1, (row.detail + " " + line).windowed(phrase.length).count { it == phrase })
+    }
+
+    @Test fun orphanExitKeepsOtherBlockingCues() {
+        val session = Session("session:x", office.id, null, Instant.parse("2026-09-23T10:00:00Z"), setOf("x"),
+            Confidence.LOW, setOf(ReviewReason.MISSING_ENTER, ReviewReason.UNCONFIRMED_BOUNDARY))
+        assertEquals("Review this signal. ${timelineReviewCue(ReviewReason.UNCONFIRMED_BOUNDARY)}", timelineReviewLine(session))
+    }
+
+    @Test fun startedSessionReviewLineIsUnchangedAndBenignReasonsStaySilent() {
+        val start = Instant.parse("2026-09-23T09:00:00Z")
+        val missing = Session("session:a", office.id, start, start.plusSeconds(3600), setOf("a"),
+            Confidence.LOW, setOf(ReviewReason.MISSING_ENTER))
+        assertEquals("This session needs review. ${timelineReviewCue(ReviewReason.MISSING_ENTER)}", timelineReviewLine(missing))
+        val open = Session("session:b", office.id, start, null, setOf("b"), Confidence.MEDIUM,
+            setOf(ReviewReason.OPEN_SESSION, ReviewReason.REPEATED_EXIT))
+        assertNull(timelineReviewLine(open))
+    }
 }
