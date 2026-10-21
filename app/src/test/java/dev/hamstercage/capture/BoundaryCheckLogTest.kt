@@ -50,12 +50,15 @@ class BoundaryCheckLogTest {
 
     @Test fun freshnessGateNamesWhichRuleFailed() {
         val requested = t0.toEpochMilli()
+        assertNull(fixFreshnessFailure(requested - 5_000, requested - 10_000, 5_000, 5_000_000_000, true))
         assertEquals(BoundaryCheckOutcome.FIX_CACHED, fixFreshnessFailure(requested - 1, requested, 5_000, 5_000_000_000, true))
-        assertEquals(BoundaryCheckOutcome.FIX_STALE, fixFreshnessFailure(requested, requested, 30_001, 5_000_000_000, true))
-        assertEquals(BoundaryCheckOutcome.FIX_STALE, fixFreshnessFailure(requested, requested, -1, 5_000_000_000, true))
-        assertEquals(BoundaryCheckOutcome.FIX_STALE, fixFreshnessFailure(requested, requested, 5_000, 30_000_000_001, true))
-        assertEquals(BoundaryCheckOutcome.FIX_NO_ACCURACY, fixFreshnessFailure(requested, requested, 5_000, 5_000_000_000, false))
-        assertNull(fixFreshnessFailure(requested, requested, 30_000, 30_000_000_000, true))
+        assertEquals(BoundaryCheckOutcome.FIX_STALE, fixFreshnessFailure(requested + 1, requested, 30_001, 30_001_000_000, true))
+        assertEquals(BoundaryCheckOutcome.FIX_STALE, fixFreshnessFailure(requested + 1, requested, -1, 5_000_000_000, true))
+        assertEquals(BoundaryCheckOutcome.FIX_STALE, fixFreshnessFailure(requested + 1, requested, 5_000, 30_000_000_001, true))
+        assertEquals(BoundaryCheckOutcome.FIX_STALE, fixFreshnessFailure(requested, requested - 1,
+            5_000, 7_000_000_000, true))
+        assertEquals(BoundaryCheckOutcome.FIX_NO_ACCURACY, fixFreshnessFailure(requested + 1, requested, 5_000, 5_000_000_000, false))
+        assertNull(fixFreshnessFailure(requested + 1, requested, 30_000, 30_000_000_000, true))
     }
 
     // Review finding 2: the deadline label must reflect when the worker began, while the stop

@@ -19,6 +19,13 @@ class ExitVerificationTest {
             accuracyMeters = if (source == "PLAY_SERVICES_GEOFENCE") null else 15f)
     private val enter = fact("enter", Transition.ENTER, 0)
     private val exit = fact("exit", Transition.EXIT, 120)
+
+    @Test fun repeatedCachedInsideFixCannotSupplyFourIndependentSamples() {
+        val repeated = (1..4).map { fact("repeat-$it", Transition.PRESENCE, 124, EXIT_VERIFY_INSIDE) }
+        val result = state(listOf(enter, exit) + repeated, 126)
+        assertTrue(result.first.rejectedExitIds.isEmpty())
+        assertEquals(setOf("exit"), result.first.unconfirmedExitIds)
+    }
     private fun state(facts: List<RecordedEvent>, minute: Long) = AppSnapshot(
         listOf(office), facts, emptyList(), emptyList(), Policy())
             .let { it.input(zero.plusSeconds(minute * 60)) to it.derive(zero.plusSeconds(minute * 60)) }

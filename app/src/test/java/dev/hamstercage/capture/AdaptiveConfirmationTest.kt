@@ -93,6 +93,32 @@ class AdaptiveConfirmationTest {
             event("newer", "a", Transition.ENTER, 1))))
     }
 
+    @Test fun adaptiveFixCannotClassifyAnOfficeChangedWhileLocationWasRequested() {
+        val a = Office("a", "A", 0.0, 0.0)
+        val b = Office("b", "B", 1.0, 1.0)
+        val initial = listOf(a, b)
+        val versions = mapOf("a" to 1L, "b" to 1L)
+        assertTrue(sameAdaptiveOfficeConfiguration(initial, versions, initial, versions))
+        assertFalse(sameAdaptiveOfficeConfiguration(initial, versions, initial + Office("c", "C", 2.0, 2.0),
+            versions + ("c" to 1L)))
+        assertFalse(sameAdaptiveOfficeConfiguration(initial, versions, listOf(a, b.copy(radiusMeters = 250f)),
+            versions + ("b" to 2L)))
+        assertFalse(sameAdaptiveOfficeConfiguration(initial, versions, initial, versions + ("b" to 2L)))
+    }
+
+    @Test fun lateOutsideFixAfterSettledExitDoesNotClaimAnObservationWasWritten() {
+        val office = Office("a", "A", 0.0, 0.0)
+        val facts = listOf(event("enter", "a", Transition.ENTER, -3600),
+            event("exit", "a", Transition.EXIT),
+            event("outside-1", "a", Transition.ABSENCE, 60, EXIT_VERIFY_OUTSIDE),
+            event("outside-2", "a", Transition.ABSENCE, 120, EXIT_VERIFY_OUTSIDE))
+        val snapshot = AppSnapshot(listOf(office), facts, emptyList(), emptyList(), Policy())
+        val late = at.plusSeconds(7200)
+        val recovery = reconciliationFacts(snapshot, CoverageLedger(), late, late.minusSeconds(5), null)
+        assertTrue(recovery.isEmpty())
+        assertEquals(BoundaryCheckOutcome.SETTLED_BEFORE_FIX, adaptiveRecordedOutcome(recovery, null))
+    }
+
     @Test fun approximateLocationLocationOffAndOptOutCannotRequestFix() {
         val ready = LocationSetup(true, true, true, true, true)
         assertTrue(canRequestAdaptiveFix(ready, true, true, RegistrationStatus.ACTIVE))
@@ -148,6 +174,18 @@ class AdaptiveConfirmationTest {
                 AdaptiveConfirmation.delaySeconds(Transition.EXIT, it)
             })
         assertEquals(45L, AdaptiveConfirmation.delaySeconds(Transition.ENTER, 1))
+        assertEquals(3, nextExitSlot(at, at.plusSeconds(149)))
+        assertEquals(4, nextExitSlot(at, at.plusSeconds(150)))
+        assertEquals(null, nextExitSlot(at, at.plusSeconds(271)))
+        val candidate = AdaptiveConfirmation.Candidate("exit", "a", 7, "0".repeat(64), listOf("a"))
+        assertFalse(lateRecoveryAllowed(candidate))
+        assertTrue(lateRecoveryAllowed(candidate.copy(attempt = 5)))
+        assertTrue(lateRecoveryAllowed(candidate.copy(bounded = true)))
+        assertTrue(lateRecoveryAllowed(candidate.copy(bounded = true, attempt = 3)))
+        assertTrue(canRecoverLateFix(candidate.copy(bounded = true, attempt = 5),
+            at, at.plusSeconds(301)))
+        assertFalse(canRecoverLateFix(candidate.copy(attempt = 3),
+            at, at.plusSeconds(220)))
     }
 
     @Test fun oldPreRecoveryVisitGetsFixTimeSplitInsteadOfAdaptiveContinuity() {

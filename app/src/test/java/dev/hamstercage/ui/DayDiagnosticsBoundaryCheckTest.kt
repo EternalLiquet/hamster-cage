@@ -3,6 +3,7 @@ package dev.hamstercage.ui
 import dev.hamstercage.capture.BoundaryCheckEntry
 import dev.hamstercage.capture.BoundaryCheckOutcome
 import dev.hamstercage.capture.CaptureStatus
+import dev.hamstercage.capture.CoverageLedger
 import dev.hamstercage.data.AppSnapshot
 import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.domain.*
@@ -83,6 +84,28 @@ class DayDiagnosticsBoundaryCheckTest {
         assertTrue(unknown, unknown.contains("\"boundaryCheckDiagnostics\":null,\"boundaryChecks\":[]"))
         val empty = dayDiagnostics(data, day, now, null, CaptureStatus(), "test", boundaryChecks = emptyList()).json
         assertTrue(empty, empty.contains("\"attemptCount\":0,\"oldestRetainedCheckAt\":null,\"missingAttemptOutcome\":\"UNKNOWN\""))
+    }
+
+    @Test fun delayedIncludedCheckDoesNotExposeUnrelatedCurrentCaptureTime() {
+        val delayedAt = "2026-10-21T12:00:00Z"
+        val unrelatedAt = "2026-10-21T13:12:00Z"
+        val coverage = CoverageLedger(lastHealthyAt = Instant.parse(unrelatedAt),
+            lastObservationAt = Instant.parse(unrelatedAt))
+        val capture = CaptureStatus(lastVerifiedAt = Instant.parse(unrelatedAt), lastCheckResult = "Inside office")
+        val report = dayDiagnostics(data, day, Instant.parse("2026-10-21T14:00:00Z"), coverage, capture,
+            "test", boundaryChecks = listOf(check("exit-secret", 1, delayedAt, BoundaryCheckOutcome.STARTED_PAST_DEADLINE)))
+        val json = report.json
+
+        // The selected fact's own late check remains exact and visible in the preview span.
+        assertEquals(LocalDate.of(2026, 10, 21), report.lastIncludedDay)
+        assertTrue(json, json.contains("\"startedAt\":\"$delayedAt\""))
+        assertTrue(json, json.contains("\"oldestRetainedCheckAt\":\"afterSpan\""))
+        // It does not widen the precision granted to unrelated present-day capture state.
+        assertFalse(json, json.contains(unrelatedAt))
+        assertFalse(json, json.contains("Inside office"))
+        assertTrue(json, json.contains("\"lastVerifiedAt\":\"afterSpan\",\"lastCheckResult\":null"))
+        assertTrue(json, json.contains("\"lastHealthyAt\":\"afterSpan\""))
+        assertTrue(json, json.contains("\"lastObservationAt\":\"afterSpan\""))
     }
 
     @Test fun checksNeverChangeAttendanceResults() {

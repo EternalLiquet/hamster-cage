@@ -39,13 +39,13 @@ class AdaptiveSchedulingIntegrationTest {
         try {
             val version = AdaptiveConfirmation.fingerprint(mapOf("synthetic-office" to 1L))
             AdaptiveConfirmation.schedule(context, event("old", 0), 0, version, listOf("synthetic-office"))
-            val first = awaitActive("old", AdaptiveConfirmation.MAX_EXIT_ATTEMPTS)
+            val first = awaitActive("old", 1)
             assertEquals("First enqueue by tag: ${diagnostics()}",
-                AdaptiveConfirmation.MAX_EXIT_ATTEMPTS, first.size)
+                1, first.size)
             AdaptiveConfirmation.schedule(context, event("new", 10), 0, version, listOf("synthetic-office"))
-            val latest = awaitActive("new", AdaptiveConfirmation.MAX_EXIT_ATTEMPTS)
+            val latest = awaitActive("new", 1)
             assertEquals("Replacement enqueue by tag: ${diagnostics()}",
-                AdaptiveConfirmation.MAX_EXIT_ATTEMPTS, latest.size)
+                1, latest.size)
             assertEquals(0, active().count { "candidate:old" in it.tags })
             assertEquals(0, first.map { it.id }.toSet().intersect(latest.map { it.id }.toSet()).size)
         } finally {

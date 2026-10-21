@@ -94,7 +94,7 @@ internal fun recoveryObservationGate(coverage: CoverageLedger, observedAt: Insta
     if (coverage.registration != RegistrationStatus.ACTIVE || coverage.outageStartedAt != null ||
         coverage.recoveryBoundaryAt == null || coverage.policyZoneId != zone)
         return ReconcileOutcome.NOT_REGISTERED
-    if (observedAt < requestedAt || observedAt < coverage.recoveryBoundaryAt ||
+    if (observedAt <= coverage.recoveryBoundaryAt ||
         !coverage.observed(observedAt).presenceConfirmed(now, zone)) return ReconcileOutcome.STALE
     return null
 }
@@ -119,7 +119,10 @@ class ForegroundReconciliation(private val context: Context,
         if (!setup.fineLocation) return ReconcileOutcome.NEEDS_PRECISE
         if (!setup.locationEnabled) return ReconcileOutcome.LOCATION_OFF
         if (CaptureHealth.state.value.registration != RegistrationStatus.ACTIVE) return ReconcileOutcome.NOT_REGISTERED
-        val requestedAt = Instant.now()
+        val initialReset = PrivacyResetStore.read(application) as? PrivacyResetState.Idle
+            ?: return ReconcileOutcome.UNAVAILABLE
+        val initialState = repository.state.first() as? StorageState.Ready ?: return ReconcileOutcome.UNAVAILABLE
+        val initialVersions = repository.officeVersions(initialState.snapshot.offices.map { it.id })
         val fix = try { location.captureFix(freshAfterRequest = true) } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -128,7 +131,8 @@ class ForegroundReconciliation(private val context: Context,
                 else ReconcileOutcome.UNAVAILABLE
         }
         return try { withTimeout(8_000) { CaptureWriteGate.mutex.withLock {
-            if (!isForeground() || PrivacyResetStore.read(application) !is PrivacyResetState.Idle)
+            val reset = PrivacyResetStore.read(application) as? PrivacyResetState.Idle
+            if (!isForeground() || reset?.generation != initialReset.generation)
                 return@withLock ReconcileOutcome.UNAVAILABLE
             val current = LocationPermissions.read(application)
             if (!current.fineLocation) return@withLock ReconcileOutcome.NEEDS_PRECISE
@@ -136,18 +140,23 @@ class ForegroundReconciliation(private val context: Context,
             if (CaptureHealth.state.value.registration != RegistrationStatus.ACTIVE)
                 return@withLock ReconcileOutcome.NOT_REGISTERED
             val state = repository.state.first() as? StorageState.Ready ?: return@withLock ReconcileOutcome.UNAVAILABLE
+            if (state.snapshot.offices != initialState.snapshot.offices ||
+                repository.officeVersions(state.snapshot.offices.map { it.id }) != initialVersions)
+                return@withLock ReconcileOutcome.STALE
             val now = Instant.now()
             val observedAt = Instant.ofEpochMilli(fix.time)
             val age = SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos
             val wallAge = now.toEpochMilli() - fix.time
             val accuracy = fix.accuracy.takeIf { fix.hasAccuracy() && it.isFinite() && it in 0f..10000f }
-            if (age !in 0..30_000_000_000L || wallAge !in 0..30_000L) {
+            if (!fix.hasAccuracy()) return@withLock ReconcileOutcome.INACCURATE
+            if (fixFreshnessFailure(fix.time, (CoverageStore.state(application).first()
+                    .recoveryBoundaryAt?.toEpochMilli() ?: Long.MAX_VALUE),
+                    wallAge, age, fix.hasAccuracy()) != null) {
                 MonitoringStore.record(application, "Stale location; retry later", accuracyMeters = accuracy)
                 return@withLock ReconcileOutcome.STALE
             }
-            if (!fix.hasAccuracy()) return@withLock ReconcileOutcome.INACCURATE
             val coverage = CoverageStore.state(application).first()
-            recoveryObservationGate(coverage, observedAt, requestedAt, now, state.snapshot.policy.zoneId)
+            recoveryObservationGate(coverage, observedAt, observedAt, now, state.snapshot.policy.zoneId)
                 ?.let { return@withLock it }
             val (outcome, office) = decidePresence(state.snapshot.offices, fix.latitude,
                 fix.longitude, fix.accuracy, wallAge)
