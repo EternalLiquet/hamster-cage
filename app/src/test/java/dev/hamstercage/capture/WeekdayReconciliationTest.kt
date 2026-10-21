@@ -146,7 +146,14 @@ class WeekdayReconciliationTest {
         val enter = RawEvent("enter-a", office.id, Transition.ENTER, time("2026-09-28T13:00:00Z"))
         val exit = RawEvent("exit-a", office.id, Transition.EXIT, time("2026-09-28T14:00:00Z"))
         val late = exit.at.plusSeconds(7200)
-        val before = snapshot(enter, exit)
+        val receiptTimed = snapshot(enter, exit)
+        val receiptFacts = reconciliationFacts(receiptTimed, ledger(exit.at), late.plusSeconds(5), late, office.id)
+        val receiptUpdated = receiptTimed.copy(eventEvidence = receiptTimed.eventEvidence + receiptFacts)
+        assertEquals(dev.hamstercage.domain.DepartureStatus.NEEDS_REVIEW,
+            dev.hamstercage.domain.AttendanceEngine.departure(receiptUpdated.input(late.plusSeconds(600)),
+                receiptUpdated.derive(late.plusSeconds(600)), dev.hamstercage.domain.TargetWindow.TODAY).status)
+        val before = snapshotEvidence(RecordedEvent(enter, enter.at, enter.at),
+            RecordedEvent(exit, exit.at, exit.at))
         val facts = reconciliationFacts(before, ledger(exit.at), late.plusSeconds(5), late, office.id)
         assertEquals(listOf(Transition.PRESENCE), facts.map { it.event.transition })
         val result = before.copy(eventEvidence = before.eventEvidence + facts).derive(late.plusSeconds(600))

@@ -89,7 +89,8 @@ internal fun canRequestReconciliationFix(now: Instant, zone: ZoneId, enabled: Bo
 /** Current-state evidence only. ABSENCE leaves an old, unobserved span for review. */
 internal fun reconciliationFacts(snapshot: AppSnapshot, coverage: CoverageLedger, now: Instant,
     fixAt: Instant, officeId: String?, accuracyMeters: Float? = null): List<RecordedEvent> {
-    val open = snapshot.derive(now).sessions.filter { it.isOpen && it.manualSessionId == null }
+    val active = snapshot.derive(now).sessions.filter { it.isOpen }
+    val open = active.filter { it.manualSessionId == null }
     // An EXIT can close the derived session before confirmation arrives. A later
     // decisive outside fix must still resolve that final uncertain boundary.
     val unconfirmedIds = snapshot.input(now).unconfirmedExitIds
@@ -109,6 +110,14 @@ internal fun reconciliationFacts(snapshot: AppSnapshot, coverage: CoverageLedger
             // routine inside check is the evidence that bounds the visit's credit.
             facts += RecordedEvent(RawEvent(HamsterRepository.newId(), officeId,
                 Transition.PRESENCE, fixAt), now, fixAt, PRESENCE_CORROBORATION, accuracyMeters)
+          }
+          ReconcileOutcome.OVERLAPPING_OFFICES -> {
+            // A decisive fix in B closes the sole open A at the same observed time.
+            // Multiple or manual open visits remain ambiguous.
+            if (active.size != 1 || open.size != 1 || open.single().officeId !in absent)
+                return emptyList()
+            facts += RecordedEvent(RawEvent(HamsterRepository.newId(), officeId,
+                Transition.PRESENCE, fixAt), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters)
           }
           else -> return emptyList()
         }
