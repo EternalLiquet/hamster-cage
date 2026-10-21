@@ -123,21 +123,24 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "unsafeRecoveryPresence" to input.unsafeRecoveryPresenceIds)
     fun rolesOf(id: String) = engineRoles.filterValues { id in it }.keys.toList()
     fun localDay(at: Instant) = at.atZone(zone).toLocalDate()
-    val includedDays = evidence.flatMap { listOfNotNull(it.event.at, it.receivedAt, it.observedLocationAt) }.map(::localDay) +
+    val factContextDays = evidence.flatMap { listOfNotNull(it.event.at, it.receivedAt, it.observedLocationAt) }.map(::localDay) +
         detail.manualSessions.flatMap { listOfNotNull(it.start, it.end, it.createdAt) }.map(::localDay) +
         detail.corrections.flatMap { listOfNotNull(it.start, it.end, it.createdAt) }.map(::localDay) +
         detail.sessions.flatMap { listOfNotNull(it.start, it.end) }.map(::localDay) +
         includedAttempts.flatMap { listOfNotNull(it.startedAt, it.completedAt) }.map(::localDay) +
         includedCycles.flatMap { listOfNotNull(it.startedAt, it.completedAt) }
             .filter { it >= lookbackStart }.map(::localDay) +
-        includedChecks.flatMap { listOf(it.startedAt, it.finishedAt) }.map(::localDay) + date
+        date
+    val includedDays = factContextDays + includedChecks.flatMap { listOf(it.startedAt, it.finishedAt) }.map(::localDay)
     val firstIncludedDay = includedDays.min()
     val lastIncludedDay = includedDays.max()
-    // Capture status describes the device now, not the selected day. A time outside the span
-    // shown in the preview is reduced to its side of that span so the file discloses no
-    // undisclosed attendance timing (for example, this morning's in-office check).
-    val spanStart = firstIncludedDay.atStartOfDay(zone).toInstant()
-    val spanEnd = lastIncludedDay.plusDays(1).atStartOfDay(zone).toInstant()
+    // A delayed check linked to a selected fact may be shown exactly, but it must not make
+    // unrelated current capture state exact. Anchor that coarsening to the attendance and
+    // registration context, independently of the check timestamps in the preview span.
+    val factContextStartDay = factContextDays.min()
+    val factContextEndDay = factContextDays.max()
+    val spanStart = factContextStartDay.atStartOfDay(zone).toInstant()
+    val spanEnd = factContextEndDay.plusDays(1).atStartOfDay(zone).toInstant()
     fun withinSpan(at: Instant?): Any? = when {
         at == null -> null
         at < spanStart -> "beforeSpan"
@@ -146,8 +149,8 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
     }
     fun withinSpan(day: LocalDate?): Any? = when {
         day == null -> null
-        day < firstIncludedDay -> "beforeSpan"
-        day > lastIncludedDay -> "afterSpan"
+        day < factContextStartDay -> "beforeSpan"
+        day > factContextEndDay -> "afterSpan"
         else -> day.toString()
     }
     val checkInSpan = capture.lastVerifiedAt?.let { it >= spanStart && it < spanEnd } == true
@@ -165,7 +168,7 @@ internal fun dayDiagnostics(snapshot: AppSnapshot, date: LocalDate, now: Instant
         "policyZone" to zone.id,
         "windowStartInclusive" to start.toString(),
         "windowEndExclusive" to end.toString(),
-        "contextRule" to "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day; for the latest EXIT in the final two hours, the earliest same-office return and earliest cross-office presence within two hours after local midnight. Registration attempts started on the selected day, their cycles, and for every office with retained attempts its latest attempt within $REGISTRATION_LOOKBACK_DAYS days before the selected day, including offices without callbacks. Includes subsequent cycles through the selected day and the latest preceding cycle within that lookback even if it has no attempts; parent cycle times before the lookback are coarsened. Capture times outside the evidence date span are written as beforeSpan or afterSpan.",
+        "contextRule" to "Selected day, linked session boundary facts, at most one preceding fact per related office from the previous local day; for the latest EXIT in the final two hours, the earliest same-office return and earliest cross-office presence within two hours after local midnight. Registration attempts started on the selected day, their cycles, and for every office with retained attempts its latest attempt within $REGISTRATION_LOOKBACK_DAYS days before the selected day, including offices without callbacks. Includes subsequent cycles through the selected day and the latest preceding cycle within that lookback even if it has no attempts; parent cycle times before the lookback are coarsened. Linked boundary checks may extend the preview span, but unrelated capture times outside the attendance and registration context are written as beforeSpan or afterSpan.",
         "evaluatedAt" to now.toString(),
         "offices" to officeIds.map { id -> snapshot.offices.find { it.id == id }?.let { office ->
             linkedMapOf<String, Any?>("alias" to officeAlias[id], "radiusMeters" to office.radiusMeters,

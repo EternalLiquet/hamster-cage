@@ -249,6 +249,11 @@ internal fun requiresAdaptiveRecoverySplit(snapshot: AppSnapshot, coverage: Cove
 internal data class CheckReport(val outcome: BoundaryCheckOutcome, val accuracyMeters: Float? = null,
     val fixAgeMs: Long? = null)
 
+internal fun adaptiveRecordedOutcome(facts: List<RecordedEvent>, insideOfficeId: String?): BoundaryCheckOutcome =
+    if (facts.isEmpty()) BoundaryCheckOutcome.SETTLED_BEFORE_FIX
+    else if (insideOfficeId == null) BoundaryCheckOutcome.RECORDED_OUTSIDE
+    else BoundaryCheckOutcome.RECORDED_INSIDE
+
 /** Why a fix failed the freshness gate, or null when it passed. Order matches the original single check. */
 internal fun fixFreshnessFailure(fixTimeMs: Long, requestedAtMs: Long, wallAgeMs: Long, elapsedAgeNanos: Long,
     hasAccuracy: Boolean): BoundaryCheckOutcome? = when {
@@ -269,8 +274,7 @@ internal fun nextExitSlot(receivedAt: Instant, now: Instant): Int? =
     }
 
 internal fun lateRecoveryAllowed(candidate: AdaptiveConfirmation.Candidate): Boolean =
-    candidate.bounded && candidate.attempt == 1 ||
-        !candidate.bounded && candidate.attempt == AdaptiveConfirmation.MAX_EXIT_ATTEMPTS
+    candidate.bounded || candidate.attempt == AdaptiveConfirmation.MAX_EXIT_ATTEMPTS
 
 /** A final in-window request may finish after the deadline: use it for current state only. */
 internal fun canRecoverLateFix(candidate: AdaptiveConfirmation.Candidate, receivedAt: Instant,
@@ -457,9 +461,13 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
                 adaptiveFacts(batch.map { it.event.officeId }, office?.id, observedAt, now, fix.accuracy,
                     recoveryPresence = recovery)
             }
+            val recordedOutcome = adaptiveRecordedOutcome(facts, office?.id)
+            if (facts.isEmpty()) {
+                report = CheckReport(recordedOutcome, accuracy, loggedAge)
+                return@withLock
+            }
             repository.appendRawEvents(facts)
-            report = CheckReport(if (office == null) BoundaryCheckOutcome.RECORDED_OUTSIDE
-                else BoundaryCheckOutcome.RECORDED_INSIDE, accuracy, loggedAge)
+            report = CheckReport(recordedOutcome, accuracy, loggedAge)
             CoverageStore.change(context) { it.observed(observedAt) }
             MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", observedAt,
                 fix.accuracy)
