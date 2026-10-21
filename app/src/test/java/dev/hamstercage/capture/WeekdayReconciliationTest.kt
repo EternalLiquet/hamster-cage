@@ -134,6 +134,31 @@ class WeekdayReconciliationTest {
                 fixAt.atZone(zone).toLocalDate()).creditedMinutes, 0.0)
     }
 
+    @Test fun fixOlderThanInterveningBoundaryCannotCreatePresence() {
+        val enter = RawEvent("enter-a", office.id, Transition.ENTER, time("2026-09-28T13:00:00Z"))
+        val exit = RawEvent("exit-a", office.id, Transition.EXIT, time("2026-09-28T14:00:00Z"))
+        val fixAt = exit.at.minusSeconds(10)
+        assertTrue(reconciliationFacts(snapshot(enter, exit), ledger(enter.at),
+            exit.at.plusSeconds(5), fixAt, office.id).isEmpty())
+    }
+
+    @Test fun lateInsideRecoveryStartsNewVisitWithoutCreditingUnknownGap() {
+        val enter = RawEvent("enter-a", office.id, Transition.ENTER, time("2026-09-28T13:00:00Z"))
+        val exit = RawEvent("exit-a", office.id, Transition.EXIT, time("2026-09-28T14:00:00Z"))
+        val late = exit.at.plusSeconds(7200)
+        val before = snapshot(enter, exit)
+        val facts = reconciliationFacts(before, ledger(exit.at), late.plusSeconds(5), late, office.id)
+        assertEquals(listOf(Transition.PRESENCE), facts.map { it.event.transition })
+        val result = before.copy(eventEvidence = before.eventEvidence + facts).derive(late.plusSeconds(600))
+        assertEquals(late, result.sessions.last().start)
+        assertTrue(result.intervals.none { it.start < late && it.end > exit.at })
+        val updated = before.copy(eventEvidence = before.eventEvidence + facts)
+        val estimate = dev.hamstercage.domain.AttendanceEngine.departure(
+            updated.input(late.plusSeconds(600)), result, dev.hamstercage.domain.TargetWindow.TODAY)
+        assertEquals(dev.hamstercage.domain.DepartureStatus.ESTIMATED, estimate.status)
+        assertTrue(dev.hamstercage.domain.EstimateAssumption.EARLIER_EXIT_UNCONFIRMED in estimate.assumptions)
+    }
+
     @Test fun falseFinalExitCannotLeaveCreditStoppedAfterLaterInsideCheck() {
         val enter = RawEvent("enter", office.id, Transition.ENTER, time("2026-09-28T13:00:00Z"))
         val exit = RawEvent("exit", office.id, Transition.EXIT, time("2026-09-28T14:00:00Z"))

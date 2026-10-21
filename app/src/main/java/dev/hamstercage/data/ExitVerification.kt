@@ -52,7 +52,7 @@ internal fun exitVerificationState(evidence: List<RecordedEvent>, now: Instant):
         fun hasSustainedInside(): Boolean {
             if (exits.isEmpty() || outside.isNotEmpty()) return false
             val lastExit = exits.maxOf { it.event.at }
-            val after = inside.map { it.event.at }.filter { it > lastExit }.sorted()
+            val after = inside.map { it.event.at }.filter { it > lastExit }.distinct().sorted()
             if (after.size < EXIT_VERIFICATION_MIN_INSIDE) return false
             var previous = lastExit
             after.forEach { at ->

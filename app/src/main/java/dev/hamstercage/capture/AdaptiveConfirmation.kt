@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -45,6 +46,7 @@ internal object AdaptiveConfirmation {
     private const val FINGERPRINT = "batch-versions"
     private const val OFFICES = "batch-offices"
     private const val ATTEMPT = "attempt"
+    private const val BOUNDED = "bounded"
     internal const val MAX_EXIT_ATTEMPTS = 5
     internal val EXIT_WINDOW_SECONDS = EXIT_VERIFICATION_WINDOW.seconds
 
@@ -52,7 +54,8 @@ internal object AdaptiveConfirmation {
         if (transition == Transition.EXIT) 30L + (attempt - 1) * 60L else 45L
 
     data class Candidate(val eventId: String, val officeId: String, val generation: Long,
-        val versionsFingerprint: String, val officeIds: List<String>, val attempt: Int = 1)
+        val versionsFingerprint: String, val officeIds: List<String>, val attempt: Int = 1,
+        val bounded: Boolean = false)
     data class DeliveryBatch(val events: List<RecordedEvent>, val representative: RecordedEvent)
 
     fun selectDelivery(observations: List<RecordedEvent>, inserted: Set<String>,
@@ -71,15 +74,14 @@ internal object AdaptiveConfirmation {
             .setInputData(Data.Builder().putString(ID, event.event.id).putString(OFFICE, event.event.officeId)
                 .putLong(GENERATION, generation).putString(FINGERPRINT, versionsFingerprint)
                 .putStringArray(OFFICES, officeIds.distinct().sorted().toTypedArray())
-                .putInt(ATTEMPT, attempt).build())
+                .putInt(ATTEMPT, attempt).putBoolean(BOUNDED, event.event.transition == Transition.EXIT).build())
             .setInitialDelay(delaySeconds(event.event.transition, attempt), TimeUnit.SECONDS)
             .addTag(TAG).addTag("candidate:${event.event.id}").build()
-        val count = if (event.event.transition == Transition.EXIT) MAX_EXIT_ATTEMPTS else 1
-        val requests = (1..count).map(::request)
+        val requests = listOf(request(1))
         // The receiver gate serializes calls. Awaiting WorkManager's commit prevents
         // a delayed old enqueue from replacing the newer candidate out of order.
-        // Independent absolute delays avoid accumulating each prior fix's runtime.
-        // Android can still delay or bunch these inexact jobs; the worker checks the deadline.
+        // One bounded worker waits between sparse one-shot fixes once it starts.
+        // Android can still delay or stop it; periodic checks remain a backstop.
         WorkManager.getInstance(context).enqueueUniqueWork(TAG, ExistingWorkPolicy.REPLACE, requests)
             .result.get(3, TimeUnit.SECONDS)
     }
@@ -96,7 +98,8 @@ internal object AdaptiveConfirmation {
         return if (id.isBlank() || office.isBlank() || generation < 0 || fingerprint.length != 64 ||
             officeIds.isEmpty() || office !in officeIds || officeIds.any { it.isBlank() } ||
             attempt !in 1..MAX_EXIT_ATTEMPTS) null
-            else Candidate(id, office, generation, fingerprint, officeIds, attempt)
+            else Candidate(id, office, generation, fingerprint, officeIds, attempt,
+                data.getBoolean(BOUNDED, false))
     }
 
     fun batch(events: List<RecordedEvent>, candidateId: String,
@@ -243,11 +246,25 @@ internal data class CheckReport(val outcome: BoundaryCheckOutcome, val accuracyM
 /** Why a fix failed the freshness gate, or null when it passed. Order matches the original single check. */
 internal fun fixFreshnessFailure(fixTimeMs: Long, requestedAtMs: Long, wallAgeMs: Long, elapsedAgeNanos: Long,
     hasAccuracy: Boolean): BoundaryCheckOutcome? = when {
-    fixTimeMs < requestedAtMs -> BoundaryCheckOutcome.FIX_CACHED
+    fixTimeMs <= requestedAtMs -> BoundaryCheckOutcome.FIX_CACHED
     wallAgeMs !in 0..30_000 || elapsedAgeNanos !in 0..30_000_000_000L -> BoundaryCheckOutcome.FIX_STALE
+    // The two clocks are sampled separately; a difference above one second means the
+    // epoch timestamp and monotonic age cannot be trusted as the same observation.
+    kotlin.math.abs(wallAgeMs - elapsedAgeNanos / 1_000_000L) > 1_000 ->
+        BoundaryCheckOutcome.FIX_STALE
     !hasAccuracy -> BoundaryCheckOutcome.FIX_NO_ACCURACY
     else -> null
 }
+
+/** Skip missed absolute slots rather than firing cached/bunched requests back-to-back. */
+internal fun nextExitSlot(receivedAt: Instant, now: Instant): Int? =
+    (2..AdaptiveConfirmation.MAX_EXIT_ATTEMPTS).firstOrNull { slot ->
+        receivedAt.plusSeconds(AdaptiveConfirmation.delaySeconds(Transition.EXIT, slot)) > now
+    }
+
+internal fun lateRecoveryAllowed(candidate: AdaptiveConfirmation.Candidate): Boolean =
+    candidate.bounded && candidate.attempt == 1 ||
+        !candidate.bounded && candidate.attempt == AdaptiveConfirmation.MAX_EXIT_ATTEMPTS
 
 /**
  * Whether an EXIT check must stop before requesting a fix, and how to describe it. Enforcement is
@@ -265,22 +282,40 @@ internal fun deadlineStop(startedAt: Instant, checkedAt: Instant, deadline: Inst
 class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val candidate = AdaptiveConfirmation.candidate(inputData) ?: return Result.success()
-        val startedAt = Instant.now()
-        // Whatever this attempt found, skipped or failed on (for example a busy capture gate), the
-        // last one re-arms a still-undecided EXIT so the platform can report the real departure
-        // later instead of staying "outside". Cancellation of the worker itself still propagates.
-        var failure: Exception? = null
-        try { check(candidate, startedAt) } catch (cancelled: CancellationException) {
-            if (!currentCoroutineContext().isActive) throw cancelled
-            failure = cancelled
-        } catch (error: Exception) { failure = error }
-        // Recorded before the re-arm so the row describes this check, not the refresh. After an
-        // exception the report is the last stage reached (ERROR, WRITE_FAILED or a recorded result).
-        report?.let { finished -> BoundaryCheckLog.record(applicationContext, candidate.generation,
-            BoundaryCheckEntry(candidate.eventId, candidate.attempt, startedAt, maxOf(startedAt, Instant.now()),
-                finished.outcome, finished.accuracyMeters, finished.fixAgeMs)) }
-        if (candidate.attempt == AdaptiveConfirmation.MAX_EXIT_ATTEMPTS) resyncIfUnresolved(applicationContext, candidate)
-        failure?.let { throw it }
+        val snapshot = (HamsterRepository.get(applicationContext).state.first() as? StorageState.Ready)?.snapshot
+        val exit = AdaptiveConfirmation.batch(snapshot?.eventEvidence.orEmpty(), candidate.eventId,
+            candidate.officeIds).firstOrNull { it.event.transition == Transition.EXIT }
+        val bounded = candidate.bounded && exit != null
+        val exitReceived = exit?.receivedAt
+        val deadline = exitReceived?.plusSeconds(AdaptiveConfirmation.EXIT_WINDOW_SECONDS)
+        var attempt = candidate.attempt
+        while (true) {
+            val current = candidate.copy(attempt = attempt)
+            val startedAt = Instant.now()
+            try { check(current, startedAt) }
+            catch (cancelled: CancellationException) {
+                if (!currentCoroutineContext().isActive) throw cancelled
+                report = CheckReport(BoundaryCheckOutcome.ERROR)
+            } catch (_: Exception) { report = CheckReport(BoundaryCheckOutcome.ERROR) }
+            report?.let { finished -> BoundaryCheckLog.record(applicationContext, candidate.generation,
+                BoundaryCheckEntry(candidate.eventId, attempt, startedAt, maxOf(startedAt, Instant.now()),
+                    finished.outcome, finished.accuracyMeters, finished.fixAgeMs)) }
+            if (!bounded || exitReceived == null || deadline == null || Instant.now() >= deadline || report == null ||
+                report?.outcome in setOf(BoundaryCheckOutcome.SUPERSEDED_OR_CHANGED,
+                    BoundaryCheckOutcome.CHANGED_DURING_FIX, BoundaryCheckOutcome.MONITORING_OFF,
+                    BoundaryCheckOutcome.SETTLED_BEFORE_FIX, BoundaryCheckOutcome.NOT_AWAITING_VERIFICATION)) break
+            val slot = nextExitSlot(exitReceived, Instant.now()) ?: break
+            val target = exitReceived.plusSeconds(AdaptiveConfirmation.delaySeconds(Transition.EXIT, slot))
+            delay(Duration.between(Instant.now(), target).toMillis().coerceAtLeast(0))
+            attempt = slot
+        }
+        if (bounded && report != null && exitReceived != null) {
+            val rearmAt = exitReceived.plusSeconds(AdaptiveConfirmation.delaySeconds(Transition.EXIT,
+                AdaptiveConfirmation.MAX_EXIT_ATTEMPTS))
+            delay(Duration.between(Instant.now(), rearmAt).toMillis().coerceAtLeast(0))
+        }
+        if ((bounded && report != null) || candidate.attempt == AdaptiveConfirmation.MAX_EXIT_ATTEMPTS)
+            resyncIfUnresolved(applicationContext, candidate)
         return Result.success()
     }
 
@@ -320,8 +355,11 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
         val isExit = initialBatch.firstOrNull()?.event?.transition == Transition.EXIT
         val deadline = if (isExit) initialBatch.first().receivedAt.plusSeconds(AdaptiveConfirmation.EXIT_WINDOW_SECONDS)
             else null
-        deadlineStop(startedAt, Instant.now(), deadline)?.let { report = CheckReport(it); return }
-        if (isExit && initialBatch.none { it.event.id in initial.snapshot.input(Instant.now()).candidateExitIds }) {
+        val late = deadline != null && Instant.now() >= deadline && lateRecoveryAllowed(candidate)
+        deadlineStop(startedAt, Instant.now(), deadline)?.let {
+            if (!late) { report = CheckReport(it); return }
+        }
+        if (isExit && !late && initialBatch.none { it.event.id in initial.snapshot.input(Instant.now()).candidateExitIds }) {
             report = CheckReport(BoundaryCheckOutcome.NOT_AWAITING_VERIFICATION); return
         }
         if (eligibleAdaptiveBatch(initial.snapshot, candidate,
@@ -329,7 +367,6 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
                 MonitoringStore.read(context).enabled, true, setup, initialCoverage) == null) {
             report = CheckReport(BoundaryCheckOutcome.SUPERSEDED_OR_CHANGED); return
         }
-        val requestedAt = Instant.now()
         val fix = try { OfficeLocationServices(context).captureFix(freshAfterRequest = true) }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
@@ -363,7 +400,9 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             val age = SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos
             val accuracy = fix.accuracy.takeIf { fix.hasAccuracy() && it.isFinite() && it in 0f..10000f }
             val loggedAge = wallAge.takeIf { it >= 0 }
-            val stale = fixFreshnessFailure(fix.time, requestedAt.toEpochMilli(), wallAge, age, fix.hasAccuracy())
+            val boundaryMs = maxOf(batch.maxOf { it.event.at }.toEpochMilli(),
+                coverage.recoveryBoundaryAt?.toEpochMilli() ?: Long.MIN_VALUE)
+            val stale = fixFreshnessFailure(fix.time, boundaryMs, wallAge, age, fix.hasAccuracy())
             if (stale != null) {
                 MonitoringStore.record(context, "Boundary check stale or inaccurate", accuracyMeters = accuracy)
                 report = CheckReport(stale, accuracy, loggedAge)
@@ -380,7 +419,8 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
                 return@withLock
             }
             val observedAt = Instant.ofEpochMilli(fix.time)
-            if (deadline != null && observedAt > deadline) {
+            val lateFix = deadline != null && observedAt > deadline
+            if (lateFix && !late) {
                 MonitoringStore.record(context, "Boundary check delayed; later checks may recover",
                     accuracyMeters = accuracy)
                 report = CheckReport(BoundaryCheckOutcome.FIX_PAST_DEADLINE, accuracy, loggedAge)
@@ -388,11 +428,13 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             }
             // Judge whether the EXIT still awaits verification as of the fix's own observation,
             // so a check observed inside the window is kept even if committing it ran past it.
-            if (isExit && batch.none { it.event.id in snapshot.input(observedAt).candidateExitIds }) {
+            if (isExit && !lateFix && batch.none { it.event.id in snapshot.input(observedAt).candidateExitIds }) {
                 report = CheckReport(BoundaryCheckOutcome.SETTLED_BEFORE_FIX, accuracy, loggedAge)
                 return@withLock
             }
-            val facts = if (isExit) exitVerificationFactsFor(snapshot, coverage, batch, id, office?.id,
+            val facts = if (lateFix) reconciliationFacts(snapshot, coverage, now, observedAt,
+                office?.id, fix.accuracy)
+            else if (isExit) exitVerificationFactsFor(snapshot, coverage, batch, id, office?.id,
                 observedAt, now, fix.accuracy)
             else {
                 val recovery = office != null && requiresAdaptiveRecoverySplit(snapshot,

@@ -148,6 +148,14 @@ class AdaptiveConfirmationTest {
                 AdaptiveConfirmation.delaySeconds(Transition.EXIT, it)
             })
         assertEquals(45L, AdaptiveConfirmation.delaySeconds(Transition.ENTER, 1))
+        assertEquals(3, nextExitSlot(at, at.plusSeconds(149)))
+        assertEquals(4, nextExitSlot(at, at.plusSeconds(150)))
+        assertEquals(null, nextExitSlot(at, at.plusSeconds(271)))
+        val candidate = AdaptiveConfirmation.Candidate("exit", "a", 7, "0".repeat(64), listOf("a"))
+        assertFalse(lateRecoveryAllowed(candidate))
+        assertTrue(lateRecoveryAllowed(candidate.copy(attempt = 5)))
+        assertTrue(lateRecoveryAllowed(candidate.copy(bounded = true)))
+        assertFalse(lateRecoveryAllowed(candidate.copy(bounded = true, attempt = 3)))
     }
 
     @Test fun oldPreRecoveryVisitGetsFixTimeSplitInsteadOfAdaptiveContinuity() {

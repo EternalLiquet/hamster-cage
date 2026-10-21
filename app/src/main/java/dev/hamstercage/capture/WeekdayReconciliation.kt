@@ -99,14 +99,18 @@ internal fun reconciliationFacts(snapshot: AppSnapshot, coverage: CoverageLedger
     val facts = absent.map { id -> RecordedEvent(RawEvent(HamsterRepository.newId(), id,
         Transition.ABSENCE, fixAt), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters) }.toMutableList()
     if (officeId != null) {
-        if (canOpenFromObservation(snapshot, officeId, coverage, fixAt, now) != ReconcileOutcome.ALREADY_PRESENT) {
+        when (canOpenFromObservation(snapshot, officeId, coverage, fixAt, now)) {
+          null -> {
             facts += RecordedEvent(RawEvent(HamsterRepository.newId(), officeId,
                 Transition.PRESENCE, fixAt), now, fixAt, "BACKGROUND_LOCATION_RECONCILIATION", accuracyMeters)
-        } else if (needsPresenceCorroboration(snapshot, now, officeId)) {
+          }
+          ReconcileOutcome.ALREADY_PRESENT -> if (needsPresenceCorroboration(snapshot, now, officeId)) {
             // The platform may not report a real departure after a rejected EXIT, so this
             // routine inside check is the evidence that bounds the visit's credit.
             facts += RecordedEvent(RawEvent(HamsterRepository.newId(), officeId,
                 Transition.PRESENCE, fixAt), now, fixAt, PRESENCE_CORROBORATION, accuracyMeters)
+          }
+          else -> return emptyList()
         }
     }
     return facts
@@ -119,7 +123,8 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
         val repository = HamsterRepository.get(context)
         val initial = repository.state.first() as? StorageState.Ready ?: return Result.success()
         if (!insideReconciliationWindow(Instant.now(), initial.snapshot.policy.zoneId)) return Result.success()
-        if (!MonitoringStore.read(context).enabled || PrivacyResetStore.read(context) !is PrivacyResetState.Idle)
+        val initialReset = PrivacyResetStore.read(context) as? PrivacyResetState.Idle
+        if (!MonitoringStore.read(context).enabled || initialReset == null)
             return Result.success()
         val setup = LocationPermissions.read(context)
         if (!setup.prerequisitesReady) { MonitoringStore.record(context, "Location permission or service unavailable"); return Result.success() }
@@ -131,7 +136,7 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
                 coverage, true)) {
             MonitoringStore.record(context, "Office registration unavailable"); return Result.success()
         }
-        val requestedAt = Instant.now()
+        val initialVersions = repository.officeVersions(initial.snapshot.offices.map { it.id })
         val fix = try { OfficeLocationServices(context).captureFix(freshAfterRequest = true) }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Location check unavailable; open app to retry"); return Result.success() }
@@ -139,23 +144,28 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
             val now = Instant.now()
             val state = repository.state.first() as? StorageState.Ready ?: return@withLock
             val snapshot = state.snapshot
+            val currentReset = PrivacyResetStore.read(context) as? PrivacyResetState.Idle
+            if (currentReset?.generation != initialReset.generation ||
+                snapshot.offices != initial.snapshot.offices ||
+                repository.officeVersions(snapshot.offices.map { it.id }) != initialVersions) return@withLock
             val currentSetup = LocationPermissions.read(context)
             if (!currentSetup.prerequisitesReady) {
                 MonitoringStore.record(context, "Location permission or service unavailable"); return@withLock
             }
             val currentCoverage = CoverageStore.state(context).first()
             if (!canRequestReconciliationFix(now, snapshot.policy.zoneId, MonitoringStore.read(context).enabled,
-                    currentSetup, currentCoverage, PrivacyResetStore.read(context) is PrivacyResetState.Idle)) {
+                    currentSetup, currentCoverage, true)) {
                 MonitoringStore.record(context, "Office registration unavailable"); return@withLock
             }
             val age = SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos
             val wallAge = now.toEpochMilli() - fix.time
             val accuracy = fix.accuracy.takeIf { fix.hasAccuracy() && it.isFinite() && it in 0f..10000f }
-            if (fix.time < requestedAt.toEpochMilli() || age !in 0..30_000_000_000L ||
-                wallAge !in 0..30_000L) { MonitoringStore.record(context, "Stale location; retry later",
+            val observedAt = Instant.ofEpochMilli(fix.time)
+            if (fixFreshnessFailure(fix.time, currentCoverage.recoveryBoundaryAt?.toEpochMilli()
+                    ?: Long.MAX_VALUE, wallAge, age, fix.hasAccuracy()) != null) {
+                MonitoringStore.record(context, "Stale location; retry later",
                     accuracyMeters = accuracy); return@withLock }
-            if (!fix.hasAccuracy()) { MonitoringStore.record(context, "Location not precise enough"); return@withLock }
-            if (snapshot.events.any { it.at > requestedAt }) {
+            if (snapshot.events.any { it.at > observedAt }) {
                 MonitoringStore.record(context, "Newer boundary event; retry later"); return@withLock
             }
             val (outcome, office) = decidePresence(snapshot.offices, fix.latitude, fix.longitude,
@@ -166,9 +176,8 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
                     else -> "Location not precise enough"
                 }, accuracyMeters = accuracy); return@withLock
             }
-            val events = reconciliationFacts(snapshot, currentCoverage, now, Instant.ofEpochMilli(fix.time), office?.id, fix.accuracy)
+            val events = reconciliationFacts(snapshot, currentCoverage, now, observedAt, office?.id, fix.accuracy)
             if (events.isNotEmpty()) repository.appendRawEvents(events)
-            val observedAt = Instant.ofEpochMilli(fix.time)
             CoverageStore.change(context) { it.observed(observedAt) }
             MonitoringStore.record(context, if (office == null) "Outside offices" else "Inside office", observedAt,
                 fix.accuracy)
