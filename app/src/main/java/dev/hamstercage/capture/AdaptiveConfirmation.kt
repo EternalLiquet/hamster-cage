@@ -19,6 +19,7 @@ import dev.hamstercage.data.EXIT_VERIFICATION_WINDOW
 import dev.hamstercage.data.newlyRejectedExitIds
 import dev.hamstercage.data.exitVerificationState
 import dev.hamstercage.domain.RawEvent
+import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.Transition
 import dev.hamstercage.location.LocationPermissions
 import dev.hamstercage.location.LocationSetup
@@ -162,6 +163,11 @@ internal fun eligibleAdaptiveBatch(snapshot: AppSnapshot, candidate: AdaptiveCon
     return batch
 }
 
+/** A fix can classify any eligible office, not just the boundary's original batch. */
+internal fun sameAdaptiveOfficeConfiguration(before: List<Office>, beforeVersions: Map<String, Long>,
+    after: List<Office>, afterVersions: Map<String, Long>): Boolean =
+    before == after && beforeVersions == afterVersions
+
 /**
  * Facts for one EXIT verification fix. Delivery latency alone never makes an inside fix a
  * recovery split: the EXIT was observed, so the visit it closes keeps its observed credit and
@@ -266,6 +272,11 @@ internal fun lateRecoveryAllowed(candidate: AdaptiveConfirmation.Candidate): Boo
     candidate.bounded && candidate.attempt == 1 ||
         !candidate.bounded && candidate.attempt == AdaptiveConfirmation.MAX_EXIT_ATTEMPTS
 
+/** A final in-window request may finish after the deadline: use it for current state only. */
+internal fun canRecoverLateFix(candidate: AdaptiveConfirmation.Candidate, receivedAt: Instant,
+    now: Instant): Boolean = lateRecoveryAllowed(candidate) ||
+    candidate.bounded && nextExitSlot(receivedAt, now) == null
+
 /**
  * Whether an EXIT check must stop before requesting a fix, and how to describe it. Enforcement is
  * unchanged: the attempt stops when the clock at [checkedAt] has reached [deadline]. The label only
@@ -367,6 +378,8 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
                 MonitoringStore.read(context).enabled, true, setup, initialCoverage) == null) {
             report = CheckReport(BoundaryCheckOutcome.SUPERSEDED_OR_CHANGED); return
         }
+        val initialOffices = initial.snapshot.offices
+        val allVersions = repository.officeVersions(initialOffices.map { it.id })
         val fix = try { OfficeLocationServices(context).captureFix(freshAfterRequest = true) }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
@@ -389,7 +402,9 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             }
             val batch = AdaptiveConfirmation.batch(snapshot.eventEvidence, id, candidate.officeIds)
             val coverage = CoverageStore.state(context).first()
-            if (eligibleAdaptiveBatch(snapshot, candidate,
+            if (!sameAdaptiveOfficeConfiguration(initialOffices, allVersions, snapshot.offices,
+                    repository.officeVersions(snapshot.offices.map { it.id })) ||
+                eligibleAdaptiveBatch(snapshot, candidate,
                     repository.officeVersions(batch.map { it.event.officeId }), currentReset.generation,
                     MonitoringStore.read(context).enabled, true, LocationPermissions.read(context),
                     coverage) == null) {
@@ -420,7 +435,7 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
             }
             val observedAt = Instant.ofEpochMilli(fix.time)
             val lateFix = deadline != null && observedAt > deadline
-            if (lateFix && !late) {
+            if (lateFix && !canRecoverLateFix(candidate, batch.first().receivedAt, now)) {
                 MonitoringStore.record(context, "Boundary check delayed; later checks may recover",
                     accuracyMeters = accuracy)
                 report = CheckReport(BoundaryCheckOutcome.FIX_PAST_DEADLINE, accuracy, loggedAge)

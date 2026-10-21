@@ -93,6 +93,18 @@ class AdaptiveConfirmationTest {
             event("newer", "a", Transition.ENTER, 1))))
     }
 
+    @Test fun adaptiveFixCannotClassifyAnOfficeChangedWhileLocationWasRequested() {
+        val a = Office("a", "A", 0.0, 0.0)
+        val b = Office("b", "B", 1.0, 1.0)
+        val initial = listOf(a, b)
+        val versions = mapOf("a" to 1L, "b" to 1L)
+        assertTrue(sameAdaptiveOfficeConfiguration(initial, versions, initial, versions))
+        assertFalse(sameAdaptiveOfficeConfiguration(initial, versions, initial + Office("c", "C", 2.0, 2.0),
+            versions + ("c" to 1L)))
+        assertFalse(sameAdaptiveOfficeConfiguration(initial, versions, listOf(a, b.copy(radiusMeters = 250f)),
+            versions + ("b" to 2L)))
+    }
+
     @Test fun approximateLocationLocationOffAndOptOutCannotRequestFix() {
         val ready = LocationSetup(true, true, true, true, true)
         assertTrue(canRequestAdaptiveFix(ready, true, true, RegistrationStatus.ACTIVE))
@@ -156,6 +168,10 @@ class AdaptiveConfirmationTest {
         assertTrue(lateRecoveryAllowed(candidate.copy(attempt = 5)))
         assertTrue(lateRecoveryAllowed(candidate.copy(bounded = true)))
         assertFalse(lateRecoveryAllowed(candidate.copy(bounded = true, attempt = 3)))
+        assertTrue(canRecoverLateFix(candidate.copy(bounded = true, attempt = 5),
+            at, at.plusSeconds(301)))
+        assertFalse(canRecoverLateFix(candidate.copy(bounded = true, attempt = 3),
+            at, at.plusSeconds(220)))
     }
 
     @Test fun oldPreRecoveryVisitGetsFixTimeSplitInsteadOfAdaptiveContinuity() {
