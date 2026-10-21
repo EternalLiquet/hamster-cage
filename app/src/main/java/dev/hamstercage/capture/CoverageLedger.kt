@@ -28,7 +28,25 @@ data class CoverageLedger(
     val lastOutageHealthySince: Instant? = null,
     /** While an outage is open: the recovery boundary that was in effect when it began. */
     val outageHealthySince: Instant? = null,
+    /** One-use, live-checked shutdown evidence; never an attendance observation or healthy timestamp. */
+    val shutdownAt: Instant? = null,
+    val shutdownBootCount: Int? = null,
+    val shutdownPackageUpdatedAt: Long? = null,
+    val shutdownGeneration: Long? = null,
 ) {
+    private fun withoutShutdown() = copy(shutdownAt = null, shutdownBootCount = null,
+        shutdownPackageUpdatedAt = null, shutdownGeneration = null)
+
+    fun shutdownObserved(now: Instant, identity: ProcessIdentity, generation: Long): CoverageLedger =
+        if (registration == RegistrationStatus.ACTIVE && outageStartedAt == null &&
+            lastHealthyAt != null && now >= lastHealthyAt &&
+            recoveryBoundaryAt != null && now >= recoveryBoundaryAt && generation >= 0 &&
+            identity.bootCount != null && identity.bootCount == registeredBootCount &&
+            identity.packageUpdatedAt != null && identity.packageUpdatedAt == registeredPackageUpdatedAt)
+            copy(shutdownAt = now, shutdownBootCount = identity.bootCount,
+                shutdownPackageUpdatedAt = identity.packageUpdatedAt, shutdownGeneration = generation)
+        else withoutShutdown()
+
     /** Null when either side is unknown. */
     fun rebootedSince(current: ProcessIdentity): Boolean? =
         registeredBootCount?.let { recorded -> current.bootCount?.let { it != recorded } }
@@ -41,14 +59,29 @@ data class CoverageLedger(
      * lost or uninspectable registration opens an outage.
      */
     fun processStarted(now: Instant, zone: ZoneId,
-        continuity: ProcessContinuity = ProcessContinuity.UNKNOWN): CoverageLedger = when {
-        lastHealthyAt == null && outageStartedAt == null -> this
-        continuity == ProcessContinuity.SURVIVED -> this
-        else -> outage(now, zone)
+        continuity: ProcessContinuity = ProcessContinuity.UNKNOWN,
+        identity: ProcessIdentity? = null, generation: Long? = null): CoverageLedger {
+        val anchored = shutdownAt != null && lastHealthyAt != null && shutdownAt >= lastHealthyAt &&
+            recoveryBoundaryAt != null && shutdownAt >= recoveryBoundaryAt &&
+            shutdownAt <= now && outageStartedAt == null && registration == RegistrationStatus.ACTIVE &&
+            policyZoneId == zone && shutdownBootCount != null &&
+            shutdownBootCount == registeredBootCount && shutdownBootCount < Int.MAX_VALUE &&
+            identity?.bootCount == shutdownBootCount + 1 && identity?.let { rebootedSince(it) } == true &&
+            shutdownPackageUpdatedAt != null &&
+            identity?.packageUpdatedAt == shutdownPackageUpdatedAt &&
+            registeredPackageUpdatedAt == shutdownPackageUpdatedAt &&
+            shutdownGeneration != null && generation == shutdownGeneration
+        val clean = withoutShutdown()
+        return when {
+            clean.lastHealthyAt == null && clean.outageStartedAt == null -> clean
+            anchored -> clean.inZone(now, zone).outage(shutdownAt!!, now, zone)
+            continuity == ProcessContinuity.SURVIVED -> clean
+            else -> clean.outage(now, zone)
+        }
     }
 
     fun outage(now: Instant, zone: ZoneId): CoverageLedger {
-        val current = inZone(now, zone)
+        val current = withoutShutdown().inZone(now, zone)
         return current.outage(current.lastHealthyAt ?: now, now, zone)
     }
 
@@ -65,7 +98,7 @@ data class CoverageLedger(
     private fun healthySinceForOutage(): Instant? = if (outageStartedAt == null) recoveryBoundaryAt else outageHealthySince
 
     /** A receiver may know an outage instant before it can safely read policy timezone. */
-    fun unlocatedOutage(now: Instant): CoverageLedger = copy(
+    fun unlocatedOutage(now: Instant): CoverageLedger = withoutShutdown().copy(
         outageStartedAt = outageStartedAt ?: lastHealthyAt ?: now,
         recoveryBoundaryAt = null, outageHealthySince = healthySinceForOutage(), registration = RegistrationStatus.FAILED,
     )
@@ -104,12 +137,12 @@ data class CoverageLedger(
                 else current.lastOutageHealthySince,
             outageHealthySince = null,
             registeredBootCount = identity?.bootCount ?: registeredBootCount,
-            registeredPackageUpdatedAt = identity?.packageUpdatedAt ?: registeredPackageUpdatedAt)
+            registeredPackageUpdatedAt = identity?.packageUpdatedAt ?: registeredPackageUpdatedAt).withoutShutdown()
     }
 
     fun observed(at: Instant): CoverageLedger {
         val firstObservedDay = if (historyStartDate == null) policyZoneId?.let { at.atZone(it).toLocalDate() } else null
-        return copy(
+        return withoutShutdown().copy(
         historyStartDate = historyStartDate ?: firstObservedDay,
         unknownDates = if (firstObservedDay == null) unknownDates else unknownDates + firstObservedDay,
         lastObservationAt = if (lastObservationAt == null || at > lastObservationAt) at else lastObservationAt,

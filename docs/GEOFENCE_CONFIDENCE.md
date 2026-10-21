@@ -25,6 +25,8 @@ After a rejection the platform may still consider the device outside and report 
 
 ### Process recreation versus capture outage
 
+For a reboot while this app process is alive, #150 adds a runtime-only protected shutdown callback. It records a separate one-use marker only after live checks of prerequisites, monitoring, privacy generation, delivery health, a surviving geofence PendingIntent, and the matching boot/package registration. The immediately following boot may place the outage at that shutdown signal instead of hours-old `lastHealthyAt`; absent or mismatched evidence keeps the old conservative boundary. It never extends a visit from a new location observation or infers an EXIT. The callback cannot run after the process was reclaimed, and a surviving PendingIntent retains the Play services limitation below. The marker is discarded after first process recovery or subsequent health changes; real phone behavior is unverified.
+
 Android reclaims background app processes routinely without affecting geofences that Play services holds for the app. Registration is lost after a reboot, an app update, a data clear or a force-stop. Before Android 15 a force-stop does not cancel the app's PendingIntents, so a surviving token alone cannot rule one out (accepted below for an ordinary restart); from Android 15 the system cancels them and also reports `wasForceStopped`. At the first capture work in a new process the app gathers, before re-registering:
 
 - whether the geofence PendingIntent still exists, and whether the boot count and app update time still match those recorded at the last successful registration;
