@@ -34,6 +34,21 @@ class CoverageRecoveryTest {
             assertFalse(CoverageStore.state(context).first().presenceConfirmed(returnAt.plusSeconds(2), zone))
             CoverageStore.change(context) { it.observed(returnAt.plusSeconds(3)) }
             assertTrue(CoverageStore.state(context).first().presenceConfirmed(returnAt.plusSeconds(4), zone))
+
+            // Separate shutdown metadata survives DataStore reopening and is used only for
+            // the immediately following boot; it is never promoted to an observation.
+            val identity = ProcessIdentity(42, 500L)
+            val shutdownAt = start.plusSeconds(3600)
+            CoverageStore.change(context) { CoverageLedger()
+                .registrationSucceeded(start, zone, true, identity)
+                .shutdownObserved(shutdownAt, identity, generation = 7) }
+            assertEquals(start, CoverageStore.state(context).first().lastHealthyAt)
+            CoverageStore.change(context) { it.processStarted(returnAt, zone, ProcessContinuity.LOST,
+                ProcessIdentity(43, 500L), generation = 7) }
+            val afterBoot = CoverageStore.state(context).first()
+            assertEquals(shutdownAt, afterBoot.outageStartedAt)
+            assertEquals(null, afterBoot.shutdownAt)
+            assertFalse(afterBoot.presenceConfirmed(returnAt, zone))
         } finally {
             CoverageStore.change(context) { previous }
         }

@@ -102,4 +102,106 @@ class ProcessContinuityTest {
         assertEquals(boundary, second.lastOutageHealthySince)
         assertEquals(null, second.outageHealthySince)
     }
+
+    @Test fun liveShutdownAnchorsOnlyTheImmediatelyMatchedReboot() {
+        val registeredAt = Instant.parse("2025-03-10T13:00:00Z")
+        val observedAt = registeredAt.plusSeconds(60)
+        val shutdownAt = registeredAt.plusSeconds(28_800)
+        val returnedAt = shutdownAt.plusSeconds(120)
+        val original = ProcessIdentity(42, 500L)
+        val healthy = CoverageLedger().registrationSucceeded(registeredAt, zone, true, original)
+            .observed(observedAt)
+        val marked = healthy.shutdownObserved(shutdownAt, original, generation = 7)
+        assertEquals(healthy.lastHealthyAt, marked.lastHealthyAt)
+        assertEquals(healthy.lastObservationAt, marked.lastObservationAt)
+        val rebooted = marked.processStarted(returnedAt, zone, ProcessContinuity.LOST,
+            ProcessIdentity(43, 500L), generation = 7)
+        assertEquals(shutdownAt, rebooted.outageStartedAt)
+        assertEquals(null, rebooted.shutdownAt)
+        assertFalse(rebooted.presenceConfirmed(returnedAt, zone))
+        assertEquals(returnedAt, rebooted.registrationSucceeded(returnedAt, zone, true).recoveryBoundaryAt)
+        // The old observation is not a new current presence even though the gap began later.
+        assertFalse(rebooted.registrationSucceeded(returnedAt, zone, true)
+            .presenceConfirmed(returnedAt.plusSeconds(1), zone))
+    }
+
+    @Test fun shutdownMarkerFailsClosedOnMismatchOrExistingOutage() {
+        val registeredAt = Instant.parse("2025-03-10T13:00:00Z")
+        val shutdownAt = registeredAt.plusSeconds(3600)
+        val returnedAt = shutdownAt.plusSeconds(120)
+        val old = ProcessIdentity(42, 500L)
+        val healthy = CoverageLedger().registrationSucceeded(registeredAt, zone, true, old)
+        val marked = healthy.shutdownObserved(shutdownAt, old, 7)
+        val candidates = listOf(
+            Triple(ProcessIdentity(42, 500L), 7L, zone), // reboot not confirmed
+            Triple(ProcessIdentity(44, 500L), 7L, zone), // intervening reboot
+            Triple(ProcessIdentity(43, 501L), 7L, zone), // package changed
+            Triple(ProcessIdentity(43, 500L), 8L, zone), // privacy generation changed
+            Triple(ProcessIdentity(43, 500L), 7L, ZoneId.of("UTC")),
+        )
+        candidates.forEach { (identity, generation, policyZone) ->
+            val lost = marked.processStarted(returnedAt, policyZone, ProcessContinuity.LOST,
+                identity, generation)
+            assertEquals(registeredAt, lost.outageStartedAt)
+            assertEquals(null, lost.shutdownAt)
+        }
+        assertEquals(registeredAt, marked.processStarted(registeredAt, zone,
+            ProcessContinuity.LOST, ProcessIdentity(43, 500L), 7).outageStartedAt)
+        assertEquals(registeredAt, healthy.outage(shutdownAt.minusSeconds(60), zone)
+            .shutdownObserved(shutdownAt, old, 7).outageStartedAt)
+        assertEquals(null, healthy.outage(shutdownAt.minusSeconds(60), zone)
+            .shutdownObserved(shutdownAt, old, 7).shutdownAt)
+    }
+
+    @Test fun laterRegistrationObservationOrOutageInvalidatesAbandonedShutdown() {
+        val at = Instant.parse("2025-03-10T13:00:00Z")
+        val identity = ProcessIdentity(42, 500L)
+        val marked = CoverageLedger().registrationSucceeded(at, zone, true, identity)
+            .shutdownObserved(at.plusSeconds(60), identity, 7)
+        assertEquals(null, marked.registrationSucceeded(at.plusSeconds(61), zone, true, identity).shutdownAt)
+        assertEquals(null, marked.observed(at.plusSeconds(61)).shutdownAt)
+        assertEquals(null, marked.outage(at.plusSeconds(61), zone).shutdownAt)
+        assertEquals(null, marked.unlocatedOutage(at.plusSeconds(61)).shutdownAt)
+        assertEquals(null, marked.processStarted(at.plusSeconds(61), zone,
+            ProcessContinuity.SURVIVED, identity, 7).shutdownAt)
+        assertEquals(null, CoverageLedger().registrationSucceeded(at, zone, true)
+            .shutdownObserved(at.plusSeconds(60), identity, 7).shutdownAt)
+    }
+
+    @Test fun overnightShutdownKeepsEarlierHealthyDatesAndWindow() {
+        val registeredAt = Instant.parse("2025-03-10T13:00:00Z")
+        val lastObservation = Instant.parse("2025-03-11T13:00:00Z")
+        val shutdownAt = Instant.parse("2025-03-12T23:00:00Z")
+        val returnAt = Instant.parse("2025-03-13T14:00:00Z")
+        val identity = ProcessIdentity(42, 500L)
+        val firstDay = LocalDate.parse("2025-03-10")
+        val recovered = CoverageLedger().registrationSucceeded(registeredAt, zone, true, identity)
+            .observed(registeredAt.plusSeconds(60)).review(firstDay).observed(lastObservation)
+            .shutdownObserved(shutdownAt, identity, 7)
+            .processStarted(returnAt, zone, ProcessContinuity.LOST, ProcessIdentity(43, 500L), 7)
+            .registrationSucceeded(returnAt, zone, true, ProcessIdentity(43, 500L))
+        assertEquals(shutdownAt, recovered.lastOutageStartedAt)
+        assertEquals(registeredAt, recovered.lastOutageHealthySince)
+        assertFalse(firstDay in recovered.unreviewedUnknownDates)
+        assertFalse(LocalDate.parse("2025-03-11") in recovered.unreviewedUnknownDates)
+        assertTrue(LocalDate.parse("2025-03-12") in recovered.unreviewedUnknownDates)
+        assertTrue(LocalDate.parse("2025-03-13") in recovered.unreviewedUnknownDates)
+        assertFalse(recovered.presenceConfirmed(returnAt, zone))
+    }
+
+    @Test fun shutdownRequiresFreshActiveLedgerAndMatchingKnownIdentity() {
+        val at = Instant.parse("2025-03-10T13:00:00Z")
+        val identity = ProcessIdentity(42, 500L)
+        val healthy = CoverageLedger().registrationSucceeded(at, zone, true, identity)
+        val invalid = listOf(healthy.shutdownObserved(at.minusSeconds(1), identity, 7),
+            healthy.shutdownObserved(at.plusSeconds(1), ProcessIdentity(null, 500L), 7),
+            healthy.shutdownObserved(at.plusSeconds(1), ProcessIdentity(42, null), 7),
+            healthy.shutdownObserved(at.plusSeconds(1), ProcessIdentity(43, 500L), 7),
+            healthy.shutdownObserved(at.plusSeconds(1), identity, -1),
+            healthy.outage(at.plusSeconds(1), zone).shutdownObserved(at.plusSeconds(2), identity, 7),
+            healthy.copy(registration = RegistrationStatus.DISABLED)
+                .shutdownObserved(at.plusSeconds(1), identity, 7),
+            CoverageLedger().shutdownObserved(at, identity, 7))
+        invalid.forEach { assertEquals(null, it.shutdownAt) }
+    }
 }

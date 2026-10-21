@@ -2,7 +2,10 @@ package dev.hamstercage.capture
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.provider.Settings
 import dev.hamstercage.data.HamsterRepository
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.withLock
 
 /** Process-scoped reconciliation: restart and office edits both reapply desired fences. */
@@ -33,8 +37,24 @@ class CaptureController private constructor(context: Context) {
     private val repository = HamsterRepository.get(application)
     private val registrar = GeofenceRegistrar(application)
     @Volatile private var processStarted = false
+    private val shutdownReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent?) {
+            if (intent?.action != Intent.ACTION_SHUTDOWN ||
+                intent.getBooleanExtra(Intent.EXTRA_SHUTDOWN_USERSPACE_ONLY, false)) return
+            val pending = goAsync()
+            scope.launch {
+                try { withTimeout(2_000) { recordLiveShutdown() } }
+                catch (_: Exception) { Unit } // Shutdown is best effort; recovery keeps the older gap.
+                finally { pending.finish() }
+            }
+        }
+    }
 
     init {
+        // Manifest-declared shutdown receivers are not delivered on modern Android. This
+        // process-local receiver helps only when the app is already running at shutdown.
+        try { application.registerReceiver(shutdownReceiver, IntentFilter(Intent.ACTION_SHUTDOWN)) }
+        catch (_: RuntimeException) { Unit } // The ordinary recovery path remains available.
         scope.launch {
             CaptureHealthStore.deliveryFailure(application).collect { failed ->
                 if (failed) CaptureHealth.deliveryFailed() else CaptureHealth.deliverySucceeded()
@@ -82,6 +102,24 @@ class CaptureController private constructor(context: Context) {
         refreshFromSystem(reason = RegistrationReason.MONITORING_SETTING)
     }
 
+    private suspend fun recordLiveShutdown() = CaptureWriteGate.mutex.withLock {
+        val reset = PrivacyResetStore.read(application) as? PrivacyResetState.Idle
+            ?: return@withLock
+        val liveHealth = CaptureHealth.state.value
+        if (!processStarted || liveHealth.registration != RegistrationStatus.ACTIVE ||
+            liveHealth.registeredCount <= 0 || liveHealth.deliveryFailure ||
+            !MonitoringStore.read(application).enabled ||
+            CaptureHealthStore.deliveryFailure(application).first() ||
+            !LocationPermissions.read(application).prerequisitesReady) return@withLock
+        // A fresh Room read catches an office save before the async state collector has
+        // reconciled it. The registrar must still hold precisely that desired fence set.
+        val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot ?: return@withLock
+        if (!registrar.appliedSetMatches(snapshot.registrationIntents(), reset.generation)) return@withLock
+        val identity = processIdentity()
+        if (registrar.registrationTokenPresent(reset.generation) != true) return@withLock
+        CoverageStore.change(application) { it.shutdownObserved(Instant.now(), identity, reset.generation) }
+    }
+
     private suspend fun reconcile(state: StorageState, ready: Boolean, enabled: Boolean, force: Boolean,
         backgroundStart: Boolean = false, reason: RegistrationReason) = CaptureWriteGate.mutex.withLock {
         val reset = PrivacyResetStore.read(application)
@@ -105,7 +143,7 @@ class CaptureController private constructor(context: Context) {
                 forceStopReported = forceStopReported(),
                 backgroundStart = backgroundStart,
                 tokensCancelledOnStop = Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM)
-            CoverageStore.change(application) { it.processStarted(now, zone, continuity) }
+            CoverageStore.change(application) { it.processStarted(now, zone, continuity, identity, reset.generation) }
             processStarted = true
         }
         val status = when (state) {
