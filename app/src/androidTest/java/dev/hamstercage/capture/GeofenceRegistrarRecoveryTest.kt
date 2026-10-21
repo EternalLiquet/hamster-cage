@@ -25,21 +25,29 @@ class GeofenceRegistrarRecoveryTest {
         val b = office("b", 150f)
 
         assertEquals(RegistrationStatus.ACTIVE, registrar.synchronize(listOf(a, b), true).registration)
+        assertTrue(registrar.appliedSetMatches(listOf(b, a), 0L))
+        assertFalse(registrar.appliedSetMatches(listOf(b), 0L)) // saved edit, collector still pending
+        assertFalse(registrar.appliedSetMatches(listOf(a, b), 1L))
         assertEquals(setOf("a", "b"), operations.registered)
         assertEquals(2, operations.adds)
 
         // A disabled office drops out of registrationIntents. Removing a saved
         // office has the same desired-set effect; neither case touches raw facts.
         assertEquals(RegistrationStatus.ACTIVE, registrar.synchronize(listOf(b), true).registration)
+        assertTrue(registrar.appliedSetMatches(listOf(b), 0L))
+        assertFalse(registrar.appliedSetMatches(listOf(a, b), 0L))
         assertEquals(setOf("b"), operations.registered)
         assertEquals(3, operations.adds)
 
         val edited = b.copy(radiusMeters = 300f)
+        assertFalse(registrar.appliedSetMatches(listOf(edited), 0L))
         assertEquals(RegistrationStatus.ACTIVE, registrar.synchronize(listOf(edited), true).registration)
+        assertTrue(registrar.appliedSetMatches(listOf(edited), 0L))
         assertEquals(setOf("b"), operations.registered)
         assertEquals(300f, operations.radiusByOffice.getValue("b"), 0f)
 
         assertEquals(RegistrationStatus.NO_OFFICES, registrar.synchronize(emptyList(), true).registration)
+        assertFalse(registrar.appliedSetMatches(emptyList(), 0L))
         assertTrue(operations.registered.isEmpty())
 
         // A new process has no in-memory lastApplied and must reapply the set.

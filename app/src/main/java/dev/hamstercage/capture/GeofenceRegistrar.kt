@@ -45,6 +45,12 @@ class GeofenceRegistrar(
     private var lastAppliedGeneration: Long? = null
     private var earlierPendingResolved = false
 
+    /** Read only: a shutdown cannot certify a fence set after an office edit awaiting reconciliation. */
+    suspend fun appliedSetMatches(desired: List<OfficeRegistrationIntent>, generation: Long): Boolean = lock.withLock {
+        val applied = lastApplied ?: return@withLock false
+        applied.isNotEmpty() && lastAppliedGeneration == generation && applied == desired.sortedBy { it.officeId }
+    }
+
     /**
      * [reason] and [versions] only describe the attempt in diagnostics. Logging never changes what
      * is registered: a diagnostic write failure is ignored and registration proceeds as before.

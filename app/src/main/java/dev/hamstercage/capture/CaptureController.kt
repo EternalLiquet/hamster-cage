@@ -53,7 +53,8 @@ class CaptureController private constructor(context: Context) {
     init {
         // Manifest-declared shutdown receivers are not delivered on modern Android. This
         // process-local receiver helps only when the app is already running at shutdown.
-        application.registerReceiver(shutdownReceiver, IntentFilter(Intent.ACTION_SHUTDOWN))
+        try { application.registerReceiver(shutdownReceiver, IntentFilter(Intent.ACTION_SHUTDOWN)) }
+        catch (_: RuntimeException) { Unit } // The ordinary recovery path remains available.
         scope.launch {
             CaptureHealthStore.deliveryFailure(application).collect { failed ->
                 if (failed) CaptureHealth.deliveryFailed() else CaptureHealth.deliverySucceeded()
@@ -110,6 +111,10 @@ class CaptureController private constructor(context: Context) {
             !MonitoringStore.read(application).enabled ||
             CaptureHealthStore.deliveryFailure(application).first() ||
             !LocationPermissions.read(application).prerequisitesReady) return@withLock
+        // A fresh Room read catches an office save before the async state collector has
+        // reconciled it. The registrar must still hold precisely that desired fence set.
+        val snapshot = (repository.state.first() as? StorageState.Ready)?.snapshot ?: return@withLock
+        if (!registrar.appliedSetMatches(snapshot.registrationIntents(), reset.generation)) return@withLock
         val identity = processIdentity()
         if (registrar.registrationTokenPresent(reset.generation) != true) return@withLock
         CoverageStore.change(application) { it.shutdownObserved(Instant.now(), identity, reset.generation) }
