@@ -150,7 +150,7 @@ class WeekdayReconciliationWorker(context: Context, params: WorkerParameters) : 
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { MonitoringStore.record(context, "Location check unavailable; open app to retry"); return Result.success() }
         try { withTimeout(8_000) { CaptureWriteGate.mutex.withLock {
-            val now = Instant.now()
+            val now = captureNow()
             val state = repository.state.first() as? StorageState.Ready ?: return@withLock
             val snapshot = state.snapshot
             val currentReset = PrivacyResetStore.read(context) as? PrivacyResetState.Idle
