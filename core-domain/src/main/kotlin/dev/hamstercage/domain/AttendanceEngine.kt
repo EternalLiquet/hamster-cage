@@ -709,7 +709,7 @@ object AttendanceEngine {
                 result.intervals.none { session.id in it.sessionIds } &&
                 current.all { open -> open.start != null && session.end <= open.start } &&
                 relevant.any { later -> later.start != null && later.start >= session.end &&
-                    ReviewReason.TRANSIENT_BOUNDARY !in later.reviewReasons }
+                    later.manualSessionId == null && ReviewReason.TRANSIENT_BOUNDARY !in later.reviewReasons }
         }.map { it.id }.toSet() else emptySet()
         val qualified = unconfirmedEarlierIds + listOfNotNull(pendingExitId)
         // A bare EXIT before any credible visit is an auditable platform signal,

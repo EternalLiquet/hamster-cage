@@ -56,8 +56,20 @@ class TransientBlipEstimateTest {
     }
 
     @Test fun afterTheDaysLastVisitEndsTheEarlierBounceStaysQualified() {
-        val left = day1 + event("home", Transition.EXIT, "17:00")
-        assertNotEquals(DepartureStatus.NEEDS_REVIEW, estimate(input(left, now = "17:30")).status)
+        val input = input(day1 + event("home", Transition.EXIT, "17:00"), now = "17:30")
+        val bounce = AttendanceEngine.derive(input).sessions.single { it.start == at("12:01:30") }
+        val today = estimate(input)
+        assertEquals(DepartureStatus.TARGET_SATISFIED, today.status)
+        assertTrue(bounce.id in today.nonBlockingSessionIds)
+        assertEquals(setOf(EstimateAssumption.EARLIER_EXIT_UNCONFIRMED), today.assumptions)
+    }
+
+    @Test fun onlyAManualVisitAfterTheBounceDoesNotSupersedeIt() {
+        val events = day1.dropLast(1)
+        val manual = ManualSession("m", office.id, at("13:00"), at("14:00"), at("14:30"))
+        val today = estimate(input(events, now = "14:30").copy(manualSessions = listOf(manual)))
+        assertEquals(DepartureStatus.NEEDS_REVIEW, today.status)
+        assertTrue(ReviewReason.TRANSIENT_BOUNDARY in today.reviewReasons)
     }
 
     @Test fun bounceAtAnotherOfficeDuringTheCurrentVisitStillNeedsReview() {
@@ -74,12 +86,16 @@ class TransientBlipEstimateTest {
         assertEquals(DepartureStatus.NEEDS_REVIEW, today.status)
     }
 
-    @Test fun correctedBounceIsNotQualifiedByTheBounceRule() {
+    @Test fun correctedBounceIsJudgedByItsCorrectedBounds() {
         val input = input()
         val bounce = AttendanceEngine.derive(input).sessions.single { it.start == at("12:01:30") }
         val edit = Correction("c", bounce.id, at("12:01"), at("12:30"), at("14:00"))
-        // An edited visit is judged by its corrected bounds, never by the bounce qualification.
-        assertFalse(bounce.id in estimate(input.copy(corrections = listOf(edit))).nonBlockingSessionIds)
+        val corrected = input.copy(corrections = listOf(edit))
+        val today = estimate(corrected)
+        // The edit is an explicit MANUAL change: it earns credit and is not a set-aside bounce.
+        assertFalse(bounce.id in today.nonBlockingSessionIds)
+        assertTrue(credit(corrected) > credit(input))
+        assertEquals(DepartureStatus.ESTIMATED, today.status)
     }
 
     @Test fun rollingTargetsKeepTheirReview() {
