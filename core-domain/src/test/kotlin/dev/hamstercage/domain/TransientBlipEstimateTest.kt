@@ -49,9 +49,14 @@ class TransientBlipEstimateTest {
         assertEquals(at("16:05"), today.estimatedExitAt)
     }
 
-    @Test fun withoutAnOpenVisitTheBounceDoesNotDemandReview() {
-        val gone = day1.dropLast(1)
-        assertEquals(DepartureStatus.NOT_IN_OFFICE, estimate(input(gone)).status)
+    @Test fun bounceAsTheLatestBoundaryStillNeedsReview() {
+        // Nothing has superseded it, so whether the user is inside now is still in doubt.
+        assertEquals(DepartureStatus.NEEDS_REVIEW, estimate(input(day1.dropLast(1))).status)
+    }
+
+    @Test fun afterTheDaysLastVisitEndsTheEarlierBounceStaysQualified() {
+        val left = day1 + event("home", Transition.EXIT, "17:00")
+        assertNotEquals(DepartureStatus.NEEDS_REVIEW, estimate(input(left, now = "17:30")).status)
     }
 
     @Test fun bounceAtAnotherOfficeDuringTheCurrentVisitStillNeedsReview() {

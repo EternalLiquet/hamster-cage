@@ -699,14 +699,17 @@ object AttendanceEngine {
         }?.id
         // A closed bounce (ENTER then EXIT within the bounce window) earns no credit. Whichever
         // boundary was false, the true credit can only be higher, so the true leave time is
-        // earlier, never later. It qualifies only before the current visit, or with none open.
+        // earlier, never later. A later arrival must supersede it: as the latest boundary, a
+        // bounce still leaves current presence in doubt.
         val transientEarlierIds = if (target == TargetWindow.TODAY) relevant.filter { session ->
             session.start != null && session.end != null && uncorrected(session) &&
                 ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons &&
                 session.reviewReasons.all { it == ReviewReason.TRANSIENT_BOUNDARY ||
                     it == ReviewReason.UNCONFIRMED_BOUNDARY || it in ADVISORY_REVIEW_REASONS } &&
                 result.intervals.none { session.id in it.sessionIds } &&
-                current.all { open -> open.start != null && session.end <= open.start }
+                current.all { open -> open.start != null && session.end <= open.start } &&
+                relevant.any { later -> later.start != null && later.start >= session.end &&
+                    ReviewReason.TRANSIENT_BOUNDARY !in later.reviewReasons }
         }.map { it.id }.toSet() else emptySet()
         val qualified = unconfirmedEarlierIds + listOfNotNull(pendingExitId)
         // A bare EXIT before any credible visit is an auditable platform signal,
