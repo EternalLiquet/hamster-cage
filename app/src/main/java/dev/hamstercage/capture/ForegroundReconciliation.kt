@@ -143,7 +143,7 @@ class ForegroundReconciliation(private val context: Context,
             if (state.snapshot.offices != initialState.snapshot.offices ||
                 repository.officeVersions(state.snapshot.offices.map { it.id }) != initialVersions)
                 return@withLock ReconcileOutcome.STALE
-            val now = Instant.now()
+            val now = captureNow()
             val observedAt = Instant.ofEpochMilli(fix.time)
             val age = SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos
             val wallAge = now.toEpochMilli() - fix.time

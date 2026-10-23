@@ -394,7 +394,7 @@ class AdaptiveConfirmationWorker(context: Context, params: WorkerParameters) : C
         var resyncOffices = emptyList<String>()
         report = CheckReport(BoundaryCheckOutcome.WRITE_FAILED)
         try { withTimeout(8_000) { CaptureWriteGate.mutex.withLock {
-            val now = Instant.now()
+            val now = captureNow()
             val currentReset = PrivacyResetStore.read(context)
             if (currentReset !is PrivacyResetState.Idle || currentReset.generation != generation) {
                 report = null
