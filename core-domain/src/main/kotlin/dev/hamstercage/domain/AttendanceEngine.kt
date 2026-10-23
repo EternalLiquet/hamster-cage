@@ -697,6 +697,20 @@ object AttendanceEngine {
                 input.events.none { it.officeId != session.officeId && it.at > session.start!! && it.at <= input.now &&
                     it.transition in setOf(Transition.ENTER, Transition.PRESENCE) }
         }?.id
+        // A closed bounce (ENTER then EXIT within the bounce window) earns no credit. Whichever
+        // boundary was false, the true credit can only be higher, so the true leave time is
+        // earlier, never later. A later arrival must supersede it: as the latest boundary, a
+        // bounce still leaves current presence in doubt.
+        val transientEarlierIds = if (target == TargetWindow.TODAY) relevant.filter { session ->
+            session.start != null && session.end != null && uncorrected(session) &&
+                ReviewReason.TRANSIENT_BOUNDARY in session.reviewReasons &&
+                session.reviewReasons.all { it == ReviewReason.TRANSIENT_BOUNDARY ||
+                    it == ReviewReason.UNCONFIRMED_BOUNDARY || it in ADVISORY_REVIEW_REASONS } &&
+                result.intervals.none { session.id in it.sessionIds } &&
+                current.all { open -> open.start != null && session.end <= open.start } &&
+                relevant.any { later -> later.start != null && later.start >= session.end &&
+                    later.manualSessionId == null && ReviewReason.TRANSIENT_BOUNDARY !in later.reviewReasons }
+        }.map { it.id }.toSet() else emptySet()
         val qualified = unconfirmedEarlierIds + listOfNotNull(pendingExitId)
         // A bare EXIT before any credible visit is an auditable platform signal,
         // not evidence of presence or ambiguity in a later visit, open or closed.
@@ -727,7 +741,9 @@ object AttendanceEngine {
         } else emptySet()
         fun blocks(reason: ReviewReason, sessionId: String?) = reason !in benign &&
             !(reason == ReviewReason.UNCONFIRMED_GAP && sessionId in repairedGapIds) &&
-            !(reason == ReviewReason.UNCONFIRMED_BOUNDARY && sessionId in qualified)
+            !(reason == ReviewReason.UNCONFIRMED_BOUNDARY && sessionId in qualified) &&
+            !(reason in setOf(ReviewReason.TRANSIENT_BOUNDARY, ReviewReason.UNCONFIRMED_BOUNDARY) &&
+                sessionId in transientEarlierIds)
         val relevantIds = relevant.map { it.id }.toSet()
         val allSessionIds = result.sessions.map { it.id }.toSet()
         // Ambiguity wins even when the provisional credit exceeds the target. A bad clock,
@@ -742,10 +758,11 @@ object AttendanceEngine {
                 else review.sessionId !in allSessionIds || review.sessionId in relevantIds)
             }.map { it.reason }
         if (blockingReasons.isNotEmpty()) return outcome(DepartureStatus.NEEDS_REVIEW, blockingReasons)
-        nonBlockingIds = qualified + harmlessOrphanIds
+        nonBlockingIds = qualified + harmlessOrphanIds + transientEarlierIds
         assumptions = setOfNotNull(
             EstimateAssumption.STILL_PRESENT_WHILE_EXIT_CHECKED.takeIf { pendingExitId != null },
-            EstimateAssumption.EARLIER_EXIT_UNCONFIRMED.takeIf { unconfirmedEarlierIds.isNotEmpty() })
+            EstimateAssumption.EARLIER_EXIT_UNCONFIRMED.takeIf {
+                unconfirmedEarlierIds.isNotEmpty() || transientEarlierIds.isNotEmpty() })
         if (remaining == 0.0) return outcome(DepartureStatus.TARGET_SATISFIED)
         if (current.isEmpty()) return outcome(DepartureStatus.NOT_IN_OFFICE)
         if (input.now < windowStart || input.now >= windowEnd) return outcome(DepartureStatus.OUTSIDE_WINDOW)
