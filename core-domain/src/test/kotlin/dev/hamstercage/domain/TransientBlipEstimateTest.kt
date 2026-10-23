@@ -43,7 +43,8 @@ class TransientBlipEstimateTest {
         assertEquals(at("16:05"), today.estimatedExitAt)
     }
 
-    @Test fun bounceWithAnUnconfirmedBoundaryAlsoQualifies() {
+    @Test fun bounceAlongsideAnUnconfirmedLunchExitStillQualifies() {
+        // The engine keeps the bounce TRANSIENT_BOUNDARY only; the lunch visit carries the unconfirmed EXIT.
         val today = estimate(input(unconfirmed = setOf("bounceOut", "lunch")))
         assertEquals(DepartureStatus.ESTIMATED, today.status)
         assertEquals(at("16:05"), today.estimatedExitAt)
@@ -73,11 +74,10 @@ class TransientBlipEstimateTest {
         assertEquals(DepartureStatus.NEEDS_REVIEW, today.status)
     }
 
-    @Test fun correctedBounceStillNeedsReview() {
+    @Test fun correctedBounceIsNotQualifiedByTheBounceRule() {
         val input = input()
         val bounce = AttendanceEngine.derive(input).sessions.single { it.start == at("12:01:30") }
         val edit = Correction("c", bounce.id, at("12:01"), at("12:30"), at("14:00"))
-        val today = estimate(input.copy(corrections = listOf(edit)))
         // An edited visit is judged by its corrected bounds, never by the bounce qualification.
         assertFalse(bounce.id in estimate(input.copy(corrections = listOf(edit))).nonBlockingSessionIds)
     }
