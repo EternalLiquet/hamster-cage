@@ -30,12 +30,14 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
     }
     val evidenceById = remember(eventEvidence) { eventEvidence.associateBy { it.event.id } }
     val offices = input.offices.associateBy { it.id }
-    fun at(time: Instant?) = time?.atZone(input.policy.zoneId)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) ?: "Missing boundary"
+    fun at(time: Instant?) = time?.atZone(input.policy.zoneId)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME) ?: "Not recorded"
     fun office(id: String) = evidenceText(offices[id]?.name ?: "Unknown office")
+    fun count(n: Int, one: String, many: String) = "$n ${if (n == 1) one else many}"
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         OutlinedButton(onClick = back) { Text(backLabel) }
         Text("Explain $date", style = MaterialTheme.typography.headlineSmall)
-        Text("${input.policy.zoneId.id} · evaluated ${at(input.now)}", style = MaterialTheme.typography.bodyMedium)
+        Text("Times in ${input.policy.zoneId.id} · as of ${DateTimeFormatter.ofPattern("MMM d, h:mm a").withZone(input.policy.zoneId).format(input.now)}",
+            style = MaterialTheme.typography.bodyMedium)
         if (prepareDayShare != null && shareDay != null) {
             OutlinedButton(onClick = { sharePreview = prepareDayShare() }, modifier = Modifier.testTag("share_day_data")) {
                 Text("Share this day's data")
@@ -61,7 +63,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         }
         Panel {
             Text("Recorded credit: ${minutesText(detail.summary.creditedMinutes)}", Modifier.testTag("detail_credit"), style = MaterialTheme.typography.titleLarge)
-            Text("${if (detail.sessions.any { ReviewReason.UNCONFIRMED_GAP in it.reviewReasons }) "Confirmed in-zone time" else "Device-observed time"}: ${minutesText(AttendanceEngine.observedDailyMinutes(input, date))}", Modifier.testTag("detail_observed"))
+            Text("${if (detail.sessions.any { ReviewReason.UNCONFIRMED_GAP in it.reviewReasons }) "Confirmed time in office area" else "Time your phone recorded"}: ${minutesText(AttendanceEngine.observedDailyMinutes(input, date))}", Modifier.testTag("detail_observed"))
             if (beforeTracking) {
                 Text("Before tracking began. No attendance requirement or balance applies to this date.",
                     Modifier.testTag("detail_before_tracking"))
@@ -69,8 +71,8 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             } else {
                 Text("Required: ${minutesText(detail.summary.requiredMinutes.toDouble())}", Modifier.testTag("detail_required"))
                 Text(detail.denominator)
-                if (!detail.summary.hasCompleteHistory) Notice("Unknown coverage", "The recorded credit is provisional. Missing history is not proof of zero attendance.")
-                Text("These are the same daily engine totals used by Dashboard and History. Overlapping intervals count only once.")
+                if (!detail.summary.hasCompleteHistory) Notice("Some history is missing", "This credit is provisional. Missing history does not mean you were absent.")
+                Text("Dashboard and History use these same totals. Overlapping time counts once.")
             }
         }
         if (date == input.now.atZone(input.policy.zoneId).toLocalDate() && !beforeTracking) {
@@ -78,13 +80,13 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             Panel {
                 Text(todayLeaveText(departure, trackingReady, input.now, input.policy.zoneId, todayLeaveConfident(input, result, trackingReady)),
                     Modifier.testTag("detail_leave"), style = MaterialTheme.typography.titleMedium)
-                Text("Today's ${minutesText(detail.summary.requiredMinutes.toDouble())} target. The estimate can change as observations arrive; office-area exit and building exit may differ.")
+                Text("Today's target is ${minutesText(detail.summary.requiredMinutes.toDouble())}. The estimate can change as new records arrive, and leaving the office area may not match leaving the building.")
             }
         }
         Text("Office-area timeline", style = MaterialTheme.typography.titleLarge)
         if (timeline.isEmpty()) Text(if (beforeTracking)
             "Tracking had not begun on this date. No attendance was expected from the app's record."
-            else "No office-area session was recorded for this date. Missing coverage is unknown, not confirmed absence.",
+            else "No office-area visit was recorded for this date. Missing time is unknown and does not confirm you were away.",
             Modifier.testTag("day_timeline_empty"))
         val offeredEdit = mutableSetOf<String>()
         val shownReview = mutableSetOf<String>()
@@ -106,31 +108,32 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
         }
         EvidenceSection("Credited intervals", detail.intervals) { interval ->
             Text("${at(interval.start)} → ${at(interval.end)}")
-            Text("${minutesText(interval.minutes)} · ${interval.sessionIds.size} contributing session(s)")
-            if (interval.reconciledGap) Text("Includes a same-office gap reconciled by the ${input.policy.shortGapMinutes}-minute policy.")
-            Text("Clipped to this policy-local day after uncredited arrival delay, gap reconciliation and overlap union.")
+            Text("${minutesText(interval.minutes)} · from ${count(interval.sessionIds.size, "visit", "visits")}")
+            if (interval.reconciledGap) Text("Includes a short gap at the same office, bridged by your ${input.policy.shortGapMinutes}-minute gap rule.")
+            Text("Limited to this day in the policy timezone, after the arrival delay, gap bridging and counting overlaps once.")
         }
-        EvidenceSection("Reconstructed sessions", detail.sessions) { session ->
+        EvidenceSection("Visits", detail.sessions) { session ->
             Text(office(session.officeId), style = MaterialTheme.typography.titleMedium)
             val original = detail.originalSessions.find { it.id == session.id }
-            Text("Original bounds: ${at(original?.start)} → ${at(original?.end)}")
+            Text("As recorded: ${at(original?.start)} → ${at(original?.end)}")
             if (original?.reviewReasons?.contains(ReviewReason.UNCONFIRMED_GAP) == true)
-                Text("Confirmed time before the gap may count. The uncertain time needs review; see credited intervals for exact bounds.")
+                Text("Confirmed time before the gap may count. The uncertain time needs review; see Credited intervals for exact times.")
             if (session.correctionId != null && !session.correctionReverted) original?.reviewReasons?.forEach {
-                Text("Original evidence: ${reviewExplanation(it)} The applied correction supplies effective bounds.")
+                Text("Before correction: ${reviewExplanation(it)} Your correction sets the visit times used.")
             }
-            Text("Effective bounds: ${at(session.start)} → ${at(session.end)}")
+            Text("Visit times used: ${at(session.start)} → ${at(session.end)}")
+            Text("Credit can be less than this visit; Credited intervals show the time that counts.")
             if (original?.manualSessionId == null) {
                 if (original?.start != null)
                     Text(if (ReviewReason.UNCONFIRMED_GAP in original.reviewReasons)
-                        "Original elapsed span between opening and later current-location check (continuity unconfirmed): ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}"
-                        else "Device-observed in-zone time: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
-                else Text("Device-observed in-zone duration unknown: no ENTER was recorded.")
-            } else Text("Original manually entered duration: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
+                        "Recorded span from arrival to a later location check (not confirmed continuous): ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}"
+                        else "Phone-recorded time in office area: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
+                else Text("Time in office area unknown: no arrival was recorded.")
+            } else Text("Manually entered time: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
             Text(if (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons)
-                "Effective elapsed span (continuity unconfirmed): ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}."
-                else "Effective session duration: ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}${if (session.correctionId != null && !session.correctionReverted) " after correction" else ""}.")
-            if (session.isOpen) Text("Open: evaluated through ${at(input.now)}; no future EXIT is assumed.")
+                "Visit span (not confirmed continuous): ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}."
+                else "Visit length: ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}${if (session.correctionId != null && !session.correctionReverted) " after correction" else ""}.")
+            if (session.isOpen) Text("Still open as of ${at(input.now)}. No leave time is assumed.")
             offices[session.officeId]?.let { value ->
                 session.start?.let { start ->
                     val creditStart = start.plusSeconds(value.entryGraceMinutes * 60L)
@@ -139,55 +142,91 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                         val minutesLeft = (Duration.between(input.now, creditStart).seconds + 59) / 60
                         Text("${minutesLeft}m until credit starts if the observed visit continues.")
                     }
-                    if (session.end?.let { it <= creditStart } == true) Text("Visit ended before arrival grace; 0m credited for this visit.")
+                    if (session.end?.let { it <= creditStart } == true) Text("Visit ended before the arrival grace was up, so 0m is credited for it.")
                 }
-                Text("Exit/departure grace: ${value.exitGraceMinutes}m for departure projections only; it adds no recorded credit.")
+                Text("Exit grace: ${value.exitGraceMinutes}m. Used only for leave-time estimates; it adds no credit.")
                 if (!value.enabled || !value.countsTowardAttendance) Text("This office is disabled or excluded from attendance credit.")
             }
-            Text("Confidence: ${session.confidence.name}. ${if (session.sourceEventIds.isEmpty()) "Manual interval" else "${session.sourceEventIds.size} source observation(s) retained"}.")
-            session.correctionId?.let { Text(if (session.correctionReverted) "Reverted to original by a retained audit entry."
-                else "Applied correction. Original evidence is retained below.") }
+            Text("Confidence: ${confidenceLabel(session.confidence)}. ${if (session.sourceEventIds.isEmpty()) "Entered manually" else "${count(session.sourceEventIds.size, "location record", "location records")} kept"}.")
+            session.correctionId?.let { Text(if (session.correctionReverted) "Reverted to the recorded times. The revert is kept in the change history."
+                else "Corrected. The original records are kept below.") }
             session.reviewReasons.forEach { Text(reviewExplanation(it)) }
             edit?.let { action -> OutlinedButton(onClick = { action(session) }) { Text("Correct session") } }
         }
-        EvidenceSection("Raw observations", detail.rawEvents) { event ->
+        EvidenceSection("Location records", detail.rawEvents) { event ->
             val currentFix = evidenceById[event.id]?.source in setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION",
                 "ADAPTIVE_LOCATION_CONFIRMATION", "ADAPTIVE_RECOVERY_CONFIRMATION",
                 dev.hamstercage.data.EXIT_VERIFY_INSIDE, dev.hamstercage.data.EXIT_VERIFY_OUTSIDE,
                 dev.hamstercage.data.PRESENCE_CORROBORATION)
             Text("${when {
-                currentFix && event.transition == Transition.ABSENCE -> "Current-location outside"
-                currentFix && event.transition == Transition.PRESENCE -> "Current-location presence"
-                else -> event.transition.name
+                currentFix && event.transition == Transition.ABSENCE -> "Location check: outside"
+                currentFix && event.transition == Transition.PRESENCE -> "Location check: inside"
+                else -> transitionLabel(event.transition)
             }} · ${office(event.officeId)} · ${at(event.at)}")
             if (currentFix) Text(when {
                 event.transition == Transition.ABSENCE ->
-                    "One-shot current-location fix establishes outside at this check. The exact departure time remains unknown."
+                    "A one-time location check found you outside the office area. The exact time you left is unknown."
                 detail.sessions.any { it.start == event.at && event.id in it.sourceEventIds } ->
-                    "One-shot current-location fix. The session starts at this observation, not at a guessed arrival."
-                else -> "One-shot current-location fix corroborates the recorded office-area visit; it does not restart arrival grace."
+                    "One-time location check. The visit starts at this check; no earlier arrival time is guessed."
+                else -> "One-time location check confirming the visit already recorded. It does not restart the arrival grace."
             })
         }
-        EvidenceSection("Manual source intervals", detail.manualSessions) { manual ->
+        EvidenceSection("Manual entries", detail.manualSessions) { manual ->
             Text(office(manual.officeId))
-            Text("${at(manual.start)} → ${at(manual.end)} · entered ${at(manual.createdAt)}")
+            Text("${at(manual.start)} → ${at(manual.end)} · added ${at(manual.createdAt)}")
             if (manual.note.isNotBlank()) Text(evidenceText(manual.note))
         }
-        EvidenceSection("Correction audit", detail.corrections) { correction ->
-            Text("Correction to a recorded session")
-            if (correction.revertToOriginal) Text("Revert to original reconstruction · entered ${at(correction.createdAt)}")
-            else Text("${at(correction.start)} → ${correction.end?.let(::at) ?: "end left to observations"} · entered ${at(correction.createdAt)}")
+        EvidenceSection("Change history", detail.corrections) { correction ->
+            Text("Correction to a recorded visit")
+            if (correction.revertToOriginal) Text("Revert to recorded times · added ${at(correction.createdAt)}")
+            else Text("${at(correction.start)} → ${correction.end?.let(::at) ?: "end from phone records"} · added ${at(correction.createdAt)}")
             Text(if (detail.sessions.any { it.correctionId == correction.id })
-                if (correction.revertToOriginal) "Currently restores original reconstruction." else "Applied to effective bounds."
-                else "Retained audit entry; not the currently applied correction.")
+                if (correction.revertToOriginal) "In effect: the recorded times are used." else "In effect: these times are used."
+                else "Kept for history; not in effect.")
             if (correction.note.isNotBlank()) Text(evidenceText(correction.note))
         }
-        EvidenceSection("Review explanations", detail.reviews) { review ->
-            Text(review.reason.name.replace('_', ' '), style = MaterialTheme.typography.titleMedium)
+        EvidenceSection("Items to review", detail.reviews) { review ->
+            Text(reviewTitle(review.reason), style = MaterialTheme.typography.titleMedium)
             Text(reviewExplanation(review.reason))
-            Text("${if (review.sessionId == null) "No linked session" else "Linked session"}; ${review.sourceEventIds.size} supporting observation(s).")
+            Text("${if (review.sessionId == null) "Not linked to a visit" else "Linked to a visit"} · ${count(review.sourceEventIds.size, "location record", "location records")}.")
         }
     }
+}
+
+/** Display-only labels; stored enum values are unchanged. */
+internal fun confidenceLabel(value: Confidence): String = when (value) {
+    Confidence.HIGH -> "High"
+    Confidence.MEDIUM -> "Medium"
+    Confidence.LOW -> "Low"
+    Confidence.MANUAL -> "Manual"
+}
+
+internal fun transitionLabel(value: Transition): String = when (value) {
+    Transition.ENTER -> "Entered office area"
+    Transition.EXIT -> "Left office area"
+    Transition.PRESENCE -> "Inside office area"
+    Transition.ABSENCE -> "Outside office area"
+}
+
+internal fun reviewTitle(reason: ReviewReason): String = when (reason) {
+    ReviewReason.DUPLICATE_EVENT -> "Duplicate records"
+    ReviewReason.REPEATED_ENTER -> "Second arrival without an exit"
+    ReviewReason.TRANSIENT_BOUNDARY -> "Very brief visit"
+    ReviewReason.MISSING_ENTER -> "Exit without an arrival"
+    ReviewReason.OPEN_SESSION -> "Visit still open"
+    ReviewReason.STALE_OPEN_SESSION -> "Open past review limit"
+    ReviewReason.UNCONFIRMED_GAP -> "Uncertain visit end"
+    ReviewReason.UNCONFIRMED_BOUNDARY -> "Exit not confirmed"
+    ReviewReason.INVALID_CORRECTION -> "Correction can't be used"
+    ReviewReason.ORPHAN_CORRECTION -> "Correction without a visit"
+    ReviewReason.UNKNOWN_OFFICE -> "Unknown office"
+    ReviewReason.FUTURE_EVENT -> "Record dated after now"
+    ReviewReason.CONFLICTING_EVENT_ID -> "Conflicting record"
+    ReviewReason.INVALID_EVENT -> "Unreadable record"
+    ReviewReason.ZERO_LENGTH_SESSION -> "Zero-length visit"
+    ReviewReason.INVALID_MANUAL_SESSION -> "Manual entry can't be used"
+    ReviewReason.CONFLICTING_MANUAL_SESSION_ID -> "Conflicting manual entry"
+    ReviewReason.REPEATED_EXIT -> "Repeated exit"
 }
 
 @Composable

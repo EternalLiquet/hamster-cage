@@ -29,11 +29,12 @@ class DayDetailTest {
             DayDetailScreen(input, AttendanceEngine.derive(input), day, {},
                 eventEvidence = listOf(RecordedEvent(raw, raw.at, raw.at, "FOREGROUND_LOCATION_RECONCILIATION")))
         } } }
-        compose.onNodeWithText("Current-location presence · Synthetic office", substring = true)
+        compose.onNodeWithText("Location check: inside · Synthetic office", substring = true)
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("One-shot current-location fix. The session starts at this observation, not at a guessed arrival.")
+        compose.onNodeWithText("One-time location check. The visit starts at this check; no earlier arrival time is guessed.")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("ENTER · Synthetic office", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Entered office area · Synthetic office", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("ENTER", substring = true).assertDoesNotExist()
     }
     @Test fun corroboratingPresenceDoesNotClaimASecondSessionStart() {
         val entered = RawEvent("in", office.id, Transition.ENTER, now.minusSeconds(3600))
@@ -44,9 +45,9 @@ class DayDetailTest {
                 RecordedEvent(entered, entered.at),
                 RecordedEvent(fix, fix.at, fix.at, "BACKGROUND_LOCATION_RECONCILIATION")))
         } } }
-        compose.onNodeWithText("One-shot current-location fix corroborates the recorded office-area visit; it does not restart arrival grace.")
+        compose.onNodeWithText("One-time location check confirming the visit already recorded. It does not restart the arrival grace.")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("One-shot current-location fix. The session starts at this observation, not at a guessed arrival.")
+        compose.onNodeWithText("One-time location check. The visit starts at this check; no earlier arrival time is guessed.")
             .assertDoesNotExist()
     }
     @Test fun adaptiveConfirmationIsExplainedAsCurrentLocationEvidence() {
@@ -58,9 +59,9 @@ class DayDetailTest {
             DayDetailScreen(input, AttendanceEngine.derive(input), day, {}, eventEvidence = listOf(
                 RecordedEvent(fix, fix.at, fix.at, "ADAPTIVE_LOCATION_CONFIRMATION")))
         } } }
-        compose.onNodeWithText("Current-location presence · Synthetic office", substring = true)
+        compose.onNodeWithText("Location check: inside · Synthetic office", substring = true)
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("One-shot current-location fix", substring = true)
+        compose.onNodeWithText("One-time location check", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Source event: fix").assertDoesNotExist()
     }
@@ -77,15 +78,15 @@ class DayDetailTest {
         compose.setContent { HamsterTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
             DayDetailScreen(input, AttendanceEngine.derive(input), day, {})
         } } }
-        compose.onNodeWithText("Original elapsed span between opening and later current-location check (continuity unconfirmed): 30m")
+        compose.onNodeWithText("Recorded span from arrival to a later location check (not confirmed continuous): 30m")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Effective elapsed span (continuity unconfirmed): 30m.")
+        compose.onNodeWithText("Visit span (not confirmed continuous): 30m.")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Device-observed in-zone time: 30m").assertDoesNotExist()
-        compose.onNodeWithText("Effective session duration: 30m.").assertDoesNotExist()
-        compose.onAllNodesWithText("Device-observed in-zone time: 10m")[0]
+        compose.onNodeWithText("Phone-recorded time in office area: 30m").assertDoesNotExist()
+        compose.onNodeWithText("Visit length: 30m.").assertDoesNotExist()
+        compose.onAllNodesWithText("Phone-recorded time in office area: 10m")[0]
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Confirmed time before the gap may count. The uncertain time needs review; see credited intervals for exact bounds.")
+        compose.onNodeWithText("Confirmed time before the gap may count. The uncertain time needs review; see Credited intervals for exact times.")
             .performScrollTo().assertIsDisplayed()
     }
     @Test fun missedExitOutsideCheckExplainsUnknownTimeAndZeroCredit() {
@@ -100,12 +101,12 @@ class DayDetailTest {
         } } }
         compose.onNodeWithTag("detail_credit").performScrollTo().assertTextEquals("Recorded credit: 0m")
         compose.onNodeWithTag("detail_observed").performScrollTo()
-            .assertTextEquals("Confirmed in-zone time: 0m")
-        compose.onNodeWithText("Current-location outside · Synthetic office", substring = true)
+            .assertTextEquals("Confirmed time in office area: 0m")
+        compose.onNodeWithText("Location check: outside · Synthetic office", substring = true)
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("One-shot current-location fix establishes outside at this check. The exact departure time remains unknown.")
+        compose.onNodeWithText("A one-time location check found you outside the office area. The exact time you left is unknown.")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Confirmed time before the gap may count. The uncertain time needs review; see credited intervals for exact bounds.")
+        compose.onNodeWithText("Confirmed time before the gap may count. The uncertain time needs review; see Credited intervals for exact times.")
             .performScrollTo().assertIsDisplayed()
     }
     @Test fun historyNavigationShowsCorrectedTotalAndRetainedRawEvidenceAtLargeText() {
@@ -121,13 +122,17 @@ class DayDetailTest {
         compose.onNodeWithTag("history_credit_$day").performScrollTo().assertTextContains("25m")
         compose.onNodeWithText("Explain $day").performScrollTo().performClick()
         compose.onNodeWithTag("detail_credit").performScrollTo().assertTextEquals("Recorded credit: 25m")
-        compose.onNodeWithTag("detail_observed").performScrollTo().assertTextEquals("Device-observed time: 1h 0m")
-        compose.onNodeWithText("Original bounds: 2026-09-23T14:00:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Effective bounds: 2026-09-23T14:30:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Device-observed in-zone time: 1h 0m").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Effective session duration: 30m after correction.").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("ENTER · Synthetic office", substring = true).performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("EXIT · Synthetic office", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("detail_observed").performScrollTo().assertTextEquals("Time your phone recorded: 1h 0m")
+        compose.onNodeWithText("As recorded: 2026-09-23T14:00:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Visit times used: 2026-09-23T14:30:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
+        // The 30m visit earns 25m after arrival grace; the visit row must not read as credited time.
+        compose.onNodeWithText("Credit can be less than this visit; Credited intervals show the time that counts.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("As counted", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Phone-recorded time in office area: 1h 0m").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Visit length: 30m after correction.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Entered office area · Synthetic office", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Left office area · Synthetic office", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Confidence: Manual. 2 location records kept.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Source event: in").assertDoesNotExist()
         compose.onNodeWithText("Synthetic correction").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Back to daily history").performScrollTo().performClick()
@@ -141,7 +146,9 @@ class DayDetailTest {
         } } }
         compose.onNodeWithTag("detail_credit").assertTextEquals("Recorded credit: 0m")
         compose.onAllNodesWithText(reviewExplanation(ReviewReason.MISSING_ENTER))[0].performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("EXIT · Synthetic office", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Left office area · Synthetic office", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Exit without an arrival").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("MISSING ENTER").assertDoesNotExist()
         compose.onNodeWithText("Source event: exit").assertDoesNotExist()
         compose.onNodeWithTag("detail_before_tracking").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("detail_required").assertDoesNotExist()
