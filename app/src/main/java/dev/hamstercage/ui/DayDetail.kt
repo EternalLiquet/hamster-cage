@@ -119,9 +119,10 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
             if (original?.reviewReasons?.contains(ReviewReason.UNCONFIRMED_GAP) == true)
                 Text("Confirmed time before the gap may count. The uncertain time needs review; see Credited intervals for exact times.")
             if (session.correctionId != null && !session.correctionReverted) original?.reviewReasons?.forEach {
-                Text("Before correction: ${reviewExplanation(it)} Your correction sets the counted times.")
+                Text("Before correction: ${reviewExplanation(it)} Your correction sets the visit times used.")
             }
-            Text("As counted: ${at(session.start)} → ${at(session.end)}")
+            Text("Visit times used: ${at(session.start)} → ${at(session.end)}")
+            Text("Credit can be less than this visit; Credited intervals show the time that counts.")
             if (original?.manualSessionId == null) {
                 if (original?.start != null)
                     Text(if (ReviewReason.UNCONFIRMED_GAP in original.reviewReasons)
@@ -130,9 +131,9 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                 else Text("Time in office area unknown: no arrival was recorded.")
             } else Text("Manually entered time: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
             Text(if (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons)
-                "Counted span (not confirmed continuous): ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}."
+                "Visit span (not confirmed continuous):${minutesText(AttendanceEngine.observedMinutes(session, input.now))}."
                 else "Visit length: ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}${if (session.correctionId != null && !session.correctionReverted) " after correction" else ""}.")
-            if (session.isOpen) Text("Still open: counted through ${at(input.now)}. No leave time is assumed.")
+            if (session.isOpen) Text("Still open as of ${at(input.now)}. No leave time is assumed.")
             offices[session.officeId]?.let { value ->
                 session.start?.let { start ->
                     val creditStart = start.plusSeconds(value.entryGraceMinutes * 60L)

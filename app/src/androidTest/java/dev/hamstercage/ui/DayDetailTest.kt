@@ -80,7 +80,7 @@ class DayDetailTest {
         } } }
         compose.onNodeWithText("Recorded span from arrival to a later location check (not confirmed continuous): 30m")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Counted span (not confirmed continuous): 30m.")
+        compose.onNodeWithText("Visit span (not confirmed continuous): 30m.")
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Phone-recorded time in office area: 30m").assertDoesNotExist()
         compose.onNodeWithText("Visit length: 30m.").assertDoesNotExist()
@@ -124,7 +124,10 @@ class DayDetailTest {
         compose.onNodeWithTag("detail_credit").performScrollTo().assertTextEquals("Recorded credit: 25m")
         compose.onNodeWithTag("detail_observed").performScrollTo().assertTextEquals("Time your phone recorded: 1h 0m")
         compose.onNodeWithText("As recorded: 2026-09-23T14:00:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("As counted: 2026-09-23T14:30:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Visit times used: 2026-09-23T14:30:00Z → 2026-09-23T15:00:00Z").performScrollTo().assertIsDisplayed()
+        // The 30m visit earns 25m after arrival grace; the visit row must not read as credited time.
+        compose.onNodeWithText("Credit can be less than this visit; Credited intervals show the time that counts.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("As counted", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Phone-recorded time in office area: 1h 0m").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Visit length: 30m after correction.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Entered office area · Synthetic office", substring = true).performScrollTo().assertIsDisplayed()
