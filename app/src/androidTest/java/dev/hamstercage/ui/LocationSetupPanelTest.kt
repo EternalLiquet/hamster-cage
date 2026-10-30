@@ -70,7 +70,7 @@ class LocationSetupPanelTest {
         rule.runOnIdle { assertEquals(1, backgroundCalls) }
         show(LocationSetup(true, true, true, true, true))
         rule.onNodeWithText("Location prerequisites ready").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("Permissions are ready. Automatic detection is not running: office registration has not been configured.").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Permissions are ready, but automatic detection is not running because office detection is not set up yet.").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun explicitOneShotActionExplainsConfirmedAndUnknownResults() {
@@ -80,12 +80,12 @@ class LocationSetupPanelTest {
             registration = RegistrationStatus.ACTIVE,
             reconcile = { calls++; outcome })
         rule.onNodeWithText("Check current office").performScrollTo().performClick()
-        rule.onNodeWithText("Inside an office. A session starts at the current observation; walking grace is uncredited.")
+        rule.onNodeWithText("You're inside an office area. A visit starts now; the arrival walking grace is not credited.")
             .performScrollTo().assertIsDisplayed()
         rule.runOnIdle { assertEquals(1, calls) }
         outcome = ReconcileOutcome.OUTSIDE
         rule.onNodeWithText("Check current office").performScrollTo().performClick()
-        rule.onNodeWithText("Outside saved office boundaries. Office state remains unknown; retry when inside.")
+        rule.onNodeWithText("You're outside your saved office areas. Office status stays unknown; check again when you're inside.")
             .performScrollTo().assertIsDisplayed()
         rule.runOnIdle { assertEquals(2, calls) }
     }
