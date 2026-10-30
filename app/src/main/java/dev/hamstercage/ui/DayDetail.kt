@@ -131,7 +131,7 @@ fun DayDetailScreen(input: AttendanceInput, result: AttendanceResult, date: Loca
                 else Text("Time in office area unknown: no arrival was recorded.")
             } else Text("Manually entered time: ${minutesText(AttendanceEngine.observedMinutes(original, input.now))}")
             Text(if (ReviewReason.UNCONFIRMED_GAP in session.reviewReasons)
-                "Visit span (not confirmed continuous):${minutesText(AttendanceEngine.observedMinutes(session, input.now))}."
+                "Visit span (not confirmed continuous): ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}."
                 else "Visit length: ${minutesText(AttendanceEngine.observedMinutes(session, input.now))}${if (session.correctionId != null && !session.correctionReverted) " after correction" else ""}.")
             if (session.isOpen) Text("Still open as of ${at(input.now)}. No leave time is assumed.")
             offices[session.officeId]?.let { value ->
