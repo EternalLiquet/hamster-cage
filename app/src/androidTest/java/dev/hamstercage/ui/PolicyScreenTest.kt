@@ -34,7 +34,7 @@ class PolicyScreenTest {
         show { next, previous -> saved = next; expected = previous }
         compose.onNodeWithTag("policy_target").performScrollTo().performTextReplacement("420")
         compose.onNodeWithTag("policy_zone").performTextReplacement("UTC")
-        compose.onNodeWithText("Saving changes recalculates past and current totals, required days and departure estimates. Original events, corrections, holidays and WFH labels remain intact.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Saving recalculates past and current totals, required days and leave-time estimates. Your original records, corrections, holidays and WFH labels stay as they are.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Save and recalculate").performScrollTo().performClick()
         compose.waitUntil(5_000) { saved != null }
         assertEquals(420, saved!!.targetMinutesPerDay)
@@ -51,7 +51,7 @@ class PolicyScreenTest {
         compose.onNodeWithTag("policy_target").performScrollTo().performTextReplacement("360")
         (1..5).map(DayOfWeek::of).forEach { compose.onNodeWithTag("policy_day_${it.name}").performScrollTo().performClick() }
         compose.onNodeWithText("Save and recalculate").performScrollTo().performClick()
-        compose.onNodeWithText("Error: Choose at least one expected weekday.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Error: Choose at least one workday.").performScrollTo().assertIsDisplayed()
         assertEquals(0, saves)
     }
 
