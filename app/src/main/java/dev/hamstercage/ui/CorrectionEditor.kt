@@ -53,7 +53,7 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
         LocalBoundary(LocalDateTime.parse(startLocal), startOverlap),
         if (hasEnd) LocalBoundary(LocalDateTime.parse(endLocal), endOverlap) else null, zone, now)
     if (saved) {
-        Notice("Attendance change saved", "Your immutable source facts and correction audit were kept. Totals have been recalculated.")
+        Notice("Attendance change saved", "Your original records and change history are kept. Totals now include this change.")
         Button(onClick = close) { Text("Back to history") }
         return
     }
@@ -81,9 +81,9 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Text(if (session == null) "Add manual attendance" else "Correct session", style = MaterialTheme.typography.headlineSmall)
-        Text("Original observations stay unchanged. This adds a visible manual audit entry. Location permission is not required.")
-        Text("Times use ${zone.getDisplayName(TextStyle.FULL, Locale.getDefault())} (${zone.id}). Select local dates and times; repeated clock hours ask for a choice.")
-        Text("Picker choices use whole minutes. Review the proposed times before saving.")
+        Text("Your recorded visits stay as they are. This change is saved separately and labelled Manual. Location permission is not needed.")
+        Text("Times use ${zone.getDisplayName(TextStyle.FULL, Locale.getDefault())} (${zone.id}). Pick a local date and time; if the clock repeats an hour, you choose which one.")
+        Text("Times are in whole minutes. You can check them before saving.")
         FormError(error)
         if (preview == null) {
             if (session == null) input.offices.forEach { office ->
@@ -98,8 +98,8 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
                 modifier = Modifier.testTag("correction_has_end").semantics { contentDescription = "Include an end time" })
             Text(when {
                 hasEnd -> "End time selected"
-                session != null -> "No end selected · the end your phone observes is kept; until there is one, the visit stays open."
-                else -> "No end selected · this creates an open session."
+                session != null -> "No end time · the visit keeps the end your phone records, and stays open until there is one."
+                else -> "No end time · this adds a visit that stays open."
             })
             if (hasEnd) LocalBoundaryPicker("End", LocalDateTime.parse(endLocal), endOverlap, zone, use24Hour, busy,
                 onChange = { value -> endLocal = value.toString(); endOverlap = null },
@@ -115,26 +115,26 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
             val after = remember(edit) { AttendanceEngine.derive(edit.proposedInput()) }
             Panel {
                 Text("Review before saving", style = MaterialTheme.typography.titleLarge)
-                Text("All recorded credited time: ${minutesText(before.intervals.sumOf { it.minutes })} → ${minutesText(after.intervals.sumOf { it.minutes })}", Modifier.testTag("correction_preview_total"))
+                Text("Credited time, all days: ${minutesText(before.intervals.sumOf { it.minutes })} → ${minutesText(after.intervals.sumOf { it.minutes })}", Modifier.testTag("correction_preview_total"))
                 val bounds = when (edit) {
                     is AttendanceEdit.Correct -> CorrectionBounds(edit.value.start, edit.value.end)
                     is AttendanceEdit.AddManual -> CorrectionBounds(edit.value.start, edit.value.end)
                 }
                 Text("Selected time: ${display(bounds.start)} → ${bounds.end?.let(::display) ?: "Open session"}",
                     Modifier.testTag("correction_preview_bounds"))
-                Text("Preview evaluated at ${display(edit.baseline.now)}. New observations, policy or advancing time can update later totals.")
+                Text("Preview as of ${display(edit.baseline.now)}. New visits, rule changes or more elapsed time can change totals later.")
                 if (edit is AttendanceEdit.Correct && edit.value.revertToOriginal)
-                    Text("Revert appends an audit marker and restores original reconstruction, including any missing boundaries and review flags.")
-                else Text("The resulting attendance is marked MANUAL. Arrival walking delay and overlap rules still apply; exit grace affects projections only.")
-                if (after.reviews.isNotEmpty()) Text("${after.reviews.size} review notices remain in the local record; inspect day detail after saving.")
-                Text("Raw observations, earlier corrections and manual source entries are retained.")
+                    Text("Reverting puts this visit back the way it was recorded, including any missing start or end and items to review. The revert is added to the change history.")
+                else Text("This time is labelled Manual. The arrival walking delay still applies and overlapping time counts once. Exit grace only changes leave-time estimates.")
+                if (after.reviews.isNotEmpty()) Text("${after.reviews.size} ${if (after.reviews.size == 1) "item still needs" else "items still need"} review. Check the day details after saving.")
+                Text("Recorded visits, earlier corrections and manual entries are all kept.")
             }
             Button(onClick = {
                 busy = true; error = null
                 scope.launch {
                     try { actions.save(edit); saved = true }
                     catch (failure: CancellationException) { throw failure }
-                    catch (_: Exception) { error = "Change could not be saved, or the record changed. Your facts were kept. Review a fresh preview and try again."; preview = null }
+                    catch (_: Exception) { error = "Change could not be saved, or the record changed. Your existing records were kept. Preview again and retry."; preview = null }
                     finally { busy = false }
                 }
             }, enabled = !busy) { Text(if (busy) "Saving…" else "Confirm attendance change") }

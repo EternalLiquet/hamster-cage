@@ -97,7 +97,7 @@ class CorrectionEditorTest {
     @Test fun invalidBoundsAreBlockedAndPreviewNeedsExplicitConfirmationWithoutLocationPermission() {
         var saved: AttendanceEdit? = null
         show { saved = it }
-        compose.onNodeWithText("Original observations stay unchanged. This adds a visible manual audit entry. Location permission is not required.").assertIsDisplayed()
+        compose.onNodeWithText("Your recorded visits stay as they are. This change is saved separately and labelled Manual. Location permission is not needed.").assertIsDisplayed()
         compose.onNodeWithText("Eastern Time", substring = true).performScrollTo().assertIsDisplayed()
         pickTime("correction_start_time", 11, 30)
         compose.onNodeWithText("Preview attendance change").performScrollTo().performClick()
@@ -105,7 +105,8 @@ class CorrectionEditorTest {
         assertNull(saved)
         validDraft()
         compose.onNodeWithText("Preview attendance change").performScrollTo().performClick()
-        compose.onNodeWithTag("correction_preview_total").performScrollTo().assertTextEquals("All recorded credited time: 0m → 25m")
+        compose.onNodeWithTag("correction_preview_total").performScrollTo().assertTextEquals("Credited time, all days: 0m → 25m")
+        compose.onNodeWithText("This time is labelled Manual.", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("correction_preview_bounds").performScrollTo()
             .assert(hasText("10:30 AM", substring = true))
         assertNull(saved)
@@ -121,7 +122,7 @@ class CorrectionEditorTest {
         validDraft()
         compose.onNodeWithText("Preview attendance change").performScrollTo().performClick()
         compose.onNodeWithText("Confirm attendance change").performScrollTo().performClick()
-        compose.onNodeWithText("Error: Change could not be saved, or the record changed. Your facts were kept. Review a fresh preview and try again.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Error: Change could not be saved, or the record changed. Your existing records were kept. Preview again and retry.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("correction_start_time").performScrollTo().assert(hasText("10:30", substring = true))
         compose.onNodeWithText("private-correction-secret", substring = true).assertDoesNotExist()
     }
@@ -144,7 +145,7 @@ class CorrectionEditorTest {
         pickDate("correction_start_date", 2026, 9, 22)
         pickTime("correction_start_time", 10, 30)
         compose.onNodeWithTag("correction_has_end").performScrollTo().performClick()
-        compose.onNodeWithText("No end selected · the end your phone observes is kept; until there is one, the visit stays open.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("No end time · the visit keeps the end your phone records, and stays open until there is one.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Preview attendance change").performScrollTo().performClick()
         compose.onNodeWithTag("correction_preview_bounds").performScrollTo()
             .assert(hasText("Open session", substring = true))
@@ -205,7 +206,8 @@ class CorrectionEditorTest {
                 CorrectionActions({ now }, { "a" }, { saved = it })) {}
         } } }
         compose.onNodeWithText("Preview revert to original").performScrollTo().performClick()
-        compose.onNodeWithTag("correction_preview_total").performScrollTo().assertTextEquals("All recorded credited time: 25m → 0m")
+        compose.onNodeWithTag("correction_preview_total").performScrollTo().assertTextEquals("Credited time, all days: 25m → 0m")
+        compose.onNodeWithText("Reverting puts this visit back the way it was recorded", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Confirm attendance change").performScrollTo().performClick()
         compose.onNodeWithText("Attendance change saved").assertIsDisplayed()
         val marker = (saved as AttendanceEdit.Correct).value
