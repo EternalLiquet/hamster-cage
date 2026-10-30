@@ -70,7 +70,9 @@ class LocationSetupPanelTest {
         rule.runOnIdle { assertEquals(1, backgroundCalls) }
         show(LocationSetup(true, true, true, true, true))
         rule.onNodeWithText("Location prerequisites ready").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("Permissions are ready, but automatic detection is not running because office detection is not set up yet.").performScrollTo().assertIsDisplayed()
+        // The panel defaults to UNKNOWN registration, which is unconfirmed rather than a setup failure.
+        rule.onNodeWithText("Permissions are ready. Office detection status is not confirmed yet.").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("not running", substring = true).assertDoesNotExist()
     }
 
     @Test fun explicitOneShotActionExplainsConfirmedAndUnknownResults() {
@@ -79,6 +81,7 @@ class LocationSetupPanelTest {
         show(LocationSetup(true, true, true, true, true), offices = 1,
             registration = RegistrationStatus.ACTIVE,
             reconcile = { calls++; outcome })
+        rule.onNodeWithText("A visit that is already open stays as it is.", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Check current office").performScrollTo().performClick()
         rule.onNodeWithText("You're inside an office area. A visit starts now; the arrival walking grace is not credited.")
             .performScrollTo().assertIsDisplayed()

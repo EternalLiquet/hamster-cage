@@ -77,15 +77,15 @@ fun LocationSetupPanel(
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         Text("After you leave an office area, the app may run up to five quick checks over five minutes; Android can delay them. Routine checks aim for every 30 minutes (every 15 while a visit needs checking), weekdays 7 AM–7 PM in $policyZone. Location and attendance are stored on this device and are not used for ads or analytics.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-        Text(if (captureStatus.monitoringEnabled) "Monitoring is on" else "Monitoring is off")
+        Text(if (captureStatus.monitoringEnabled) "Attendance monitoring enabled" else "Attendance monitoring turned off")
         CageButton(if (changingMonitoring) "Updating attendance monitoring…" else if (captureStatus.monitoringEnabled)
             "Disable attendance monitoring" else "Enable attendance monitoring",
             { changeMonitoring(!captureStatus.monitoringEnabled) })
         captureStatus.lastVerifiedAt?.let { verified ->
             Text("Last verified ${verified.atZone(policyZone).format(DateTimeFormatter.ofPattern("EEE h:mm a"))} · weekday checks 7 AM–7 PM")
         }
-        captureStatus.lastCheckResult?.let { Text("Latest check: $it") }
-        Text("If you force-stop the app, Android pauses office detection. Open Hamster Cage again so it can resume; any uncertain time will need review.",
+        captureStatus.lastCheckResult?.let { Text("Latest check: ${lastCheckText(it)}") }
+        Text("If you force-stop the app, Android pauses office detection. Opening Hamster Cage again asks to restore it, which works only if permissions and office setup are still ready; any uncertain time will need review.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         when {
             !setup.fineLocation -> {
@@ -100,18 +100,10 @@ fun LocationSetupPanel(
             }
             !setup.locationEnabled -> CageButton("Open device location settings", openDeviceSettings)
             !setup.playServicesAvailable -> Text("Automatic detection needs available Google Play services. Local records and manual features do not depend on it.")
-            else -> Text(when (registration) {
-                RegistrationStatus.ACTIVE -> "Office detection is set up on this device. Android may deliver updates late."
-                RegistrationStatus.NO_OFFICES -> "Permissions are ready. Add or turn on an office to start detection."
-                RegistrationStatus.FAILED -> "Permissions are ready, but office detection setup needs attention."
-                RegistrationStatus.REGISTERING -> "Setting up office detection on this device."
-                RegistrationStatus.DISABLED -> "Attendance monitoring is off."
-                RegistrationStatus.UNKNOWN, RegistrationStatus.NEEDS_SETUP ->
-                    "Permissions are ready, but automatic detection is not running because office detection is not set up yet."
-            })
+            else -> Text(registrationStatusText(registration))
         }
         if (eligibleOfficeCount > 0 && reconcile != null) {
-            Text("Already at an office? Check your precise location once. If you're inside, attendance starts now and the arrival walking grace still applies. Your coordinates are not saved.")
+            Text("Already at an office? Check your precise location once. If it confirms a new visit, that visit starts at the check, with no earlier arrival guessed, and the arrival walking grace still applies. A visit that is already open stays as it is. Your coordinates are not saved.")
             CageButton(if (checking) "Checking current office…" else "Check current office", onClick = {
                 if (!checking) {
                     checking = true; result = null
@@ -145,4 +137,42 @@ fun LocationSetupPanel(
             }
         })
     }
+}
+
+/** Display-only; [RegistrationStatus.UNKNOWN] is unconfirmed, not a failure. */
+internal fun registrationStatusText(status: RegistrationStatus): String = when (status) {
+    RegistrationStatus.ACTIVE -> "Office detection is set up on this device. Android may deliver updates late."
+    RegistrationStatus.NO_OFFICES -> "Permissions are ready. Add or turn on an office to start detection."
+    RegistrationStatus.FAILED -> "Permissions are ready, but office detection setup needs attention."
+    RegistrationStatus.REGISTERING -> "Setting up office detection on this device."
+    RegistrationStatus.DISABLED -> "Attendance monitoring is off."
+    RegistrationStatus.NEEDS_SETUP ->
+        "Permissions are ready, but automatic detection is not running because office detection is not set up yet."
+    RegistrationStatus.UNKNOWN -> "Permissions are ready. Office detection status is not confirmed yet."
+}
+
+/** Display-only labels for persisted check results; the stored strings are unchanged. */
+internal fun lastCheckText(stored: String): String = when (stored) {
+    "Inside office" -> "Inside an office area"
+    "Outside offices" -> "Outside your office areas"
+    "Office boundary uncertain" -> "Too close to the edge of an office area to tell"
+    "Location not precise enough" -> "Location was not precise enough"
+    "Stale location; retry later" -> "Location was out of date; try again later"
+    "Boundary check stale or inaccurate" -> "Location was out of date or not precise enough"
+    "Boundary check delayed; later checks may recover" -> "Check was delayed; a later check may work"
+    "Boundary check unavailable; retry from the app", "Check unavailable; open app to retry",
+    "Location check unavailable; open app to retry" -> "Check could not run; open the app to try again"
+    "Boundary confirmation unavailable; later checks may recover" -> "Could not confirm an office exit; a later check may work"
+    "Weekday checks unavailable; open app to retry" -> "Weekday checks could not run; open the app to try again"
+    "Location permission or service unavailable" -> "Location access or location services unavailable"
+    "Newer boundary event; retry later" -> "A newer office update was already recorded"
+    "Office boundary refresh skipped; later checks may recover" -> "Office detection refresh skipped; a later check may fix it"
+    "Office boundary refresh unavailable; later checks may recover" -> "Office detection refresh could not run; a later check may fix it"
+    "Office recovery unavailable" -> "Could not restore office detection"
+    "Office registration unavailable" -> "Office detection could not be set up"
+    "Approximate location only", "Precise location not allowed", "Background location not allowed",
+    "Device location is off", "Google Play services unavailable" -> stored
+    "Location prerequisites ready" -> "Location access ready"
+    "Unavailable" -> "Unknown; the last result could not be read"
+    else -> "Unknown result"
 }

@@ -52,10 +52,10 @@ class WeekdayMonitoringUiTest {
                 }
             }
         }
-        compose.onNodeWithText("Monitoring is on").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Attendance monitoring enabled").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Last verified Mon 3:30 PM · weekday checks 7 AM–7 PM")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Latest check: Inside office").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Latest check: Inside an office area").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("the app may run up to five quick checks over five minutes", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNode(hasText("Disable attendance monitoring") and hasClickAction()).performScrollTo().performClick()
@@ -72,7 +72,7 @@ class WeekdayMonitoringUiTest {
                 }
             }
         }
-        compose.onNodeWithText("Monitoring is off").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Attendance monitoring turned off").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Attendance monitoring is off.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Enable attendance monitoring").performScrollTo().assertIsDisplayed()
     }

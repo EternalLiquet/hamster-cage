@@ -59,6 +59,7 @@ class CaptureNoticeTest {
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Permissions are ready, but automatic detection is not running because office detection is not set up yet.")
             .assertDoesNotExist()
+        compose.onNodeWithText("Permissions are ready. Office detection status is not confirmed yet.").assertDoesNotExist()
     }
 
     @Test fun postRecoveryObservationChangesVisibleOfficeState() {
