@@ -51,6 +51,12 @@ class PrivacyScreenTest {
         } } }
         compose.onNodeWithText("Uninstalling Hamster Cage or clearing its app storage deletes them.", substring = true)
             .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("privacy_office_lookup").performScrollTo().assertTextContains("OpenStreetMap", substring = true)
+        compose.onNodeWithTag("privacy_day_sharing").performScrollTo()
+            .assertTextContains("only when you choose", substring = true)
+            .assertTextContains("can keep its own copy", substring = true)
+            .assertTextContains("cannot be restored", substring = true)
+        compose.onNodeWithText("no in-app export", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("privacy_delete_history").performScrollTo().performClick()
         compose.onNodeWithText("The app cannot recover deleted history.", substring = true)
             .performScrollTo().assertIsDisplayed()
