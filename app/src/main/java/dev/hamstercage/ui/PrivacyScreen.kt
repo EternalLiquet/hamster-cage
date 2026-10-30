@@ -40,13 +40,13 @@ fun PrivacyScreen(state: StorageState, reset: PrivacyResetState, actions: Privac
         Panel {
             Text("Privacy and local data", style = MaterialTheme.typography.titleLarge)
             Text("On this device", style = MaterialTheme.typography.titleMedium)
-            Text("Attendance, offices and settings are stored on this device. Uninstalling Hamster Cage or clearing its app storage deletes them. An ordinary app update or restart does not request deletion of local data. Attendance works offline, and the app has no backup or restore.",
+            Text("Attendance, offices and settings are stored on this device. Uninstalling Hamster Cage or clearing its app storage deletes them. An ordinary app update or restart does not request deletion of local data. Attendance works offline. Hamster Cage has no in-app backup or restore feature.",
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("privacy_on_device"))
             Text("Office lookup", style = MaterialTheme.typography.titleMedium)
             Text("When you set up an office, an address you search goes to your device's geocoder service, and the map area you review loads from OpenStreetMap. Attendance history is not part of these requests.",
                 style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary, modifier = Modifier.testTag("privacy_office_lookup"))
             Text("Sharing a day", style = MaterialTheme.typography.titleMedium)
-            Text("Day details can share or save one day's data as a file, only when you choose. It includes that day's attendance times but leaves out office names, exact coordinates and notes. The app or place you send it to can keep its own copy, and deleting history here does not remove that copy. The file is for troubleshooting and cannot be restored into the app.",
+            Text("Day details can share or save a diagnostic file for a chosen day, only when you choose. Along with that day's attendance times, it can include linked records from nearby days, up to seven earlier days of office detection setup attempts, and diagnostic details such as timestamps and location-fix age. The preview shows the date span and what is included before you share or save. Office names, exact coordinates and notes are left out. The app or place you send it to can keep its own copy, and deleting history here does not remove that copy. The file is for troubleshooting and cannot be restored into the app.",
                 style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary, modifier = Modifier.testTag("privacy_day_sharing"))
             message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             when (reset) {
