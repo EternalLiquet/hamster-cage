@@ -81,7 +81,7 @@ fun CorrectionEditor(input: AttendanceInput, session: Session?, actions: Correct
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CageStyle.Gap)) {
         Text(if (session == null) "Add manual attendance" else "Correct session", style = MaterialTheme.typography.headlineSmall)
-        Text("Your recorded visits stay as they are. This change is saved separately and labelled Manual. Location permission is not needed.")
+        Text("Your recorded visits stay as they are, and changes are saved separately. Times you add or correct here are labelled Manual; reverting restores the recorded times. Location permission is not needed.")
         Text("Times use ${zone.getDisplayName(TextStyle.FULL, Locale.getDefault())} (${zone.id}). Pick a local date and time; if the clock repeats an hour, you choose which one.")
         Text("Times are in whole minutes. You can check them before saving.")
         FormError(error)

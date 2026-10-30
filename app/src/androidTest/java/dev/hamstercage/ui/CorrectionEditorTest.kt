@@ -97,7 +97,7 @@ class CorrectionEditorTest {
     @Test fun invalidBoundsAreBlockedAndPreviewNeedsExplicitConfirmationWithoutLocationPermission() {
         var saved: AttendanceEdit? = null
         show { saved = it }
-        compose.onNodeWithText("Your recorded visits stay as they are. This change is saved separately and labelled Manual. Location permission is not needed.").assertIsDisplayed()
+        compose.onNodeWithText("Your recorded visits stay as they are, and changes are saved separately. Times you add or correct here are labelled Manual; reverting restores the recorded times. Location permission is not needed.").assertIsDisplayed()
         compose.onNodeWithText("Eastern Time", substring = true).performScrollTo().assertIsDisplayed()
         pickTime("correction_start_time", 11, 30)
         compose.onNodeWithText("Preview attendance change").performScrollTo().performClick()
