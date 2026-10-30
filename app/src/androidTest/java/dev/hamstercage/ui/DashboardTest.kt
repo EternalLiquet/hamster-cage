@@ -437,7 +437,7 @@ class DashboardTest {
         compose.onNodeWithTag("today_leave").assertTextContains("If you're still here, leave at about", substring = true)
         compose.onNodeWithTag("office_state").assertTextEquals("Checking whether you've left")
         // Earlier-day records stay reachable, but neither question today nor take the primary action.
-        compose.onNodeWithText("A session needs review").assertDoesNotExist()
+        compose.onNodeWithText("A visit needs review").assertDoesNotExist()
         compose.onNodeWithText("Other records to check").performScrollTo().assertIsDisplayed()
         val timeline = amberShare(compose.onNode(hasText("View today's timeline") and hasClickAction()).performScrollTo())
         val history = amberShare(compose.onNode(hasText("Review history") and hasClickAction()).performScrollTo())
@@ -475,8 +475,8 @@ class DashboardTest {
             // Both warnings are preserved exactly when they apply.
             if (case.setup) compose.onNodeWithText("Detection is not confirmed").performScrollTo().assertIsDisplayed()
             else compose.onNodeWithText("Detection is not confirmed").assertDoesNotExist()
-            if (case.needsReview) compose.onNodeWithText("A session needs review").performScrollTo().assertIsDisplayed()
-            else compose.onNodeWithText("A session needs review").assertDoesNotExist()
+            if (case.needsReview) compose.onNodeWithText("A visit needs review").performScrollTo().assertIsDisplayed()
+            else compose.onNodeWithText("A visit needs review").assertDoesNotExist()
 
             val actions = buildList {
                 add("View today's timeline")
