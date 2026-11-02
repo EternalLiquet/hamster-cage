@@ -83,7 +83,7 @@ class HistoryTest {
         compose.onNodeWithTag("history_review_action").performScrollTo().performClick()
         compose.onNodeWithTag("detail_before_tracking").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("detail_required").assertDoesNotExist()
-        compose.onNodeWithText("Review explanations", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Items to review", substring = true).performScrollTo().assertIsDisplayed()
     }
 
     @Test fun largeHistoryRendersOnlyFourteenDaysAndPagesToOlderSource() {

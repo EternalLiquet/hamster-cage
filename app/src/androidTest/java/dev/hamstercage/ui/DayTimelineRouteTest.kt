@@ -171,6 +171,6 @@ class DayTimelineRouteTest {
         compose.onNodeWithText("Arrival time unknown", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("detail_leave").performScrollTo()
             .assertTextEquals("Estimated leave time: about 3:36 PM. Check today's timeline.")
-        compose.onNodeWithText("Raw observations (3)").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Location records (3)").performScrollTo().assertIsDisplayed()
     }
 }
