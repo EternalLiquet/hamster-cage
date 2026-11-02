@@ -15,11 +15,11 @@ data class PolicyDraft(
         val gap = gapMinutes.trim().toIntOrNull()
         val maxOpen = maxOpenHours.trim().toIntOrNull()
         require(target != null && target in 1..1440) { "Target must be 1 to 1440 whole minutes." }
-        require(gap != null && gap in 0..120) { "Short gap must be 0 to 120 whole minutes." }
-        require(maxOpen != null && maxOpen in 1..24) { "Open-session review must be 1 to 24 whole hours." }
-        require(weekdays.isNotEmpty()) { "Choose at least one expected weekday." }
+        require(gap != null && gap in 0..120) { "Short gaps must be 0 to 120 whole minutes." }
+        require(maxOpen != null && maxOpen in 1..24) { "Open visits must be flagged after 1 to 24 whole hours." }
+        require(weekdays.isNotEmpty()) { "Choose at least one workday." }
         val policyZone = try { ZoneId.of(zone.trim()) }
-        catch (_: DateTimeException) { throw IllegalArgumentException("Enter a valid policy timezone, such as America/New_York.") }
+        catch (_: DateTimeException) { throw IllegalArgumentException("Enter a valid timezone, such as America/New_York.") }
         return PolicySettings(policyZone, target, weekdays.toSet(), gap, maxOpen)
     }
 

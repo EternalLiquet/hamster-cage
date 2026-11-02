@@ -48,12 +48,12 @@ fun PolicyScreen(state: StorageState, save: suspend (PolicySettings, PolicySetti
             policy == null -> Notice("Policy unavailable", "Local settings could not be opened. Saved data was kept for recovery.")
             !editing -> Panel {
                 Text("Attendance policy", style = MaterialTheme.typography.titleLarge)
-                MetricRow("Daily target", "${policy.targetMinutesPerDay} minutes")
-                MetricRow("Expected weekdays", policy.expectedWeekdays.sorted().joinToString(", ") { it.getDisplayName(TextStyle.SHORT, Locale.getDefault()) }.ifEmpty { "None" })
-                MetricRow("Policy timezone", policy.zoneId.id)
-                MetricRow("Short-gap merge", "${policy.shortGapMinutes} minutes")
-                MetricRow("Review open sessions after", "${policy.maxOpenSessionHours} hours")
-                Text("Changes recalculate saved history from original events. They never change the recorded observations.", style = MaterialTheme.typography.bodyMedium)
+                MetricRow("Daily target", "${policy.targetMinutesPerDay} minutes (${minutesText(policy.targetMinutesPerDay.toDouble())})")
+                MetricRow("Workdays", policy.expectedWeekdays.sorted().joinToString(", ") { it.getDisplayName(TextStyle.SHORT, Locale.getDefault()) }.ifEmpty { "None" })
+                MetricRow("Timezone", "${policy.zoneId.getDisplayName(TextStyle.FULL, Locale.getDefault())} (${policy.zoneId.id})")
+                MetricRow("Bridge short gaps up to", "${policy.shortGapMinutes} minutes")
+                MetricRow("Flag open visits after", "${policy.maxOpenSessionHours} hours")
+                Text("Changing these rules recalculates your history from the original records. The records themselves never change.", style = MaterialTheme.typography.bodyMedium)
                 if (saved) Text("Policy saved. Attendance has been recalculated.", style = MaterialTheme.typography.bodyMedium)
                 CageButton("Edit policy", {
                     val draft = PolicyDraft.from(policy)
@@ -64,10 +64,10 @@ fun PolicyScreen(state: StorageState, save: suspend (PolicySettings, PolicySetti
             }
             else -> Panel {
                 Text("Edit attendance policy", style = MaterialTheme.typography.titleLarge)
-                OutlinedTextField(target, { target = it }, label = { Text("Target minutes per workday") }, enabled = !saving, modifier = Modifier.fillMaxWidth().testTag("policy_target"), singleLine = true)
-                OutlinedTextField(zone, { zone = it }, label = { Text("Policy timezone") }, enabled = !saving, modifier = Modifier.fillMaxWidth().testTag("policy_zone"), singleLine = true)
-                Text("Use a named timezone such as America/New_York. Device timezone changes while travelling do not change this policy.", style = MaterialTheme.typography.bodyMedium)
-                Text("Expected weekdays", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(target, { target = it }, label = { Text("Daily target in minutes (480 = 8 hours)") }, enabled = !saving, modifier = Modifier.fillMaxWidth().testTag("policy_target"), singleLine = true)
+                OutlinedTextField(zone, { zone = it }, label = { Text("Timezone") }, enabled = !saving, modifier = Modifier.fillMaxWidth().testTag("policy_zone"), singleLine = true)
+                Text("Use a timezone name such as America/New_York. Days are counted in this timezone, even if your phone's timezone changes while you travel.", style = MaterialTheme.typography.bodyMedium)
+                Text("Workdays", style = MaterialTheme.typography.titleMedium)
                 DayOfWeek.entries.forEach { day ->
                     val selected = day.value in weekdayValues
                     Row(Modifier.fillMaxWidth().testTag("policy_day_${day.name}").toggleable(selected, enabled = !saving, role = Role.Checkbox,
@@ -76,9 +76,11 @@ fun PolicyScreen(state: StorageState, save: suspend (PolicySettings, PolicySetti
                         Text(day.getDisplayName(TextStyle.FULL, Locale.getDefault()), style = MaterialTheme.typography.bodyLarge)
                     }
                 }
-                OutlinedTextField(gap, { gap = it }, label = { Text("Short-gap merge minutes (0–120)") }, enabled = !saving, modifier = Modifier.fillMaxWidth().testTag("policy_gap"), singleLine = true)
-                OutlinedTextField(maxOpen, { maxOpen = it }, label = { Text("Open-session review hours (1–24)") }, enabled = !saving, modifier = Modifier.fillMaxWidth().testTag("policy_max_open"), singleLine = true)
-                Text("Saving changes recalculates past and current totals, required days and departure estimates. Original events, corrections, holidays and WFH labels remain intact.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(gap, { gap = it }, label = { Text("Bridge short gaps up to (minutes, 0–120)") }, enabled = !saving, modifier = Modifier.fillMaxWidth().testTag("policy_gap"), singleLine = true)
+                Text("A gap this short between visits to the same office can count as office time.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(maxOpen, { maxOpen = it }, label = { Text("Flag open visits after (hours, 1–24)") }, enabled = !saving, modifier = Modifier.fillMaxWidth().testTag("policy_max_open"), singleLine = true)
+                Text("A visit with no recorded exit for longer than this needs review and earns no credit until you resolve it.", style = MaterialTheme.typography.bodyMedium)
+                Text("Saving recalculates past and current totals, required days and leave-time estimates. Your original records, corrections, holidays and WFH labels stay as they are.", style = MaterialTheme.typography.bodyMedium)
                 FormError(error)
                 Button(onClick = {
                     val settings = try { PolicyDraft(target, zone, gap, maxOpen, weekdayValues.map(DayOfWeek::of).toSet()).validated() }
