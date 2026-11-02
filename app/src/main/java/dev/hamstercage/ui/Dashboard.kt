@@ -117,10 +117,10 @@ fun DashboardScreen(
         if (noEligibleOffice)
             Notice("Set up an eligible office", "Add or enable an office to begin automatic attendance setup. No location is preloaded.", "Open office setup", openOffices)
         else if (!trackingReady)
-            Notice("Detection is not confirmed", "Review office setup and location permissions. A configured zone alone does not prove you are outside.", "Open office setup", openOffices)
+            Notice("Detection is not confirmed", "Check office setup and location permissions. A saved office area alone does not confirm you are outside it.", "Open office setup", openOffices)
         // When setup and review notices overlap, fixing tracking setup is the one primary action; review stays secondary.
         if (presence.needsReview)
-            Notice("A session needs review", "Original observations are retained. Review uncertain boundaries before relying on these estimates.",
+            Notice("A visit needs review", "Part of today's record is uncertain. Check it before relying on these estimates; your original records are kept.",
                 "Review history", openHistory, primaryAction = !(noEligibleOffice || !trackingReady))
         // Other days' reviews stay reachable but never lead or question today's numbers.
         else if (presence.otherReview)
