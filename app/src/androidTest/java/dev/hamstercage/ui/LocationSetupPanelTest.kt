@@ -70,7 +70,9 @@ class LocationSetupPanelTest {
         rule.runOnIdle { assertEquals(1, backgroundCalls) }
         show(LocationSetup(true, true, true, true, true))
         rule.onNodeWithText("Location prerequisites ready").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("Permissions are ready. Automatic detection is not running: office registration has not been configured.").performScrollTo().assertIsDisplayed()
+        // The panel defaults to UNKNOWN registration, which is unconfirmed rather than a setup failure.
+        rule.onNodeWithText("Permissions are ready. Office detection status is not confirmed yet.").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("not running", substring = true).assertDoesNotExist()
     }
 
     @Test fun explicitOneShotActionExplainsConfirmedAndUnknownResults() {
@@ -79,13 +81,14 @@ class LocationSetupPanelTest {
         show(LocationSetup(true, true, true, true, true), offices = 1,
             registration = RegistrationStatus.ACTIVE,
             reconcile = { calls++; outcome })
+        rule.onNodeWithText("A visit that is already open stays as it is.", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Check current office").performScrollTo().performClick()
-        rule.onNodeWithText("Inside an office. A session starts at the current observation; walking grace is uncredited.")
+        rule.onNodeWithText("You're inside an office area. A visit starts now; the arrival walking grace is not credited.")
             .performScrollTo().assertIsDisplayed()
         rule.runOnIdle { assertEquals(1, calls) }
         outcome = ReconcileOutcome.OUTSIDE
         rule.onNodeWithText("Check current office").performScrollTo().performClick()
-        rule.onNodeWithText("Outside saved office boundaries. Office state remains unknown; retry when inside.")
+        rule.onNodeWithText("You're outside your saved office areas. Office status stays unknown; check again when you're inside.")
             .performScrollTo().assertIsDisplayed()
         rule.runOnIdle { assertEquals(2, calls) }
     }

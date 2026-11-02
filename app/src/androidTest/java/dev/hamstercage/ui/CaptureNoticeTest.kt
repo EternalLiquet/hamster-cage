@@ -55,10 +55,11 @@ class CaptureNoticeTest {
             }
         }
         compose.onNode(hasText("Offices") and hasClickAction()).performClick()
-        compose.onNodeWithText("Office boundary requests are registered on this device. Background delivery may be delayed.")
+        compose.onNodeWithText("Office detection is set up on this device. Android may deliver updates late.")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Permissions are ready. Automatic detection is not running: office registration has not been configured.")
+        compose.onNodeWithText("Permissions are ready, but automatic detection is not running because office detection is not set up yet.")
             .assertDoesNotExist()
+        compose.onNodeWithText("Permissions are ready. Office detection status is not confirmed yet.").assertDoesNotExist()
     }
 
     @Test fun postRecoveryObservationChangesVisibleOfficeState() {

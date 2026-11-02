@@ -73,23 +73,23 @@ fun LocationSetupPanel(
     Panel {
         Text("Location setup", style = MaterialTheme.typography.titleMedium)
         Tag(setup.status, warm = !setup.prerequisitesReady)
-        Text("Office detection uses configured office boundaries, not a continuous travel history. Location is optional; browsing, corrections and settings remain available.",
+        Text("Office detection only watches the office areas you set up and keeps no travel history. Location is optional; you can still browse, correct attendance and change settings without it.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-        Text("Office exits may prompt up to five fresh checks over five minutes; Android may delay them. Routine checks target every 30 minutes, or 15 while a visit needs checking, weekdays 7 AM–7 PM in $policyZone. Location and attendance stay on this device; neither is used for advertising or analytics.",
+        Text("After you leave an office area, the app may run up to five quick checks over five minutes; Android can delay them. Routine checks aim for every 30 minutes (every 15 while a visit needs checking), weekdays 7 AM–7 PM in $policyZone. Location and attendance are stored on this device and are not used for ads or analytics.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
-        Text(if (captureStatus.monitoringEnabled) "Monitoring on" else "Monitoring disabled")
+        Text(if (captureStatus.monitoringEnabled) "Attendance monitoring enabled" else "Attendance monitoring turned off")
         CageButton(if (changingMonitoring) "Updating attendance monitoring…" else if (captureStatus.monitoringEnabled)
             "Disable attendance monitoring" else "Enable attendance monitoring",
             { changeMonitoring(!captureStatus.monitoringEnabled) })
         captureStatus.lastVerifiedAt?.let { verified ->
             Text("Last verified ${verified.atZone(policyZone).format(DateTimeFormatter.ofPattern("EEE h:mm a"))} · weekday checks 7 AM–7 PM")
         }
-        captureStatus.lastCheckResult?.let { Text("Latest check: $it") }
-        Text("If you force-stop the app, Android pauses boundary detection. Open Hamster Cage again to request recovery; any uncertain time needs review.",
+        captureStatus.lastCheckResult?.let { Text("Latest check: ${lastCheckText(it)}") }
+        Text("If you force-stop the app, Android pauses office detection. Opening Hamster Cage again asks to restore it, which works only if permissions and office setup are still ready; any uncertain time will need review.",
             style = MaterialTheme.typography.bodyMedium, color = CageStyle.Secondary)
         when {
             !setup.fineLocation -> {
-                Text(if (setup.coarseLocation) "Approximate access cannot reliably identify an office boundary. Choose precise location to prepare automatic detection."
+                Text(if (setup.coarseLocation) "Approximate location can't reliably tell when you're at an office. Allow precise location to set up automatic detection."
                     else "First, allow precise location while using the app. You can decline and continue using local features.")
                 CageButton("Allow precise location", requestForeground)
                 CageButton("Open app permission settings", openAppSettings)
@@ -100,35 +100,27 @@ fun LocationSetupPanel(
             }
             !setup.locationEnabled -> CageButton("Open device location settings", openDeviceSettings)
             !setup.playServicesAvailable -> Text("Automatic detection needs available Google Play services. Local records and manual features do not depend on it.")
-            else -> Text(when (registration) {
-                RegistrationStatus.ACTIVE -> "Office boundary requests are registered on this device. Background delivery may be delayed."
-                RegistrationStatus.NO_OFFICES -> "Permissions are ready. Add an enabled office to request boundary detection."
-                RegistrationStatus.FAILED -> "Permissions are ready, but office boundary registration needs attention."
-                RegistrationStatus.REGISTERING -> "Registering office boundaries on this device."
-                RegistrationStatus.DISABLED -> "Attendance monitoring is disabled."
-                RegistrationStatus.UNKNOWN, RegistrationStatus.NEEDS_SETUP ->
-                    "Permissions are ready. Automatic detection is not running: office registration has not been configured."
-            })
+            else -> Text(registrationStatusText(registration))
         }
         if (eligibleOfficeCount > 0 && reconcile != null) {
-            Text("Already at an office? Check your current precise location once. If confirmed, attendance starts at this observation; arrival walking grace still applies. Your coordinates are not saved.")
+            Text("Already at an office? Check your precise location once. If it confirms a new visit, that visit starts at the check, with no earlier arrival guessed, and the arrival walking grace still applies. A visit that is already open stays as it is. Your coordinates are not saved.")
             CageButton(if (checking) "Checking current office…" else "Check current office", onClick = {
                 if (!checking) {
                     checking = true; result = null
                     checkJob = scope.launch {
                         try { result = when (reconcile()) {
-                            ReconcileOutcome.CONFIRMED -> "Inside an office. A session starts at the current observation; walking grace is uncredited."
-                            ReconcileOutcome.ALREADY_PRESENT -> "An office session is already open. No second entry was added."
-                            ReconcileOutcome.OUTSIDE -> "Outside saved office boundaries. Office state remains unknown; retry when inside."
-                            ReconcileOutcome.UNCERTAIN_BOUNDARY -> "Too close to an office boundary to confirm. Move farther inside and retry."
-                            ReconcileOutcome.OVERLAPPING_OFFICES -> "More than one office could match. Adjust the office boundaries and retry."
-                            ReconcileOutcome.STALE -> "The location fix is stale. Retry for a fresh observation."
-                            ReconcileOutcome.INACCURATE -> "Location is not precise enough. Move into open sky and retry."
-                            ReconcileOutcome.NEEDS_PRECISE -> "Precise location is needed. Allow precise access in app settings, then retry."
-                            ReconcileOutcome.LOCATION_OFF -> "Device location is off. Turn it on in settings, then retry."
-                            ReconcileOutcome.NOT_REGISTERED -> "Office detection is not registered yet. Review location setup, then retry."
-                            ReconcileOutcome.TIMEOUT -> "Current location timed out. Retry when your device can get a fix."
-                            ReconcileOutcome.UNAVAILABLE -> "Current office check failed. Review location access and retry."
+                            ReconcileOutcome.CONFIRMED -> "You're inside an office area. A visit starts now; the arrival walking grace is not credited."
+                            ReconcileOutcome.ALREADY_PRESENT -> "A visit is already open. Nothing new was added."
+                            ReconcileOutcome.OUTSIDE -> "You're outside your saved office areas. Office status stays unknown; check again when you're inside."
+                            ReconcileOutcome.UNCERTAIN_BOUNDARY -> "Too close to the edge of an office area to confirm. Move farther inside and try again."
+                            ReconcileOutcome.OVERLAPPING_OFFICES -> "More than one office could match. Adjust the office areas and try again."
+                            ReconcileOutcome.STALE -> "That location was out of date. Try again for a fresh one."
+                            ReconcileOutcome.INACCURATE -> "Location isn't precise enough. Move somewhere with a clearer view of the sky and try again."
+                            ReconcileOutcome.NEEDS_PRECISE -> "Precise location is needed. Allow it in app settings, then try again."
+                            ReconcileOutcome.LOCATION_OFF -> "Device location is off. Turn it on in settings, then try again."
+                            ReconcileOutcome.NOT_REGISTERED -> "Office detection isn't set up yet. Finish location setup, then try again."
+                            ReconcileOutcome.TIMEOUT -> "Finding your location took too long. Try again when your phone can get a location."
+                            ReconcileOutcome.UNAVAILABLE -> "The office check didn't work. Check location access and try again."
                         } } catch (cancelled: CancellationException) { throw cancelled }
                         catch (_: Exception) { result = "Current office check failed. Retry; your previous attendance is unchanged." }
                         finally { checking = false }
@@ -145,4 +137,42 @@ fun LocationSetupPanel(
             }
         })
     }
+}
+
+/** Display-only; [RegistrationStatus.UNKNOWN] is unconfirmed, not a failure. */
+internal fun registrationStatusText(status: RegistrationStatus): String = when (status) {
+    RegistrationStatus.ACTIVE -> "Office detection is set up on this device. Android may deliver updates late."
+    RegistrationStatus.NO_OFFICES -> "Permissions are ready. Add or turn on an office to start detection."
+    RegistrationStatus.FAILED -> "Permissions are ready, but office detection setup needs attention."
+    RegistrationStatus.REGISTERING -> "Setting up office detection on this device."
+    RegistrationStatus.DISABLED -> "Attendance monitoring is off."
+    RegistrationStatus.NEEDS_SETUP ->
+        "Permissions are ready, but automatic detection is not running because office detection is not set up yet."
+    RegistrationStatus.UNKNOWN -> "Permissions are ready. Office detection status is not confirmed yet."
+}
+
+/** Display-only labels for persisted check results; the stored strings are unchanged. */
+internal fun lastCheckText(stored: String): String = when (stored) {
+    "Inside office" -> "Inside an office area"
+    "Outside offices" -> "Outside your office areas"
+    "Office boundary uncertain" -> "Too close to the edge of an office area to tell"
+    "Location not precise enough" -> "Location was not precise enough"
+    "Stale location; retry later" -> "Location was out of date; try again later"
+    "Boundary check stale or inaccurate" -> "Location was out of date or not precise enough"
+    "Boundary check delayed; later checks may recover" -> "Check was delayed; a later check may work"
+    "Boundary check unavailable; retry from the app", "Check unavailable; open app to retry",
+    "Location check unavailable; open app to retry" -> "Check could not run; open the app to try again"
+    "Boundary confirmation unavailable; later checks may recover" -> "Could not confirm an office exit; a later check may work"
+    "Weekday checks unavailable; open app to retry" -> "Weekday checks could not run; open the app to try again"
+    "Location permission or service unavailable" -> "Location access or location services unavailable"
+    "Newer boundary event; retry later" -> "A newer office update was already recorded"
+    "Office boundary refresh skipped; later checks may recover" -> "Office detection refresh skipped; a later check may fix it"
+    "Office boundary refresh unavailable; later checks may recover" -> "Office detection refresh could not run; a later check may fix it"
+    "Office recovery unavailable" -> "Could not restore office detection"
+    "Office registration unavailable" -> "Office detection could not be set up"
+    "Approximate location only", "Precise location not allowed", "Background location not allowed",
+    "Device location is off", "Google Play services unavailable" -> stored
+    "Location prerequisites ready" -> "Location access ready"
+    "Unavailable" -> "Unknown; the last result could not be read"
+    else -> "Unknown result"
 }
