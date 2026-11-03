@@ -315,6 +315,22 @@ class AdaptiveConfirmationTest {
         assertEquals(first.single().event.at, derived.sessions.last().start)
     }
 
+    @Test fun otherOfficeAbsenceDoesNotForceAdaptiveRecoverySplit() {
+        // A routine check found the user inside A and recorded an ABSENCE for B. A later
+        // adaptive fix at A must not treat that ABSENCE as a visit to B and split A's visit.
+        val a = Office("a", "A", 0.0, 0.0)
+        val b = Office("b", "B", 1.0, 1.0)
+        val facts = listOf(event("a-in", "a", Transition.ENTER, -300),
+            event("not-b", "b", Transition.ABSENCE, -299, "BACKGROUND_LOCATION_RECONCILIATION"),
+            event("a-out", "a", Transition.EXIT))
+        val snapshot = AppSnapshot(listOf(a, b), facts, emptyList(), emptyList(), Policy())
+        val coverage = CoverageLedger(recoveryBoundaryAt = at.minusSeconds(3600))
+        assertFalse(requiresAdaptiveRecoverySplit(snapshot, coverage, "a-out", "a", at.plusSeconds(30)))
+        // An actual observation at B within the visit still requires the split.
+        val visitedB = snapshot.copy(eventEvidence = facts + event("b-in", "b", Transition.ENTER, -200))
+        assertTrue(requiresAdaptiveRecoverySplit(visitedB, coverage, "a-out", "a", at.plusSeconds(30)))
+    }
+
     @Test fun visitObservedEntirelyBeforeAnOutageKeepsItsCredit() {
         // Issue #113's example on the production path: ENTER and inside check after the last
         // recovery, an EXIT delivered while healthy (so the next outage begins at it), then an

@@ -241,8 +241,9 @@ internal fun requiresAdaptiveRecoverySplit(snapshot: AppSnapshot, coverage: Cove
     val wholeVisitHealthy = observedEnd != null && healthySince != null && healthyUntil != null &&
         start >= healthySince && observedEnd <= healthyUntil
     val evidenceUntil = if (wholeVisitHealthy) observedEnd!! else now
+    // Another office's ABSENCE rules that office out; it does not show the user was there.
     return (!wholeVisitHealthy && start < boundary) || snapshot.events.any { it.officeId != officeId &&
-        it.at >= start && it.at <= evidenceUntil }
+        it.transition != Transition.ABSENCE && it.at >= start && it.at <= evidenceUntil }
 }
 
 /** What one check attempt did, for the diagnostic log. */

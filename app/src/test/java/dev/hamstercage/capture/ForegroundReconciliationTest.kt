@@ -265,6 +265,25 @@ class ForegroundReconciliationTest {
             recoveryObservationGate(registered.outage(now, zone), postBoundary, requested, now, zone))
     }
 
+    @Test fun otherOfficeAbsenceDoesNotMakeLaterInsideCheckSplitItsOwnVisit() {
+        // Each inside check also records an ABSENCE for every other office it rules out. That
+        // ABSENCE is not evidence of having been elsewhere, so a later inside check must find
+        // the visit it opened already present rather than split it and zero its credit.
+        val second = office.copy(id = "two", name = "Second office", latitude = 40.0)
+        val coverage = CoverageLedger().registrationSucceeded(observed.minusSeconds(10), Policy().zoneId, true)
+        val opened = listOf(event("inside", Transition.PRESENCE, observed),
+            event("not-two", Transition.ABSENCE, observed, second.id).copy(source = "BACKGROUND_LOCATION_RECONCILIATION"))
+        val later = observed.plusSeconds(7_200)
+        val checked = coverage.observed(observed)
+        assertEquals(ReconcileOutcome.ALREADY_PRESENT,
+            canOpenFromObservation(snapshot(opened, listOf(office, second)), office.id, checked, later, later))
+        // A real observation at the other office still marks the opening as stale.
+        val elsewhere = opened + event("two-in", Transition.ENTER, observed.plusSeconds(600), second.id) +
+            event("two-out", Transition.EXIT, observed.plusSeconds(1_200), second.id)
+        assertNull(canOpenFromObservation(snapshot(elsewhere, listOf(office, second)), office.id,
+            checked.observed(observed.plusSeconds(1_200)), later, later))
+    }
+
     private fun event(id: String, transition: Transition, at: Instant, officeId: String = office.id) = RecordedEvent(
         RawEvent(id, officeId, transition, at), at, at,
         if (transition == Transition.PRESENCE) "FOREGROUND_LOCATION_RECONCILIATION" else "PLAY_SERVICES_GEOFENCE")
