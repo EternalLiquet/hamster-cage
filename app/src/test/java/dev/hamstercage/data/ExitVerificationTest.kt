@@ -194,12 +194,87 @@ class ExitVerificationTest {
         val result = state(facts, 126)
         assertTrue(result.first.candidateExitIds.isEmpty())
         assertFalse("exit" in result.first.rejectedExitIds)
-        assertTrue(result.first.provisionalPresenceIds.isEmpty())
-        assertEquals(setOf("exit"), result.first.unconfirmedExitIds)
-        assertEquals(2, result.second.sessions.size)
-        assertEquals(exit.event.at, result.second.sessions.first().end)
-        assertEquals(early.event.at, result.second.sessions.last().start)
+        // Like an early verification sample, the early routine fix is retained as evidence
+        // only: the sustained outside samples confirm the departure at the raw EXIT, and the
+        // fix neither restores the closed visit nor opens a phantom new one.
+        assertEquals(setOf("early"), result.first.provisionalPresenceIds)
+        assertEquals(1, result.second.sessions.size)
+        assertEquals(exit.event.at, result.second.sessions.single().end)
+        assertEquals(115.0, result.second.intervals.sumOf { it.minutes }, 0.001)
     }
+
+    private fun routine(id: String, secondsAfterExit: Long, source: String = "BACKGROUND_LOCATION_RECONCILIATION") =
+        RecordedEvent(RawEvent(id, "a", Transition.PRESENCE, exit.event.at.plusSeconds(secondsAfterExit)),
+            exit.event.at.plusSeconds(secondsAfterExit), source = source, accuracyMeters = 17f)
+
+    @Test fun routineInsideFixAtPhantomExitKeepsItAwaitingVerification() {
+        // An imprecise platform EXIT and a precise routine inside fix taken moments later. The
+        // routine fix must not settle the EXIT as unresolved: that would stop the scheduled
+        // verification checks before they could reject it.
+        for (source in routineInsideSources) {
+            val result = state(listOf(enter, exit, routine("routine", 1, source)), 121)
+            assertEquals("source=$source", setOf("exit"), result.first.candidateExitIds)
+            assertTrue("source=$source", result.first.unconfirmedExitIds.isEmpty())
+            assertEquals("source=$source", setOf("routine"), result.first.provisionalPresenceIds)
+            assertEquals("source=$source", 1, result.second.sessions.size)
+            assertTrue("source=$source", result.second.sessions.single().isOpen)
+            assertEquals("source=$source", exit.event.at, result.second.intervals.single().end)
+        }
+    }
+
+    @Test fun routineInsideFixCountsTowardRejectingPhantomExit() {
+        // The first verification check was imprecise and recorded nothing. The routine fix
+        // fills that slot, so the remaining checks still show continuous presence.
+        val checks = (2L..4L).map { fact("inside-$it", Transition.PRESENCE, 120 + it, EXIT_VERIFY_INSIDE) }
+        val facts = listOf(enter, exit, routine("routine", 30)) + checks
+        val result = state(facts, 130)
+        assertEquals(setOf("exit"), result.first.rejectedExitIds)
+        assertEquals(setOf("routine"), verification(facts, 130).rejectingRoutinePresenceIds)
+        assertFalse("routine" in result.first.recoveryPresenceIds)
+        assertEquals(1, result.second.sessions.size)
+        val visit = result.second.sessions.single()
+        assertTrue(visit.isOpen)
+        assertTrue(visit.reviewReasons.none { it == ReviewReason.UNCONFIRMED_GAP ||
+            it == ReviewReason.UNCONFIRMED_BOUNDARY })
+        // One grace window only; credit runs continuously through the phantom EXIT.
+        assertEquals(125.0, result.second.intervals.sumOf { it.minutes }, 0.001)
+        // Without the routine fix the same checks leave too long an unobserved stretch.
+        val withoutRoutine = state(listOf(enter, exit) + checks, 130)
+        assertTrue(withoutRoutine.first.rejectedExitIds.isEmpty())
+    }
+
+    @Test fun routineInsideFixAloneLeavesExpiredExitUnresolvedWithoutSplitting() {
+        val result = state(listOf(enter, exit, routine("routine", 1)), 130)
+        assertTrue(result.first.candidateExitIds.isEmpty())
+        assertTrue(result.first.rejectedExitIds.isEmpty())
+        assertEquals(setOf("exit"), result.first.unconfirmedExitIds)
+        assertEquals(1, result.second.sessions.size)
+        assertEquals(exit.event.at, result.second.sessions.single().end)
+        assertEquals(115.0, result.second.intervals.sumOf { it.minutes }, 0.001)
+        // A later routine check, outside the window, establishes current presence.
+        val later = state(listOf(enter, exit, routine("routine", 1),
+            fact("check", Transition.PRESENCE, 140, "BACKGROUND_LOCATION_RECONCILIATION")), 150)
+        assertEquals(2, later.second.sessions.size)
+        assertEquals(zero.plusSeconds(140 * 60), later.second.sessions.last().start)
+    }
+
+    @Test fun routineInsideFixCannotRejectGenuineDepartureOrOtherOfficeExit() {
+        // Outside verification samples after the routine fix still confirm the departure.
+        val departedFacts = listOf(enter, exit, routine("routine", 10),
+            fact("outside-1", Transition.ABSENCE, 121, EXIT_VERIFY_OUTSIDE),
+            fact("outside-2", Transition.ABSENCE, 122, EXIT_VERIFY_OUTSIDE),
+            fact("outside-3", Transition.ABSENCE, 123, EXIT_VERIFY_OUTSIDE))
+        val departed = state(departedFacts, 130)
+        assertTrue(departed.first.rejectedExitIds.isEmpty())
+        assertTrue(verification(departedFacts, 130).rejectingRoutinePresenceIds.isEmpty())
+        assertEquals(exit.event.at, departed.second.sessions.single().end)
+        // The unsafe outage-recovery source keeps ending the window for review.
+        val recovery = state(listOf(enter, exit, routine("recovery", 1, "ADAPTIVE_RECOVERY_CONFIRMATION")), 121)
+        assertTrue(recovery.first.candidateExitIds.isEmpty())
+    }
+
+    private fun verification(facts: List<RecordedEvent>, minute: Long) =
+        exitVerificationState(facts, zero.plusSeconds(minute * 60))
 
     @Test fun laterExitAfterRejectedPhantomNeedsItsOwnEvidence() {
         val firstInside = (1L..5L).map {

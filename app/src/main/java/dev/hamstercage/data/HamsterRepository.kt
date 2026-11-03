@@ -55,7 +55,7 @@ data class AppSnapshot(
         recoveryPresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
             it.source in setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION",
                 "ADAPTIVE_RECOVERY_CONFIRMATION") }
-            .map { it.event.id }.toSet(),
+            .map { it.event.id }.toSet() - verification.rejectingRoutinePresenceIds,
         adaptivePresenceIds = eventEvidence.filter { it.event.transition == Transition.PRESENCE &&
             it.source == "ADAPTIVE_LOCATION_CONFIRMATION" }.map { it.event.id }.toSet(),
         unconfirmedExitIds = eventEvidence.filter { it.event.at <= now &&
