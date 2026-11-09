@@ -76,8 +76,12 @@ internal fun canOpenFromObservation(snapshot: AppSnapshot, officeId: String, cov
             event.at.atZone(snapshot.policy.zoneId).toLocalDate() == now.atZone(snapshot.policy.zoneId).toLocalDate() &&
             event.transition in setOf(Transition.ENTER, Transition.PRESENCE)
     }
+    // Only a fact that places the user at, or crossing, another office contradicts this
+    // opening. An ABSENCE there is outside evidence consistent with being here; routine checks
+    // write one alongside this office's own fix, so counting it would split every later check.
     val otherOfficeSinceOpening = snapshot.events.any { event ->
-        event.officeId != officeId && session.start?.let { event.at >= it } == true && event.at <= observedAt
+        event.officeId != officeId && event.transition != Transition.ABSENCE &&
+            session.start?.let { event.at >= it } == true && event.at <= observedAt
     }
     val blockingReview = session.reviewReasons.any { it != ReviewReason.OPEN_SESSION && it !in ADVISORY_REVIEW_REASONS }
     if (currentOpeningFact && !otherOfficeSinceOpening && !blockingReview &&

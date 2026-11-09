@@ -10,6 +10,8 @@ import androidx.work.WorkerParameters
 import dev.hamstercage.data.HamsterRepository
 import dev.hamstercage.data.RegistrationReason
 import dev.hamstercage.data.AppSnapshot
+import dev.hamstercage.data.EXIT_VERIFY_INSIDE
+import dev.hamstercage.data.EXIT_VERIFY_OUTSIDE
 import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.StorageState
 import dev.hamstercage.data.PRESENCE_CORROBORATION
@@ -93,8 +95,14 @@ internal fun reconciliationFacts(snapshot: AppSnapshot, coverage: CoverageLedger
     val open = active.filter { it.manualSessionId == null }
     // An EXIT can close the derived session before confirmation arrives. A later
     // decisive outside fix must still resolve that final uncertain boundary.
+    // Only an office's latest boundary can still be awaiting that fix. An older uncertain EXIT
+    // stays for review, but a later observation already superseded it; re-resolving it would
+    // add an ABSENCE to every check, indefinitely. Its own verification samples settle nothing.
     val unconfirmedIds = snapshot.input(now).unconfirmedExitIds
-    val unresolvedExits = snapshot.events.filter { it.id in unconfirmedIds }
+    val unresolvedExits = snapshot.events.filter { exit -> exit.id in unconfirmedIds &&
+        snapshot.eventEvidence.none { later -> later.event.officeId == exit.officeId &&
+            later.event.at > exit.at && later.event.at <= now &&
+            later.source !in setOf(EXIT_VERIFY_INSIDE, EXIT_VERIFY_OUTSIDE) } }
         .map { it.officeId }
     val absent = (open.map { it.officeId } + unresolvedExits).filter { it != officeId }.distinct()
     val facts = absent.map { id -> RecordedEvent(RawEvent(HamsterRepository.newId(), id,

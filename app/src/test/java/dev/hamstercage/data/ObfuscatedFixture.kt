@@ -16,12 +16,16 @@ import java.time.ZoneId
  * coordinates are synthetic. Exported sessions and flags are observed baseline outputs only and
  * are deliberately not used as inputs. `beforeSpan` history becomes a date before the evidence.
  */
-internal object ObfuscatedFixture {
-    private const val PATH = "/fixtures/attendance-review-projection-obfuscated.json"
+internal object ObfuscatedFixture : DiagnosticFixture("/fixtures/attendance-review-projection-obfuscated.json")
+
+/** Transformed export: one office-2 visit repeatedly split by routine inside checks. */
+internal object RecoverySplitFixture : DiagnosticFixture("/fixtures/attendance-recovery-split-obfuscated.json")
+
+internal open class DiagnosticFixture(private val path: String) {
 
     @Suppress("UNCHECKED_CAST")
     private val json: Map<String, Any?> by lazy {
-        val text = requireNotNull(ObfuscatedFixture::class.java.getResource(PATH)).readText()
+        val text = requireNotNull(DiagnosticFixture::class.java.getResource(path)).readText()
         JsonReader(text).value() as Map<String, Any?>
     }
 
