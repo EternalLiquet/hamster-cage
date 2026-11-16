@@ -9,6 +9,8 @@ internal data class ExitVerificationState(
     val candidateIds: Set<String>, val rejectedIds: Set<String>,
     val provisionalAbsenceIds: Set<String>, val provisionalPresenceIds: Set<String>,
     val uncertainIds: Set<String>, val delayedIds: Set<String>,
+    /** Routine inside checks that helped reject an EXIT; they corroborate the visit, not restart it. */
+    val rejectingRoutinePresenceIds: Set<String> = emptySet(),
 )
 
 internal const val EXIT_VERIFY_INSIDE = "EXIT_VERIFICATION_INSIDE"
@@ -16,6 +18,38 @@ internal const val EXIT_VERIFY_OUTSIDE = "EXIT_VERIFICATION_OUTSIDE"
 internal val decisivePresenceSources = setOf(EXIT_VERIFY_INSIDE,
     "ADAPTIVE_LOCATION_CONFIRMATION", "ADAPTIVE_RECOVERY_CONFIRMATION",
     "FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION", PRESENCE_CORROBORATION)
+
+/**
+ * Routine current-state checks that may coincide with a verification window. An inside fix
+ * from one of these after an EXIT is the same kind of evidence as a verification sample, so
+ * it joins the EXIT's samples instead of ending the window: ending it would stop the
+ * scheduled checks that could reject a phantom EXIT, leaving it unresolved. The unsafe
+ * outage-recovery source is excluded; it must still split for review.
+ */
+internal val routineInsideSources = setOf(
+    "FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION")
+
+/**
+ * Whether a later routine reconciliation fact leaves [exit] awaiting verification, so the
+ * scheduled checks and the final re-arm still run for it. Mirrors [exitVerificationState]:
+ * a same-office routine inside fix observed after the EXIT and by its window's deadline joins
+ * the EXIT's samples instead of settling it. The other-office ABSENCE that the same check
+ * records for each office it rules out says nothing about this office's boundary. Everything
+ * else stays superseding: a newer platform transition, presence at another office, a
+ * same-office ABSENCE (a decisive outside check), unsafe recovery fixes, and facts observed
+ * at or before the EXIT or after its window.
+ */
+internal fun routineFactKeepsExitAwaitingVerification(exit: RecordedEvent, fact: RecordedEvent): Boolean {
+    if (exit.event.transition != Transition.EXIT || exit.source != "PLAY_SERVICES_GEOFENCE" ||
+        fact.source !in routineInsideSources) return false
+    if (fact.event.at <= exit.event.at ||
+        fact.event.at > exit.receivedAt.plus(EXIT_VERIFICATION_WINDOW)) return false
+    return when (fact.event.transition) {
+        Transition.PRESENCE -> fact.event.officeId == exit.event.officeId
+        Transition.ABSENCE -> fact.event.officeId != exit.event.officeId
+        else -> false
+    }
+}
 
 /** Verification checks are accepted only for this long after the EXIT was received. */
 internal val EXIT_VERIFICATION_WINDOW: Duration = Duration.ofMinutes(5)
@@ -40,6 +74,7 @@ internal fun exitVerificationState(evidence: List<RecordedEvent>, now: Instant):
     val provisionalPresence = mutableSetOf<String>()
     val uncertain = mutableSetOf<String>()
     val delayed = mutableSetOf<String>()
+    val rejectingRoutine = mutableSetOf<String>()
     evidence.groupBy { it.event.officeId }.values.forEach { officeFacts ->
         val ordered = officeFacts.filter { it.event.at <= now }
             .sortedWith(compareBy<RecordedEvent> { it.event.at }.thenBy { it.event.id })
@@ -108,7 +143,10 @@ internal fun exitVerificationState(evidence: List<RecordedEvent>, now: Instant):
             when {
                 decisiveOutside && sustainedInside -> uncertain += exits.map { it.event.id }
                 decisiveOutside -> Unit // Raw EXIT supplies the earliest observed departure boundary.
-                sustainedInside || quickReturn -> rejected += exits.map { it.event.id }
+                sustainedInside || quickReturn -> {
+                    rejected += exits.map { it.event.id }
+                    rejectingRoutine += inside.filter { it.source in routineInsideSources }.map { it.event.id }
+                }
                 terminal?.event?.transition == Transition.ABSENCE -> Unit // Decisive later outside check.
                 terminal == null && !expired -> {
                     candidate += exits.map { it.event.id }
@@ -133,6 +171,8 @@ internal fun exitVerificationState(evidence: List<RecordedEvent>, now: Instant):
             when {
                 !pastDeadline && fact.source == EXIT_VERIFY_INSIDE && fact.event.transition == Transition.PRESENCE &&
                     exits.isNotEmpty() && fact.event.at > exits.first().event.at -> inside += fact
+                !pastDeadline && fact.source in routineInsideSources && fact.event.transition == Transition.PRESENCE &&
+                    exits.isNotEmpty() && fact.event.at > exits.first().event.at -> inside += fact
                 !pastDeadline && fact.source == EXIT_VERIFY_OUTSIDE && fact.event.transition == Transition.ABSENCE &&
                     exits.isNotEmpty() && fact.event.at > exits.first().event.at -> outside += fact
                 fact.source == "PLAY_SERVICES_GEOFENCE" && fact.event.transition == Transition.EXIT -> {
@@ -156,7 +196,7 @@ internal fun exitVerificationState(evidence: List<RecordedEvent>, now: Instant):
         settle()
     }
     return ExitVerificationState(candidate, rejected, provisional, provisionalPresence,
-        uncertain, delayed)
+        uncertain, delayed, rejectingRoutine)
 }
 
 /** EXITs that a newly appended verification sample has just rejected. */

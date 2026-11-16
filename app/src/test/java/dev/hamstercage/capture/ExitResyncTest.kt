@@ -38,6 +38,20 @@ class ExitResyncTest {
         assertEquals(emptyList<String>(), unresolvedExitOfficeIds(listOf(enter), listOf(enter), at.plusSeconds(30)))
     }
 
+    @Test fun routineInsideFixDoesNotSuppressFinalReArmOfUndecidedExit() {
+        // A routine inside fix and its companion other-office ABSENCE inside the window leave
+        // the EXIT undecided; the final check must still find it confirmable and re-arm it.
+        val arrived = event("arrived", Transition.ENTER, -3600, accuracy = 10f)
+        val exit = event("exit", Transition.EXIT, accuracy = 400f)
+        val routine = event("routine", Transition.PRESENCE, 1, 17f, source = "BACKGROUND_LOCATION_RECONCILIATION")
+        val notB = event("not-b", Transition.ABSENCE, 1, 17f, officeId = "b",
+            source = "BACKGROUND_LOCATION_RECONCILIATION")
+        val facts = listOf(arrived, exit, routine, notB)
+        assertTrue(confirmableCandidate(facts, "exit", "a"))
+        assertEquals(listOf("a"), unresolvedExitOfficeIds(facts, listOf(exit), at.plusSeconds(270)))
+        assertEquals(listOf("a"), unresolvedExitOfficeIds(facts, listOf(exit), at.plusSeconds(400)))
+    }
+
     @Test fun reArmEnterObservedAfterTheFinalCheckDoesNotRejectTheDeparture() {
         // The final attempt runs about 270 s after the EXIT, beyond the 60 s quick-return window,
         // so an equally coarse platform ENTER observed then cannot erase a real departure: the EXIT stays

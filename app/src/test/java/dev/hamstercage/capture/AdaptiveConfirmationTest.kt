@@ -5,6 +5,8 @@ import dev.hamstercage.data.RecordedEvent
 import dev.hamstercage.data.PRESENCE_CORROBORATION
 import dev.hamstercage.data.EXIT_VERIFY_INSIDE
 import dev.hamstercage.data.EXIT_VERIFY_OUTSIDE
+import dev.hamstercage.data.newlyRejectedExitIds
+import dev.hamstercage.data.exitVerificationState
 import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.Policy
 import dev.hamstercage.domain.RawEvent
@@ -158,7 +160,9 @@ class AdaptiveConfirmationTest {
         assertEquals(Transition.ABSENCE, outside.event.transition)
         assertEquals(18f, inside.accuracyMeters!!, 0f)
         assertTrue(confirmableCandidate(listOf(original, inside, outside), "exit", "a"))
-        assertFalse(confirmableCandidate(listOf(original, event("early", "a", Transition.PRESENCE,
+        // A routine inside fix inside the window is one of the EXIT's samples, as in
+        // exitVerificationState; it must not stop the remaining checks.
+        assertTrue(confirmableCandidate(listOf(original, event("early", "a", Transition.PRESENCE,
             30, "BACKGROUND_LOCATION_RECONCILIATION")), "exit", "a"))
         assertFalse(confirmableCandidate(listOf(original, inside, outside,
             event("new-enter", "a", Transition.ENTER, 180)), "exit", "a"))
@@ -166,6 +170,102 @@ class AdaptiveConfirmationTest {
             at.plusSeconds(182), 12f) { "move-${++next}" }
         assertEquals(listOf("a" to Transition.ABSENCE, "b" to Transition.PRESENCE),
             moved.map { it.event.officeId to it.event.transition })
+    }
+
+    private val workerOffices = listOf(Office("a", "A", 0.0, 0.0), Office("b", "B", 1.0, 1.0))
+    private val workerVersions = mapOf("a" to 1L)
+    private val workerCandidate = AdaptiveConfirmation.Candidate("exit", "a", 7,
+        AdaptiveConfirmation.fingerprint(workerVersions), listOf("a"), bounded = true)
+    private fun workerEligible(facts: List<RecordedEvent>) = eligibleAdaptiveBatch(
+        AppSnapshot(workerOffices, facts, emptyList(), emptyList(), Policy()), workerCandidate,
+        workerVersions, 7, true, true, LocationSetup(true, true, true, true, true),
+        CoverageLedger(registration = RegistrationStatus.ACTIVE))
+    /** The two pure gates resyncIfUnresolved applies before re-arming the platform. */
+    private fun finalReArm(facts: List<RecordedEvent>, now: Instant): List<String> =
+        if (!confirmableCandidate(facts, "exit", "a")) emptyList()
+        else unresolvedExitOfficeIds(facts, AdaptiveConfirmation.batch(facts, "exit", listOf("a")), now)
+    private val arrived = event("arrived", "a", Transition.ENTER, -3600)
+    private val phantom = event("exit", "a", Transition.EXIT)
+    /** What one reconciliation run writes when it finds the user inside A: PRESENCE plus B's ABSENCE. */
+    private fun routineInside(second: Long, tag: String = "routine") = listOf(
+        event(tag, "a", Transition.PRESENCE, second, "BACKGROUND_LOCATION_RECONCILIATION"),
+        event("$tag-not-b", "b", Transition.ABSENCE, second, "BACKGROUND_LOCATION_RECONCILIATION"))
+    private fun sample(second: Long, inside: Boolean = true) = event("check-$second", "a",
+        if (inside) Transition.PRESENCE else Transition.ABSENCE, second,
+        if (inside) EXIT_VERIFY_INSIDE else EXIT_VERIFY_OUTSIDE)
+
+    @Test fun routineInsideFixKeepsScheduledChecksEligibleUntilTheyRejectPhantomExit() {
+        // EXIT, then a routine inside fix (with its companion ABSENCE for B) at +30 s.
+        var facts = listOf(arrived, phantom) + routineInside(30)
+        assertEquals(setOf("exit"), exitVerificationState(facts, at.plusSeconds(31)).candidateIds)
+        assertEquals(listOf(phantom), workerEligible(facts))
+        // Each scheduled sample still passes the worker gate while the EXIT is undecided.
+        for (second in listOf(90L, 150L, 210L)) {
+            facts = facts + sample(second)
+            assertEquals("after +$second s", listOf(phantom), workerEligible(facts))
+            assertEquals("after +$second s", setOf("exit"),
+                exitVerificationState(facts, at.plusSeconds(second)).candidateIds)
+        }
+        // The final sample completes four minutes of continuous inside evidence.
+        val before = exitVerificationState(facts, at.plusSeconds(270))
+        facts = facts + sample(270)
+        val after = exitVerificationState(facts, at.plusSeconds(270))
+        assertEquals(setOf("exit"), newlyRejectedExitIds(before, after))
+        assertEquals(setOf("routine"), after.rejectingRoutinePresenceIds)
+        // Rejected: no unresolved re-arm, and the derived visit is continuous.
+        assertEquals(emptyList<String>(), finalReArm(facts, at.plusSeconds(300)))
+        val derived = AppSnapshot(workerOffices, facts, emptyList(), emptyList(), Policy()).derive(at.plusSeconds(600))
+        assertEquals(1, derived.sessions.count { it.officeId == "a" && it.start != null })
+        assertTrue(derived.sessions.single { it.officeId == "a" && it.start != null }.isOpen)
+    }
+
+    @Test fun routineInsideFixWithInsufficientChecksStillGetsFinalReArm() {
+        // One routine fix and one sample cannot reject the EXIT. It stays undecided, so the
+        // final scheduled check must still re-arm the platform rather than skip it.
+        val facts = listOf(arrived, phantom) + routineInside(30) + sample(90)
+        assertEquals(listOf(phantom), workerEligible(facts))
+        val expired = exitVerificationState(facts, at.plusSeconds(400))
+        assertTrue("exit" in expired.uncertainIds)
+        assertEquals(listOf("a"), finalReArm(facts, at.plusSeconds(270)))
+        assertEquals(listOf("a"), finalReArm(facts, at.plusSeconds(400)))
+    }
+
+    @Test fun genuineDepartureAndOtherObservationsStillSettleOrSupersedeExit() {
+        // Outside checks after an early routine inside fix confirm the departure: the gate
+        // stays open but nothing is left unresolved, so there is no re-arm.
+        val departed = listOf(arrived, phantom) + routineInside(10) + sample(90, false) + sample(150, false)
+        assertTrue(exitVerificationState(departed, at.plusSeconds(400)).let {
+            "exit" !in it.candidateIds && "exit" !in it.uncertainIds && "exit" !in it.rejectedIds })
+        assertEquals(emptyList<String>(), finalReArm(departed, at.plusSeconds(400)))
+        // These all still supersede the EXIT for both worker gates.
+        val superseding = mapOf(
+            "same-office routine ABSENCE" to event("outside", "a", Transition.ABSENCE, 60,
+                "BACKGROUND_LOCATION_RECONCILIATION"),
+            "other-office routine PRESENCE" to event("at-b", "b", Transition.PRESENCE, 30,
+                "BACKGROUND_LOCATION_RECONCILIATION"),
+            "other-office platform ENTER" to event("b-in", "b", Transition.ENTER, 30),
+            "newer platform ENTER" to event("back", "a", Transition.ENTER, 40),
+            "newer platform EXIT" to event("again", "a", Transition.EXIT, 120),
+            "unsafe recovery fix" to event("recovery", "a", Transition.PRESENCE, 30,
+                "ADAPTIVE_RECOVERY_CONFIRMATION"),
+            "routine fix after window" to event("late", "a", Transition.PRESENCE, 301,
+                "BACKGROUND_LOCATION_RECONCILIATION"),
+            "routine fix at the EXIT's own time" to RecordedEvent(phantom.event.copy(id = "same",
+                transition = Transition.PRESENCE), phantom.receivedAt.plusSeconds(1),
+                source = "FOREGROUND_LOCATION_RECONCILIATION"))
+        superseding.forEach { (label, fact) ->
+            val facts = listOf(arrived, phantom, fact)
+            assertFalse(label, confirmableCandidate(facts, "exit", "a"))
+            assertEquals(label, null, workerEligible(facts))
+            assertEquals(label, emptyList<String>(), finalReArm(facts, at.plusSeconds(400)))
+        }
+        // A companion ABSENCE alone, for an office the user is not at, does not supersede.
+        assertEquals(listOf(phantom), workerEligible(listOf(arrived, phantom,
+            event("not-b", "b", Transition.ABSENCE, 30, "BACKGROUND_LOCATION_RECONCILIATION"))))
+        // An arrival candidate keeps its old rule: any newer observation supersedes it.
+        val enter = event("enter", "a", Transition.ENTER)
+        assertFalse(confirmableCandidate(listOf(enter, event("fix", "a", Transition.PRESENCE, 30,
+            "BACKGROUND_LOCATION_RECONCILIATION")), "enter", "a"))
     }
 
     @Test fun fiveExitAttemptsTargetAbsoluteMinuteSpacedTimes() {
@@ -313,6 +413,22 @@ class AdaptiveConfirmationTest {
         // One split, then one continuing fix-time visit with a single arrival grace.
         val derived = afterFirst.copy(eventEvidence = afterFirst.eventEvidence + second).derive(at.plusSeconds(600))
         assertEquals(first.single().event.at, derived.sessions.last().start)
+    }
+
+    @Test fun otherOfficeAbsenceDoesNotForceAdaptiveRecoverySplit() {
+        // A routine check found the user inside A and recorded an ABSENCE for B. A later
+        // adaptive fix at A must not treat that ABSENCE as a visit to B and split A's visit.
+        val a = Office("a", "A", 0.0, 0.0)
+        val b = Office("b", "B", 1.0, 1.0)
+        val facts = listOf(event("a-in", "a", Transition.ENTER, -300),
+            event("not-b", "b", Transition.ABSENCE, -299, "BACKGROUND_LOCATION_RECONCILIATION"),
+            event("a-out", "a", Transition.EXIT))
+        val snapshot = AppSnapshot(listOf(a, b), facts, emptyList(), emptyList(), Policy())
+        val coverage = CoverageLedger(recoveryBoundaryAt = at.minusSeconds(3600))
+        assertFalse(requiresAdaptiveRecoverySplit(snapshot, coverage, "a-out", "a", at.plusSeconds(30)))
+        // An actual observation at B within the visit still requires the split.
+        val visitedB = snapshot.copy(eventEvidence = facts + event("b-in", "b", Transition.ENTER, -200))
+        assertTrue(requiresAdaptiveRecoverySplit(visitedB, coverage, "a-out", "a", at.plusSeconds(30)))
     }
 
     @Test fun visitObservedEntirelyBeforeAnOutageKeepsItsCredit() {

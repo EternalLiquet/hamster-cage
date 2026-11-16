@@ -18,6 +18,7 @@ import dev.hamstercage.data.EXIT_VERIFY_OUTSIDE
 import dev.hamstercage.data.EXIT_VERIFICATION_WINDOW
 import dev.hamstercage.data.newlyRejectedExitIds
 import dev.hamstercage.data.exitVerificationState
+import dev.hamstercage.data.routineFactKeepsExitAwaitingVerification
 import dev.hamstercage.domain.RawEvent
 import dev.hamstercage.domain.Office
 import dev.hamstercage.domain.Transition
@@ -117,12 +118,19 @@ internal object AdaptiveConfirmation {
             .toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }
 
-/** A newer observation supersedes the candidate, including one from another office. */
+/**
+ * A newer observation supersedes the candidate, including one from another office. Verification
+ * samples never do, and neither does a routine reconciliation fact that the EXIT verification
+ * rules treat as part of the EXIT's window (see [routineFactKeepsExitAwaitingVerification]);
+ * otherwise the worker would stop checking, and skip the final re-arm, for an EXIT that the
+ * derivation still holds as awaiting verification.
+ */
 internal fun confirmableCandidate(events: List<RecordedEvent>, id: String, officeId: String): Boolean {
     val candidate = events.singleOrNull { it.event.id == id && it.event.officeId == officeId } ?: return false
     if (candidate.source != "PLAY_SERVICES_GEOFENCE") return false
     return events.none { it.event.id != id &&
         it.source !in setOf(EXIT_VERIFY_INSIDE, EXIT_VERIFY_OUTSIDE) &&
+        !routineFactKeepsExitAwaitingVerification(candidate, it) &&
         (it.event.at > candidate.event.at || it.event.at == candidate.event.at && it.receivedAt > candidate.receivedAt) }
 }
 
@@ -241,8 +249,9 @@ internal fun requiresAdaptiveRecoverySplit(snapshot: AppSnapshot, coverage: Cove
     val wholeVisitHealthy = observedEnd != null && healthySince != null && healthyUntil != null &&
         start >= healthySince && observedEnd <= healthyUntil
     val evidenceUntil = if (wholeVisitHealthy) observedEnd!! else now
+    // Another office's ABSENCE rules that office out; it does not show the user was there.
     return (!wholeVisitHealthy && start < boundary) || snapshot.events.any { it.officeId != officeId &&
-        it.at >= start && it.at <= evidenceUntil }
+        it.transition != Transition.ABSENCE && it.at >= start && it.at <= evidenceUntil }
 }
 
 /** What one check attempt did, for the diagnostic log. */
