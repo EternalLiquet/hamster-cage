@@ -211,7 +211,10 @@ class ExitVerificationTest {
         // An imprecise platform EXIT and a precise routine inside fix taken moments later. The
         // routine fix must not settle the EXIT as unresolved: that would stop the scheduled
         // verification checks before they could reject it.
-        for (source in routineInsideSources) {
+        val expected = setOf("FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION")
+        // Pin the set: adding or dropping a source must be a deliberate, reviewed change.
+        assertEquals(expected, routineInsideSources)
+        for (source in expected) {
             val result = state(listOf(enter, exit, routine("routine", 1, source)), 121)
             assertEquals("source=$source", setOf("exit"), result.first.candidateExitIds)
             assertTrue("source=$source", result.first.unconfirmedExitIds.isEmpty())
