@@ -29,6 +29,28 @@ internal val decisivePresenceSources = setOf(EXIT_VERIFY_INSIDE,
 internal val routineInsideSources = setOf(
     "FOREGROUND_LOCATION_RECONCILIATION", "BACKGROUND_LOCATION_RECONCILIATION")
 
+/**
+ * Whether a later routine reconciliation fact leaves [exit] awaiting verification, so the
+ * scheduled checks and the final re-arm still run for it. Mirrors [exitVerificationState]:
+ * a same-office routine inside fix observed after the EXIT and by its window's deadline joins
+ * the EXIT's samples instead of settling it. The other-office ABSENCE that the same check
+ * records for each office it rules out says nothing about this office's boundary. Everything
+ * else stays superseding: a newer platform transition, presence at another office, a
+ * same-office ABSENCE (a decisive outside check), unsafe recovery fixes, and facts observed
+ * at or before the EXIT or after its window.
+ */
+internal fun routineFactKeepsExitAwaitingVerification(exit: RecordedEvent, fact: RecordedEvent): Boolean {
+    if (exit.event.transition != Transition.EXIT || exit.source != "PLAY_SERVICES_GEOFENCE" ||
+        fact.source !in routineInsideSources) return false
+    if (fact.event.at <= exit.event.at ||
+        fact.event.at > exit.receivedAt.plus(EXIT_VERIFICATION_WINDOW)) return false
+    return when (fact.event.transition) {
+        Transition.PRESENCE -> fact.event.officeId == exit.event.officeId
+        Transition.ABSENCE -> fact.event.officeId != exit.event.officeId
+        else -> false
+    }
+}
+
 /** Verification checks are accepted only for this long after the EXIT was received. */
 internal val EXIT_VERIFICATION_WINDOW: Duration = Duration.ofMinutes(5)
 
